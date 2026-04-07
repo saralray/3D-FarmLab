@@ -1,4 +1,5 @@
 export type PrinterStatus = 'printing' | 'idle' | 'error' | 'offline' | 'paused';
+export type PrinterProfile = 'generic' | 'snapmaker_u1';
 
 export interface Spool {
   id: string;
@@ -12,6 +13,8 @@ export interface Printer {
   id: string;
   name: string;
   model: string;
+  profile: PrinterProfile;
+  url: string;
   ipAddress: string;
   apiKeyHeader: string;
   status: PrinterStatus;
@@ -20,6 +23,7 @@ export interface Printer {
     nozzle: number;
     bed: number;
   };
+  nozzleTemperatures?: number[];
   progress: number;
   lastMaintenance: string;
   totalPrintTime: number; // hours

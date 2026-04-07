@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { mockPrinters } from '../data/mockData';
-import { Printer } from '../types';
+import { Printer, PrinterProfile } from '../types';
 import { PrinterCard } from '../components/PrinterCard';
 import { Activity, AlertCircle, CheckCircle, Pause, Plus, WifiOff } from 'lucide-react';
 import { Card } from '../components/ui/card';
@@ -10,53 +10,21 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Alert } from '../components/ui/alert';
 import { useAuth } from '../contexts/AuthContext';
+import {
+  fetchPrinterLiveStatus,
+  PRINTER_PROFILES,
+  normalizePrinter,
+} from '../lib/printerProfiles';
+import { fetchPrinters, removePrinter, savePrinter } from '../lib/printersApi';
 
-const PRINTER_STORAGE_KEY = 'printfarm_printers';
 const IPV4_PATTERN =
   /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
-
-function normalizePrinter(printer: Partial<Printer>, index: number): Printer {
-  return {
-    id: printer.id ?? `printer-${index + 1}`,
-    name: printer.name ?? `Printer ${index + 1}`,
-    model: printer.model ?? 'Unknown Model',
-    ipAddress: printer.ipAddress ?? '0.0.0.0',
-    apiKeyHeader: printer.apiKeyHeader ?? '',
-    status: printer.status ?? 'offline',
-    currentJob: printer.currentJob,
-    temperature: printer.temperature ?? { nozzle: 0, bed: 0 },
-    progress: printer.progress ?? 0,
-    lastMaintenance: printer.lastMaintenance ?? new Date().toISOString().slice(0, 10),
-    totalPrintTime: printer.totalPrintTime ?? 0,
-    successRate: printer.successRate ?? 0,
-    spools: printer.spools,
-  };
-}
-
-function readStoredPrinters(): Printer[] {
-  const rawValue = localStorage.getItem(PRINTER_STORAGE_KEY);
-  if (!rawValue) {
-    localStorage.setItem(PRINTER_STORAGE_KEY, JSON.stringify(mockPrinters));
-    return mockPrinters;
-  }
-
-  try {
-    const parsed = JSON.parse(rawValue) as Partial<Printer>[];
-    if (!Array.isArray(parsed)) {
-      throw new Error('Invalid printers');
-    }
-    return parsed.map(normalizePrinter);
-  } catch {
-    localStorage.setItem(PRINTER_STORAGE_KEY, JSON.stringify(mockPrinters));
-    return mockPrinters;
-  }
-}
 
 export function Dashboard() {
   const [printers, setPrinters] = useState<Printer[]>([]);
   const { user, users, createUser } = useAuth();
   const [printerName, setPrinterName] = useState('');
-  const [printerModel, setPrinterModel] = useState('');
+  const [printerProfile, setPrinterProfile] = useState<PrinterProfile>('generic');
   const [printerIpAddress, setPrinterIpAddress] = useState('');
   const [printerApiKeyHeader, setPrinterApiKeyHeader] = useState('');
   const [printerFormError, setPrinterFormError] = useState('');
@@ -69,44 +37,61 @@ export function Dashboard() {
   const [userFormSuccess, setUserFormSuccess] = useState('');
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
+  const loadPrinters = async () => {
+    const storedPrinters = await fetchPrinters();
+    setPrinters(storedPrinters.map(normalizePrinter));
+  };
+
   useEffect(() => {
-    setPrinters(readStoredPrinters());
+    loadPrinters().catch(() => {
+      setPrinters(mockPrinters.map(normalizePrinter));
+      setPrinterFormError('Unable to load printers from Postgres. Check DATABASE_URL and server access.');
+    });
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(PRINTER_STORAGE_KEY, JSON.stringify(printers));
-  }, [printers]);
+    let isCancelled = false;
 
-  // Simulate real-time updates
-  useEffect(() => {
-    if (printers.length === 0) {
-      return;
-    }
+    const pollPrinterStatuses = async () => {
+      const nextPrinters = await Promise.all(
+        printers.map(async (printer) => {
+          if (printer.profile === 'generic') {
+            return printer;
+          }
 
-    const interval = setInterval(() => {
-      setPrinters((prev) =>
-        prev.map((printer) => {
-          if (printer.status === 'printing' && printer.currentJob) {
-            const newProgress = Math.min(printer.progress + Math.random() * 2, 100);
-            const timeReduction = Math.floor(Math.random() * 3);
-            
+          try {
+            const liveStatus = await fetchPrinterLiveStatus(printer);
             return {
               ...printer,
-              progress: Math.round(newProgress),
-              currentJob: {
-                ...printer.currentJob,
-                progress: Math.round(newProgress),
-                timeRemaining: Math.max(0, printer.currentJob.timeRemaining - timeReduction),
-              },
+              ...liveStatus,
+            };
+          } catch {
+            return {
+              ...printer,
+              status: 'offline' as const,
+              currentJob: undefined,
+              progress: 0,
+              temperature: { nozzle: 0, bed: 0 },
             };
           }
-          return printer;
         })
       );
-    }, 3000);
 
-    return () => clearInterval(interval);
-  }, [printers.length]);
+      if (!isCancelled) {
+        setPrinters(nextPrinters);
+      }
+    };
+
+    if (printers.length > 0) {
+      pollPrinterStatuses();
+    }
+    const interval = window.setInterval(pollPrinterStatuses, 10000);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [printers]);
 
   const stats = {
     total: printers.length,
@@ -148,7 +133,7 @@ export function Dashboard() {
     }
   };
 
-  const handleCreatePrinter = (event: React.FormEvent) => {
+  const handleCreatePrinter = async (event: React.FormEvent) => {
     event.preventDefault();
     setPrinterFormError('');
     setPrinterFormSuccess('');
@@ -159,12 +144,14 @@ export function Dashboard() {
     }
 
     const normalizedName = printerName.trim();
-    const normalizedModel = printerModel.trim();
     const normalizedIpAddress = printerIpAddress.trim();
     const normalizedApiKeyHeader = printerApiKeyHeader.trim();
+    const profileConfig = PRINTER_PROFILES[printerProfile];
+    const normalizedModel = profileConfig.defaultModel;
+    const normalizedUrl = profileConfig.buildBaseUrl(normalizedIpAddress);
 
-    if (!normalizedName || !normalizedModel || !normalizedIpAddress || !normalizedApiKeyHeader) {
-      setPrinterFormError('Name, model, IP address, and API key header are required.');
+    if (!normalizedName || !normalizedIpAddress || !normalizedApiKeyHeader) {
+      setPrinterFormError('Name, profile, IP address, and API key header are required.');
       return;
     }
 
@@ -182,6 +169,8 @@ export function Dashboard() {
       id: crypto.randomUUID(),
       name: normalizedName,
       model: normalizedModel,
+      profile: printerProfile,
+      url: normalizedUrl,
       ipAddress: normalizedIpAddress,
       apiKeyHeader: normalizedApiKeyHeader,
       status: 'idle',
@@ -195,22 +184,32 @@ export function Dashboard() {
       successRate: 100,
     };
 
-    setPrinters((prev) => [nextPrinter, ...prev]);
-    setPrinterName('');
-    setPrinterModel('');
-    setPrinterIpAddress('');
-    setPrinterApiKeyHeader('');
-    setPrinterFormSuccess('Printer added successfully.');
+    try {
+      await savePrinter(nextPrinter);
+      await loadPrinters();
+      setPrinterName('');
+      setPrinterProfile('generic');
+      setPrinterIpAddress('');
+      setPrinterApiKeyHeader('');
+      setPrinterFormSuccess('Printer added successfully.');
+    } catch (error) {
+      setPrinterFormError(error instanceof Error ? error.message : 'Unable to save printer.');
+    }
   };
 
-  const handleRemovePrinter = (printerId: string) => {
+  const handleRemovePrinter = async (printerId: string) => {
     if (user?.role !== 'admin') {
       return;
     }
 
-    setPrinters((prev) => prev.filter((printer) => printer.id !== printerId));
-    setPrinterFormSuccess('Printer removed successfully.');
-    setPrinterFormError('');
+    try {
+      await removePrinter(printerId);
+      await loadPrinters();
+      setPrinterFormSuccess('Printer removed successfully.');
+      setPrinterFormError('');
+    } catch (error) {
+      setPrinterFormError(error instanceof Error ? error.message : 'Unable to remove printer.');
+    }
   };
 
   return (
@@ -264,22 +263,27 @@ export function Dashboard() {
             <form onSubmit={handleCreatePrinter} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
+                  <Label>Printer Profile</Label>
+                  <Select
+                    value={printerProfile}
+                    onValueChange={(value) => setPrinterProfile(value as PrinterProfile)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a profile" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="generic">Generic</SelectItem>
+                      <SelectItem value="snapmaker_u1">Snapmaker U1</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="printer-name">Printer Name</Label>
                   <Input
                     id="printer-name"
                     value={printerName}
                     onChange={(event) => setPrinterName(event.target.value)}
-                    placeholder="Bambu Lab A1 Mini"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="printer-model">Model</Label>
-                  <Input
-                    id="printer-model"
-                    value={printerModel}
-                    onChange={(event) => setPrinterModel(event.target.value)}
                     placeholder="Bambu Lab A1 Mini"
                     required
                   />
@@ -301,7 +305,9 @@ export function Dashboard() {
                     required
                   />
                 </div>
+              </div>
 
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="printer-api-key-header">API Key Header</Label>
                   <Input
@@ -313,6 +319,14 @@ export function Dashboard() {
                     autoComplete="off"
                     required
                   />
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
+                <div>Model: {PRINTER_PROFILES[printerProfile].defaultModel}</div>
+                <div>
+                  Status API path:{' '}
+                  {PRINTER_PROFILES[printerProfile].statusPath ?? 'Not configured for live polling'}
                 </div>
               </div>
 

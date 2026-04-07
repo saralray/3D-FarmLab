@@ -21,57 +21,61 @@ import {
   CheckCircle,
   Palette,
 } from 'lucide-react';
-
-const PRINTER_STORAGE_KEY = 'printfarm_printers';
-
-function loadPrinters(): Printer[] {
-  const rawValue = localStorage.getItem(PRINTER_STORAGE_KEY);
-  if (!rawValue) {
-    return mockPrinters;
-  }
-
-  try {
-    const parsed = JSON.parse(rawValue) as Printer[];
-    return Array.isArray(parsed) ? parsed : mockPrinters;
-  } catch {
-    return mockPrinters;
-  }
-}
+import { fetchPrinterLiveStatus, normalizePrinter } from '../lib/printerProfiles';
+import { fetchPrinters } from '../lib/printersApi';
 
 export function PrinterDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [printer, setPrinter] = useState<Printer | null>(
-    loadPrinters().find((candidate) => candidate.id === id) || null
-  );
+  const [printer, setPrinter] = useState<Printer | null>(null);
 
   useEffect(() => {
-    setPrinter(loadPrinters().find((candidate) => candidate.id === id) || null);
+    fetchPrinters()
+      .then((printers) => {
+        setPrinter(printers.map(normalizePrinter).find((candidate) => candidate.id === id) || null);
+      })
+      .catch(() => {
+        setPrinter(mockPrinters.find((candidate) => candidate.id === id) || null);
+      });
   }, [id]);
 
   useEffect(() => {
-    if (!printer) return;
+    if (!printer || printer.profile === 'generic') {
+      return;
+    }
 
-    const interval = setInterval(() => {
-      setPrinter((prev) => {
-        if (!prev || prev.status !== 'printing' || !prev.currentJob) return prev;
+    let isCancelled = false;
 
-        const newProgress = Math.min(prev.progress + Math.random() * 2, 100);
-        const timeReduction = Math.floor(Math.random() * 3);
+    const pollPrinterStatus = async () => {
+      try {
+        const liveStatus = await fetchPrinterLiveStatus(printer);
+        if (!isCancelled) {
+          setPrinter((prev) => (prev ? { ...prev, ...liveStatus } : prev));
+        }
+      } catch {
+        if (!isCancelled) {
+          setPrinter((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: 'offline',
+                  currentJob: undefined,
+                  progress: 0,
+                  temperature: { nozzle: 0, bed: 0 },
+                }
+              : prev
+          );
+        }
+      }
+    };
 
-        return {
-          ...prev,
-          progress: Math.round(newProgress),
-          currentJob: {
-            ...prev.currentJob,
-            progress: Math.round(newProgress),
-            timeRemaining: Math.max(0, prev.currentJob.timeRemaining - timeReduction),
-          },
-        };
-      });
-    }, 3000);
+    pollPrinterStatus();
+    const interval = window.setInterval(pollPrinterStatus, 10000);
 
-    return () => clearInterval(interval);
+    return () => {
+      isCancelled = true;
+      window.clearInterval(interval);
+    };
   }, [printer]);
 
   if (!printer) {
@@ -101,6 +105,11 @@ export function PrinterDetail() {
         return 'text-yellow-500';
     }
   };
+
+  const nozzleTemperatures =
+    printer.nozzleTemperatures && printer.nozzleTemperatures.length > 0
+      ? printer.nozzleTemperatures
+      : [printer.temperature.nozzle];
 
   return (
     <div className="p-6 space-y-6">
@@ -214,18 +223,22 @@ export function PrinterDetail() {
               Temperature
             </h2>
             <div className="space-y-4">
-              <div>
-                <div className="flex justify-between mb-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Nozzle</span>
-                  <span className={`font-bold text-lg ${getStatusColor()}`}>
-                    {printer.temperature.nozzle}°C
-                  </span>
+              {nozzleTemperatures.map((temperature, index) => (
+                <div key={`${printer.id}-detail-nozzle-${index}`}>
+                  <div className="flex justify-between mb-2">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                      {nozzleTemperatures.length > 1 ? `Nozzle ${index + 1}` : 'Nozzle'}
+                    </span>
+                    <span className={`font-bold text-lg ${getStatusColor()}`}>
+                      {temperature}°C
+                    </span>
+                  </div>
+                  <Progress
+                    value={(temperature / 250) * 100}
+                    className="h-2"
+                  />
                 </div>
-                <Progress
-                  value={(printer.temperature.nozzle / 250) * 100}
-                  className="h-2"
-                />
-              </div>
+              ))}
               <div>
                 <div className="flex justify-between mb-2">
                   <span className="text-sm text-gray-600 dark:text-gray-400">Bed</span>
@@ -249,6 +262,13 @@ export function PrinterDetail() {
                 <div className="flex-1">
                   <div className="text-sm text-gray-600 dark:text-gray-400">IP Address</div>
                   <div className="font-medium dark:text-white">{printer.ipAddress}</div>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Activity className="size-4 mt-0.5 text-gray-400" />
+                <div className="flex-1">
+                  <div className="text-sm text-gray-600 dark:text-gray-400">Profile</div>
+                  <div className="font-medium dark:text-white">{printer.profile}</div>
                 </div>
               </div>
               <div className="flex items-start gap-2">
