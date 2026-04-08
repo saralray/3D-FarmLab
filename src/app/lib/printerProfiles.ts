@@ -49,6 +49,7 @@ export function normalizePrinter(printer: Partial<Printer>, index: number): Prin
   const url =
     printer.url ??
     (printer.ipAddress && printer.ipAddress !== '0.0.0.0' ? `http://${printer.ipAddress}` : '');
+  const supportsLiveStatus = PRINTER_PROFILES[profile].statusPath !== null;
 
   return {
     id: printer.id ?? `printer-${index + 1}`,
@@ -61,7 +62,9 @@ export function normalizePrinter(printer: Partial<Printer>, index: number): Prin
     status: printer.status ?? 'offline',
     currentJob: printer.currentJob,
     temperature: printer.temperature ?? { nozzle: 0, bed: 0 },
-    nozzleTemperatures: printer.nozzleTemperatures ?? [printer.temperature?.nozzle ?? 0],
+    nozzleTemperatures:
+      printer.nozzleTemperatures ??
+      (supportsLiveStatus ? [0, 0, 0, 0] : [printer.temperature?.nozzle ?? 0]),
     progress: printer.progress ?? 0,
     lastMaintenance: printer.lastMaintenance ?? new Date().toISOString().slice(0, 10),
     totalPrintTime: printer.totalPrintTime ?? 0,
@@ -131,6 +134,22 @@ function mapPrintStateToStatus(state: string | undefined): PrinterStatus {
   }
 }
 
+function getReachableGenericStatus(printer: Printer): PrinterStatus {
+  if (printer.currentJob?.status === 'paused' || printer.status === 'paused') {
+    return 'paused';
+  }
+
+  if (printer.currentJob?.status === 'printing' || printer.status === 'printing') {
+    return 'printing';
+  }
+
+  if (printer.status === 'error') {
+    return 'error';
+  }
+
+  return 'idle';
+}
+
 function buildCurrentJob(printStats: Record<string, unknown> | undefined): PrintJob | undefined {
   if (!printStats) {
     return undefined;
@@ -158,7 +177,15 @@ function buildCurrentJob(printStats: Record<string, unknown> | undefined): Print
 export async function fetchPrinterLiveStatus(printer: Printer): Promise<Partial<Printer>> {
   const profileConfig = PRINTER_PROFILES[printer.profile];
   if (!profileConfig.statusPath) {
-    return {};
+    const response = await fetch(`/__printer_proxy/${printer.id}/`);
+
+    if (!response.ok) {
+      throw new Error(`Reachability request failed with ${response.status}`);
+    }
+
+    return {
+      status: getReachableGenericStatus(printer),
+    };
   }
 
   const response = await fetch(`/__printer_proxy/${printer.id}${profileConfig.statusPath}`);
@@ -190,6 +217,11 @@ export async function fetchPrinterLiveStatus(printer: Printer): Promise<Partial<
   ];
   const heaterBed = status?.heater_bed;
   const state = typeof printStats?.state === 'string' ? printStats.state : undefined;
+
+  if (!status || !printStats) {
+    throw new Error('Printer did not return the expected status JSON');
+  }
+
   const nozzleTemperatures = extruders.map((extruder, index) =>
     typeof extruder?.temperature === 'number'
       ? Math.round(extruder.temperature)
@@ -212,6 +244,47 @@ export async function fetchPrinterLiveStatus(printer: Printer): Promise<Partial<
   };
 }
 
+export async function sendPrinterCommand(
+  printer: Printer,
+  command: 'pause' | 'resume' | 'cancel'
+) {
+  const response = await fetch(`/__printer_proxy/${printer.id}/printer/print/${command}`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    let message = `Printer command failed with ${response.status}`;
+
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload.error) {
+        message = payload.error;
+      }
+    } catch {
+      // Ignore non-JSON proxy responses.
+    }
+
+    throw new Error(message);
+  }
+}
+
 export function buildPrinterWebcamUrl(printer: Printer) {
-  return `/__printer_proxy/${printer.id}/webcam/player`;
+  return `/__printer_webcam/${printer.ipAddress}/player`;
+}
+
+export function buildPrinterWebcamSnapshotUrl(printer: Printer) {
+  return `/__printer_webcam/${printer.ipAddress}/snapshot.jpg`;
+}
+
+export function buildOfflinePrinterState(printer: Printer): Partial<Printer> {
+  return {
+    status: 'offline',
+    currentJob: undefined,
+    progress: 0,
+    temperature: { nozzle: 0, bed: 0 },
+    nozzleTemperatures:
+      printer.nozzleTemperatures && printer.nozzleTemperatures.length > 0
+        ? printer.nozzleTemperatures.map(() => 0)
+        : [0],
+  };
 }

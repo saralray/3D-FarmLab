@@ -1,7 +1,7 @@
 import { ReactNode, Suspense, lazy } from 'react';
 import { createBrowserRouter } from 'react-router';
 import { Root } from './pages/Root';
-import { ProtectedRoute } from './components/ProtectedRoute';
+import { AdminRoute, ProtectedRoute } from './components/ProtectedRoute';
 
 const Dashboard = lazy(() =>
   import('./pages/Dashboard').then((module) => ({ default: module.Dashboard }))
@@ -14,6 +14,9 @@ const Queue = lazy(() =>
 );
 const Analytics = lazy(() =>
   import('./pages/Analytics').then((module) => ({ default: module.Analytics }))
+);
+const Settings = lazy(() =>
+  import('./pages/Settings').then((module) => ({ default: module.Settings }))
 );
 const Login = lazy(() =>
   import('./pages/Login').then((module) => ({ default: module.Login }))
@@ -51,6 +54,14 @@ export const router = createBrowserRouter([
       { path: 'printer/:id', element: withSuspense(<PrinterDetail />) },
       { path: 'queue', element: withSuspense(<Queue />) },
       { path: 'analytics', element: withSuspense(<Analytics />) },
+      {
+        path: 'settings',
+        element: withSuspense(
+          <AdminRoute>
+            <Settings />
+          </AdminRoute>
+        ),
+      },
       { path: '*', element: withSuspense(<NotFound />) },
     ],
   },

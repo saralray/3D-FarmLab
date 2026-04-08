@@ -1,16 +1,21 @@
-# React + Vite
+# Stemlab Print Farm
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Docker
 
-Currently, two official plugins are available:
+Start the full stack:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+docker compose up --build
+```
 
-## React Compiler
+Services:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- `web`: Vite app and Node API on `http://localhost:5173`
+- `db`: Postgres on `localhost:5432`
+- `poller`: Python background service that updates printer status in Postgres
 
-## Expanding the ESLint configuration
+Relevant environment variables:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- `DATABASE_URL`
+- `PRINTER_POLL_INTERVAL_MS`
+- `PRINTER_REQUEST_TIMEOUT_MS`

@@ -2,7 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { deletePrinter, getPrinterById, listPrinters, upsertPrinter } from './server/postgres.js'
+import { deletePrinter, getPrinterById, listDailyAnalytics, listPrinters, resetDailyAnalytics, upsertPrinter } from './server/postgres.js'
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -18,6 +18,22 @@ function readJsonBody(req) {
       } catch (error) {
         reject(error)
       }
+    })
+
+    req.on('error', reject)
+  })
+}
+
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+
+    req.on('data', (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+    })
+
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks))
     })
 
     req.on('error', reject)
@@ -55,6 +71,10 @@ export default defineConfig(({ mode }) => {
               const printers = await listPrinters()
               res.statusCode = 200
               res.setHeader('Content-Type', 'application/json')
+              res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+              res.setHeader('Pragma', 'no-cache')
+              res.setHeader('Expires', '0')
+              res.setHeader('Surrogate-Control', 'no-store')
               res.end(JSON.stringify(printers))
               return
             }
@@ -97,6 +117,45 @@ export default defineConfig(({ mode }) => {
       },
     },
     {
+      name: 'postgres-analytics-api',
+      configureServer(server) {
+        server.middlewares.use('/api/analytics/daily', async (req, res) => {
+          try {
+            if (req.method === 'GET' && (req.url === '/' || req.url === '')) {
+              const analytics = await listDailyAnalytics(7)
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+              res.setHeader('Pragma', 'no-cache')
+              res.setHeader('Expires', '0')
+              res.setHeader('Surrogate-Control', 'no-store')
+              res.end(JSON.stringify(analytics))
+              return
+            }
+
+            if (req.method === 'POST' && req.url === '/reset') {
+              await resetDailyAnalytics()
+              res.statusCode = 204
+              res.end()
+              return
+            }
+          } catch (error) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                error: error instanceof Error ? error.message : 'Analytics request failed',
+              }),
+            )
+            return
+          }
+
+          res.statusCode = 404
+          res.end()
+        })
+      },
+    },
+    {
       name: 'printer-reverse-proxy',
       configureServer(server) {
         server.middlewares.use('/__printer_proxy', async (req, res) => {
@@ -104,7 +163,7 @@ export default defineConfig(({ mode }) => {
           const [, printerId, ...pathParts] = requestUrl.pathname.split('/')
           const printerPath = `/${pathParts.join('/')}${requestUrl.search}`
 
-          if (!printerId || printerPath === '/') {
+          if (!printerId) {
             res.statusCode = 400
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify({ error: 'Missing printer proxy target' }))
@@ -120,15 +179,22 @@ export default defineConfig(({ mode }) => {
               return
             }
 
+            const body =
+              req.method && !['GET', 'HEAD'].includes(req.method)
+                ? await readRawBody(req)
+                : undefined
+
             const response = await fetch(`${printer.url}${printerPath}`, {
+              method: req.method,
               headers: {
                 ...parseHeaderString(printer.apiKeyHeader),
                 ...Object.fromEntries(
                   Object.entries(req.headers).filter(([key]) =>
-                    key !== 'host' && key !== 'connection'
+                    key !== 'host' && key !== 'connection' && key !== 'content-length'
                   ),
                 ),
               },
+              body: body && body.length > 0 ? body : undefined,
             })
 
             res.statusCode = response.status

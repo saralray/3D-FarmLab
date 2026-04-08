@@ -11,6 +11,7 @@ interface AuthContextType {
   user: User | null;
   login: (username: string, password: string) => Promise<LoginResult>;
   createUser: (input: CreateUserInput) => Promise<CreateUserResult>;
+  removeUser: (userId: string) => Promise<RemoveUserResult>;
   logout: () => void;
   isLoading: boolean;
   users: User[];
@@ -30,6 +31,11 @@ interface CreateUserInput {
 }
 
 interface CreateUserResult {
+  success: boolean;
+  error?: string;
+}
+
+interface RemoveUserResult {
   success: boolean;
   error?: string;
 }
@@ -358,13 +364,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { success: true };
   };
 
+  const removeUser = async (userId: string): Promise<RemoveUserResult> => {
+    if (!user || user.role !== 'admin') {
+      return {
+        success: false,
+        error: 'Only admins can remove users.',
+      };
+    }
+
+    if (!userId) {
+      return {
+        success: false,
+        error: 'User id is required.',
+      };
+    }
+
+    if (user.id === userId) {
+      return {
+        success: false,
+        error: 'You cannot remove your own account.',
+      };
+    }
+
+    const availableUsers = readStoredUsers();
+    const targetUser = availableUsers.find((candidate) => candidate.id === userId);
+
+    if (!targetUser) {
+      return {
+        success: false,
+        error: 'User not found.',
+      };
+    }
+
+    const adminCount = availableUsers.filter((candidate) => candidate.role === 'admin').length;
+    if (targetUser.role === 'admin' && adminCount <= 1) {
+      return {
+        success: false,
+        error: 'At least one admin account must remain.',
+      };
+    }
+
+    const nextUsers = availableUsers.filter((candidate) => candidate.id !== userId);
+    writeStoredUsers(nextUsers);
+    setUsers(nextUsers.map(sanitizeUser));
+
+    return { success: true };
+  };
+
   const logout = () => {
     setUser(null);
     writeStoredSession(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, users, login, createUser, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, users, login, createUser, removeUser, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router';
-import { LayoutDashboard, List, BarChart3, Printer, LogOut } from 'lucide-react';
+import { LayoutDashboard, List, BarChart3, Printer, LogOut, Settings } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
@@ -13,6 +13,9 @@ export function Navigation() {
     { path: '/queue', label: 'Queue', icon: List },
     { path: '/analytics', label: 'Analytics', icon: BarChart3 },
   ];
+  const adminNavItems = user?.role === 'admin'
+    ? [{ path: '/settings', label: 'Settings', icon: Settings }]
+    : [];
 
   const isActive = (path: string) => {
     if (path === '/') {
@@ -35,7 +38,7 @@ export function Navigation() {
 
       <div className="flex-1 p-4">
         <div className="space-y-1">
-          {navItems.map((item) => (
+          {[...navItems, ...adminNavItems].map((item) => (
             <Link
               key={item.path}
               to={item.path}

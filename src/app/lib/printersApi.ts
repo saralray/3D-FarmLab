@@ -24,7 +24,13 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function fetchPrinters(): Promise<Printer[]> {
-  const response = await fetch('/api/printers');
+  const response = await fetch('/api/printers', {
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
+    },
+  });
   return readJsonResponse<Printer[]>(response);
 }
 

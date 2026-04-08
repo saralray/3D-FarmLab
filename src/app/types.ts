@@ -13,6 +13,7 @@ export interface Printer {
   id: string;
   name: string;
   model: string;
+  sortOrder?: number;
   profile: PrinterProfile;
   url: string;
   ipAddress: string;

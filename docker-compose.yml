@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: stemlab
+      POSTGRES_USER: stemlab_app
+      POSTGRES_PASSWORD: stemlab_app_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://stemlab_app:stemlab_app_dev@db:5432/stemlab
+
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    depends_on:
+      - web
+    ports:
+      - "5173:80"
+
+  poller:
+    build:
+      context: .
+      dockerfile: Dockerfile.poller
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://stemlab_app:stemlab_app_dev@db:5432/stemlab
+      PRINTER_POLL_INTERVAL_MS: 5000
+      PRINTER_REQUEST_TIMEOUT_MS: 3000
+
+volumes:
+  postgres_data:

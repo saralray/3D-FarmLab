@@ -4,10 +4,12 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 const SCHEMA_SQL = `
+SELECT pg_advisory_lock(90210);
 CREATE TABLE IF NOT EXISTS printers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   model TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
   profile TEXT NOT NULL,
   url TEXT NOT NULL,
   ip_address TEXT NOT NULL UNIQUE,
@@ -20,9 +22,22 @@ CREATE TABLE IF NOT EXISTS printers (
   total_print_time DOUBLE PRECISION NOT NULL DEFAULT 0,
   success_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
   current_job JSONB,
+  nozzle_temperatures JSONB,
   spools JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_temperatures JSONB;
+CREATE TABLE IF NOT EXISTS analytics_daily (
+  analytics_date DATE PRIMARY KEY,
+  completed_jobs INTEGER NOT NULL DEFAULT 0,
+  failed_jobs INTEGER NOT NULL DEFAULT 0,
+  print_time_hours DOUBLE PRECISION NOT NULL DEFAULT 0,
+  filament_used_grams DOUBLE PRECISION NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+SELECT pg_advisory_unlock(90210);
 `;
 
 function getDatabaseUrl() {
@@ -66,6 +81,7 @@ export async function listPrinters() {
           'id', id,
           'name', name,
           'model', model,
+          'sortOrder', sort_order,
           'profile', profile,
           'url', url,
           'ipAddress', ip_address,
@@ -77,9 +93,10 @@ export async function listPrinters() {
           'totalPrintTime', total_print_time,
           'successRate', success_rate,
           'currentJob', current_job,
+          'nozzleTemperatures', nozzle_temperatures,
           'spools', spools
         )
-        ORDER BY created_at DESC
+        ORDER BY sort_order ASC, created_at DESC
       ),
       '[]'::json
     )::text
@@ -100,6 +117,7 @@ export async function getPrinterById(id) {
           'id', id,
           'name', name,
           'model', model,
+          'sortOrder', sort_order,
           'profile', profile,
           'url', url,
           'ipAddress', ip_address,
@@ -111,6 +129,7 @@ export async function getPrinterById(id) {
           'totalPrintTime', total_print_time,
           'successRate', success_rate,
           'currentJob', current_job,
+          'nozzleTemperatures', nozzle_temperatures,
           'spools', spools
         )::text
         FROM printers
@@ -136,6 +155,7 @@ export async function upsertPrinter(printer) {
       id,
       name,
       model,
+      sort_order,
       profile,
       url,
       ip_address,
@@ -148,12 +168,14 @@ export async function upsertPrinter(printer) {
       total_print_time,
       success_rate,
       current_job,
+      nozzle_temperatures,
       spools
     )
     SELECT
       data->>'id',
       data->>'name',
       data->>'model',
+      COALESCE((data->>'sortOrder')::integer, 0),
       data->>'profile',
       data->>'url',
       data->>'ipAddress',
@@ -166,11 +188,13 @@ export async function upsertPrinter(printer) {
       COALESCE((data->>'totalPrintTime')::double precision, 0),
       COALESCE((data->>'successRate')::double precision, 0),
       data->'currentJob',
+      data->'nozzleTemperatures',
       data->'spools'
     FROM input
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name,
       model = EXCLUDED.model,
+      sort_order = EXCLUDED.sort_order,
       profile = EXCLUDED.profile,
       url = EXCLUDED.url,
       ip_address = EXCLUDED.ip_address,
@@ -183,6 +207,7 @@ export async function upsertPrinter(printer) {
       total_print_time = EXCLUDED.total_print_time,
       success_rate = EXCLUDED.success_rate,
       current_job = EXCLUDED.current_job,
+      nozzle_temperatures = EXCLUDED.nozzle_temperatures,
       spools = EXCLUDED.spools;
   `;
 
@@ -192,4 +217,42 @@ export async function upsertPrinter(printer) {
 export async function deletePrinter(id) {
   await ensureSchema();
   await runPsql(`DELETE FROM printers WHERE id = ${sqlLiteral(id)};`);
+}
+
+export async function listDailyAnalytics(days = 7) {
+  await ensureSchema();
+
+  const sql = `
+    WITH dates AS (
+      SELECT generate_series(
+        CURRENT_DATE - (${Number(days) - 1} * INTERVAL '1 day'),
+        CURRENT_DATE,
+        INTERVAL '1 day'
+      )::date AS analytics_date
+    )
+    SELECT COALESCE(
+      json_agg(
+        json_build_object(
+          'date', to_char(d.analytics_date, 'YYYY-MM-DD'),
+          'completedJobs', COALESCE(a.completed_jobs, 0),
+          'failedJobs', COALESCE(a.failed_jobs, 0),
+          'printTime', ROUND(COALESCE(a.print_time_hours, 0)::numeric, 2),
+          'filamentUsed', ROUND(COALESCE(a.filament_used_grams, 0)::numeric, 0)
+        )
+        ORDER BY d.analytics_date ASC
+      ),
+      '[]'::json
+    )::text
+    FROM dates d
+    LEFT JOIN analytics_daily a
+      ON a.analytics_date = d.analytics_date;
+  `;
+
+  const output = await runPsql(sql);
+  return JSON.parse(output || '[]');
+}
+
+export async function resetDailyAnalytics() {
+  await ensureSchema();
+  await runPsql(`TRUNCATE TABLE analytics_daily;`);
 }

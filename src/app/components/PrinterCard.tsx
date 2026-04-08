@@ -1,28 +1,54 @@
 import { Printer } from '../types';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Activity, AlertCircle, CheckCircle, Pause, Trash2, WifiOff } from 'lucide-react';
+import { Activity, AlertCircle, CheckCircle, Pause, WifiOff } from 'lucide-react';
 import { Card } from './ui/card';
 import { Progress } from './ui/progress';
 import { Badge } from './ui/badge';
 import { SpoolIndicator } from './SpoolIndicator';
-import { Button } from './ui/button';
-import { buildPrinterWebcamUrl } from '../lib/printerProfiles';
+import { buildPrinterWebcamSnapshotUrl } from '../lib/printerProfiles';
 
 interface PrinterCardProps {
   printer: Printer;
   canManage?: boolean;
-  onRemove?: (printerId: string) => void;
+  canViewSensitiveInfo?: boolean;
+  onDragStart?: (printerId: string) => void;
+  onDragOver?: (printerId: string) => void;
+  onDragEnd?: () => void;
 }
 
-export function PrinterCard({ printer, canManage = false, onRemove }: PrinterCardProps) {
+export function PrinterCard({
+  printer,
+  canManage = false,
+  canViewSensitiveInfo = false,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+}: PrinterCardProps) {
   const navigate = useNavigate();
-  const webcamUrl = buildPrinterWebcamUrl(printer);
-  const nozzleTemperatures =
-    printer.nozzleTemperatures && printer.nozzleTemperatures.length > 0
-      ? printer.nozzleTemperatures
-      : [printer.temperature.nozzle];
+  const draggedRef = useRef(false);
+  const [snapshotNonce, setSnapshotNonce] = useState(() => Date.now());
+  const webcamSnapshotUrl = `${buildPrinterWebcamSnapshotUrl(printer)}?t=${snapshotNonce}`;
+  const isOnline = printer.status !== 'offline';
+  const activityLabel = isOnline ? printer.status : 'unreachable';
 
-  const getStatusIcon = () => {
+  useEffect(() => {
+    setSnapshotNonce(Date.now());
+
+    if (!isOnline) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setSnapshotNonce(Date.now());
+    }, 2000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isOnline, printer.id]);
+
+  const getActivityIcon = () => {
     switch (printer.status) {
       case 'printing':
         return <Activity className="size-4" />;
@@ -65,45 +91,77 @@ export function PrinterCard({ printer, canManage = false, onRemove }: PrinterCar
 
   return (
     <Card
-      className="p-4 cursor-pointer hover:shadow-lg transition-shadow dark:bg-gray-800 dark:border-gray-700"
-      onClick={() => navigate(`/printer/${printer.id}`)}
+      className={`p-4 hover:shadow-lg transition-shadow dark:bg-gray-800 dark:border-gray-700 ${canManage && onDragStart ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+      draggable={canManage && Boolean(onDragStart)}
+      onClick={() => {
+        if (draggedRef.current) {
+          draggedRef.current = false;
+          return;
+        }
+        navigate(`/printer/${printer.id}`);
+      }}
+      onDragStart={(event) => {
+        if (!canManage || !onDragStart) {
+          return;
+        }
+        draggedRef.current = true;
+        event.dataTransfer.effectAllowed = 'move';
+        onDragStart(printer.id);
+      }}
+      onDragOver={(event) => {
+        if (!canManage || !onDragOver) {
+          return;
+        }
+        event.preventDefault();
+        onDragOver(printer.id);
+      }}
+      onDrop={(event) => {
+        if (!canManage || !onDragEnd) {
+          return;
+        }
+        event.preventDefault();
+        onDragEnd();
+      }}
+      onDragEnd={() => {
+        onDragEnd?.();
+        window.setTimeout(() => {
+          draggedRef.current = false;
+        }, 0);
+      }}
     >
       <div className="mb-4 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-900">
-        <iframe
-          src={webcamUrl}
-          title={`${printer.name} webcam`}
-          className="h-40 w-full"
-          loading="lazy"
-        />
+        {isOnline ? (
+          <img
+            src={webcamSnapshotUrl}
+            alt={`${printer.name} webcam`}
+            className="h-40 w-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="flex h-40 w-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+            Webcam offline
+          </div>
+        )}
       </div>
 
       <div className="flex items-start justify-between mb-3">
         <div>
           <h3 className="font-semibold mb-1 dark:text-white">{printer.name}</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400">{printer.model}</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500">{printer.ipAddress}</p>
         </div>
-        <div className="flex items-center gap-2">
-          {canManage && onRemove && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 px-2"
-              onClick={(event) => {
-                event.stopPropagation();
-                onRemove(printer.id);
-              }}
-              aria-label={`Remove ${printer.name}`}
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          )}
+        <div className="flex flex-1 items-start justify-end gap-2">
           {printer.spools && <SpoolIndicator spools={printer.spools} compact />}
-          <Badge variant={getStatusBadgeVariant()} className="flex items-center gap-1">
-            {getStatusIcon()}
-            {printer.status}
-          </Badge>
+          <div className="ml-auto flex items-center gap-2">
+            <Badge variant={getStatusBadgeVariant()} className="flex items-center gap-1 capitalize">
+              {getActivityIcon()}
+              {activityLabel}
+            </Badge>
+            <span
+              className={`size-3 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}
+              aria-label={isOnline ? 'online' : 'offline'}
+              title={isOnline ? 'online' : 'offline'}
+            />
+          </div>
         </div>
       </div>
 
@@ -114,43 +172,20 @@ export function PrinterCard({ printer, canManage = false, onRemove }: PrinterCar
               <span className="text-gray-600 dark:text-gray-400 truncate flex-1 mr-2">
                 {printer.currentJob?.filename}
               </span>
-              <span className="font-medium dark:text-white">{printer.progress}%</span>
+              <div className="flex items-center gap-3">
+                <span className="text-gray-500 dark:text-gray-400">
+                  ETA <span className="font-medium dark:text-white">{printer.currentJob?.timeRemaining}m</span>
+                </span>
+                <span className="font-medium dark:text-white">{printer.progress}%</span>
+              </div>
             </div>
             <Progress value={printer.progress} className="h-2" />
-          </div>
-
-          <div className={`grid gap-2 text-sm ${nozzleTemperatures.length > 1 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-            {nozzleTemperatures.map((temperature, index) => (
-              <div key={`${printer.id}-nozzle-${index}`}>
-                <div className="text-gray-500 dark:text-gray-400">
-                  {nozzleTemperatures.length > 1 ? `Nozzle ${index + 1}` : 'Nozzle'}
-                </div>
-                <div className="font-medium dark:text-white">{temperature}°C</div>
-              </div>
-            ))}
-            <div>
-              <div className="text-gray-500 dark:text-gray-400">Bed</div>
-              <div className="font-medium dark:text-white">{printer.temperature.bed}°C</div>
-            </div>
-            <div>
-              <div className="text-gray-500 dark:text-gray-400">ETA</div>
-              <div className="font-medium dark:text-white">{printer.currentJob?.timeRemaining}m</div>
-            </div>
           </div>
         </div>
       ) : (
         <div className="py-2">
           <div className={`w-full h-2 rounded-full ${getStatusColor()} opacity-20 mb-3`} />
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <div className="text-gray-500 dark:text-gray-400">IP Address</div>
-              <div className="font-medium text-sm dark:text-white">{printer.ipAddress}</div>
-            </div>
-            <div>
-              <div className="text-gray-500 dark:text-gray-400">Success Rate</div>
-              <div className="font-medium dark:text-white">{printer.successRate}%</div>
-            </div>
-          </div>
+          <div className="grid grid-cols-1 gap-2 text-sm" />
         </div>
       )}
     </Card>

@@ -1,0 +1,10 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY poller/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY poller ./poller
+
+CMD ["python", "poller/printer_status_poller.py"]
