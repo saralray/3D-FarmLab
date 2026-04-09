@@ -20,6 +20,7 @@ export function Dashboard() {
     const storedPrinters = await fetchPrinters();
     const normalizedPrinters = storedPrinters.map(normalizePrinter);
     setPrinters(normalizedPrinters);
+    setPrinterFormError('');
   };
 
   const persistPrinterOrder = async (nextPrinters: Printer[]) => {
@@ -48,6 +49,7 @@ export function Dashboard() {
         const nextPrinters = (await fetchPrinters()).map(normalizePrinter);
         if (!isCancelled) {
           setPrinters(nextPrinters);
+          setPrinterFormError('');
         }
       } catch {
         if (!isCancelled) {
@@ -56,6 +58,7 @@ export function Dashboard() {
       }
     };
 
+    refreshFromServer();
     const interval = window.setInterval(refreshFromServer, 5000);
 
     return () => {

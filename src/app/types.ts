@@ -35,6 +35,8 @@ export interface Printer {
 export interface PrintJob {
   id: string;
   filename: string;
+  fileCount?: number;
+  printedStatus?: 0 | 1;
   printerId?: string;
   status: 'queued' | 'printing' | 'completed' | 'failed' | 'paused';
   progress: number;
@@ -57,4 +59,9 @@ export interface AnalyticsData {
   failedJobs: number;
   printTime: number;
   filamentUsed: number;
+}
+
+export interface QueueData {
+  queue: PrintJob[];
+  history: PrintJob[];
 }

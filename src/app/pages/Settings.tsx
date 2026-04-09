@@ -16,7 +16,7 @@ const IPV4_PATTERN =
   /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
 export function Settings() {
-  const { user, users, createUser, removeUser } = useAuth();
+  const { user, users, createUser, removeUser, changeUserPassword } = useAuth();
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [printerName, setPrinterName] = useState('');
   const [printerProfile, setPrinterProfile] = useState<PrinterProfile>('generic');
@@ -34,6 +34,8 @@ export function Settings() {
   const [userListError, setUserListError] = useState('');
   const [userListSuccess, setUserListSuccess] = useState('');
   const [removingUserId, setRemovingUserId] = useState<string | null>(null);
+  const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
+  const [changingPasswordUserId, setChangingPasswordUserId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPrinters()
@@ -149,6 +151,28 @@ export function Settings() {
       setUserListSuccess('User removed successfully.');
     } finally {
       setRemovingUserId(null);
+    }
+  };
+
+  const handleChangeUserPassword = async (userId: string) => {
+    setUserListError('');
+    setUserListSuccess('');
+    setChangingPasswordUserId(userId);
+
+    try {
+      const result = await changeUserPassword(userId, passwordDrafts[userId] ?? '');
+      if (!result.success) {
+        setUserListError(result.error ?? 'Unable to change password.');
+        return;
+      }
+
+      setPasswordDrafts((prev) => ({
+        ...prev,
+        [userId]: '',
+      }));
+      setUserListSuccess('Password updated successfully.');
+    } finally {
+      setChangingPasswordUserId(null);
     }
   };
 
@@ -381,27 +405,54 @@ export function Settings() {
               {users.map((account) => (
                 <div
                   key={account.id}
-                  className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-950"
+                  className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-950"
                 >
-                  <div>
-                    <div className="font-medium dark:text-white">{account.name}</div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                      @{account.username}
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="font-medium dark:text-white">{account.name}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        @{account.username}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">
+                        {account.role}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={removingUserId !== null || account.id === user?.id}
+                        onClick={() => handleRemoveUser(account.id)}
+                      >
+                        <Trash2 className="size-4 mr-2" />
+                        {removingUserId === account.id ? 'Removing...' : 'Remove'}
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">
-                      {account.role}
+                  <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor={`reset-password-${account.id}`}>New Password</Label>
+                      <Input
+                        id={`reset-password-${account.id}`}
+                        type="password"
+                        value={passwordDrafts[account.id] ?? ''}
+                        onChange={(event) =>
+                          setPasswordDrafts((prev) => ({
+                            ...prev,
+                            [account.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="At least 8 characters"
+                        autoComplete="new-password"
+                      />
                     </div>
                     <Button
                       type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={removingUserId !== null || account.id === user?.id}
-                      onClick={() => handleRemoveUser(account.id)}
+                      disabled={changingPasswordUserId !== null}
+                      onClick={() => handleChangeUserPassword(account.id)}
                     >
-                      <Trash2 className="size-4 mr-2" />
-                      {removingUserId === account.id ? 'Removing...' : 'Remove'}
+                      {changingPasswordUserId === account.id ? 'Saving...' : 'Change Password'}
                     </Button>
                   </div>
                 </div>

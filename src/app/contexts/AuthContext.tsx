@@ -12,6 +12,7 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<LoginResult>;
   createUser: (input: CreateUserInput) => Promise<CreateUserResult>;
   removeUser: (userId: string) => Promise<RemoveUserResult>;
+  changeUserPassword: (userId: string, password: string) => Promise<ChangePasswordResult>;
   logout: () => void;
   isLoading: boolean;
   users: User[];
@@ -36,6 +37,11 @@ interface CreateUserResult {
 }
 
 interface RemoveUserResult {
+  success: boolean;
+  error?: string;
+}
+
+interface ChangePasswordResult {
   success: boolean;
   error?: string;
 }
@@ -411,13 +417,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { success: true };
   };
 
+  const changeUserPassword = async (
+    userId: string,
+    password: string,
+  ): Promise<ChangePasswordResult> => {
+    if (!user || user.role !== 'admin') {
+      return {
+        success: false,
+        error: 'Only admins can change passwords.',
+      };
+    }
+
+    const trimmedPassword = password.trim();
+    if (!userId || !trimmedPassword) {
+      return {
+        success: false,
+        error: 'User and password are required.',
+      };
+    }
+
+    if (trimmedPassword.length < 8) {
+      return {
+        success: false,
+        error: 'Password must be at least 8 characters.',
+      };
+    }
+
+    const availableUsers = readStoredUsers();
+    const targetIndex = availableUsers.findIndex((candidate) => candidate.id === userId);
+
+    if (targetIndex === -1) {
+      return {
+        success: false,
+        error: 'User not found.',
+      };
+    }
+
+    const passwordHash = await hashPassword(trimmedPassword);
+    const nextUsers = [...availableUsers];
+    nextUsers[targetIndex] = {
+      ...nextUsers[targetIndex],
+      passwordHash,
+    };
+
+    writeStoredUsers(nextUsers);
+    setUsers(nextUsers.map(sanitizeUser));
+
+    return { success: true };
+  };
+
   const logout = () => {
     setUser(null);
     writeStoredSession(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, users, login, createUser, removeUser, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, users, login, createUser, removeUser, changeUserPassword, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

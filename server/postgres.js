@@ -37,6 +37,25 @@ CREATE TABLE IF NOT EXISTS analytics_daily (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS queue_jobs (
+  id TEXT PRIMARY KEY,
+  filename TEXT NOT NULL,
+  file_count INTEGER NOT NULL DEFAULT 1,
+  stl_file_url TEXT,
+  submitter_name TEXT,
+  submitter_email TEXT,
+  notes TEXT,
+  submitted_at TIMESTAMPTZ,
+  priority TEXT NOT NULL DEFAULT 'low',
+  estimated_time INTEGER NOT NULL DEFAULT 0,
+  form_type TEXT NOT NULL,
+  printed_status INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS file_count INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS form_type TEXT NOT NULL DEFAULT '';
+ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS printed_status INTEGER NOT NULL DEFAULT 0;
 SELECT pg_advisory_unlock(90210);
 `;
 
@@ -255,4 +274,129 @@ export async function listDailyAnalytics(days = 7) {
 export async function resetDailyAnalytics() {
   await ensureSchema();
   await runPsql(`TRUNCATE TABLE analytics_daily;`);
+}
+
+export async function upsertQueueJobs(jobs) {
+  await ensureSchema();
+
+  if (!Array.isArray(jobs) || jobs.length === 0) {
+    return;
+  }
+
+  const payload = sqlLiteral(JSON.stringify(jobs));
+  const sql = `
+    WITH input AS (
+      SELECT jsonb_array_elements(${payload}::jsonb) AS data
+    )
+    INSERT INTO queue_jobs (
+      id,
+      filename,
+      file_count,
+      stl_file_url,
+      submitter_name,
+      submitter_email,
+      notes,
+      submitted_at,
+      priority,
+      estimated_time,
+      form_type,
+      printed_status
+    )
+    SELECT
+      data->>'id',
+      COALESCE(data->>'filename', ''),
+      COALESCE((data->>'fileCount')::integer, 1),
+      NULLIF(data->>'stlFileUrl', ''),
+      NULLIF(data->>'submitterName', ''),
+      NULLIF(data->>'submitterEmail', ''),
+      NULLIF(data->>'notes', ''),
+      CASE
+        WHEN COALESCE(data->>'submittedAt', '') = '' THEN NULL
+        ELSE (data->>'submittedAt')::timestamptz
+      END,
+      COALESCE(data->>'priority', 'low'),
+      COALESCE((data->>'estimatedTime')::integer, 0),
+      COALESCE(data->>'formType', ''),
+      COALESCE((data->>'printedStatus')::integer, 0)
+    FROM input
+    ON CONFLICT (id) DO UPDATE SET
+      filename = EXCLUDED.filename,
+      file_count = EXCLUDED.file_count,
+      stl_file_url = EXCLUDED.stl_file_url,
+      submitter_name = EXCLUDED.submitter_name,
+      submitter_email = EXCLUDED.submitter_email,
+      notes = EXCLUDED.notes,
+      submitted_at = EXCLUDED.submitted_at,
+      priority = EXCLUDED.priority,
+      estimated_time = EXCLUDED.estimated_time,
+      form_type = EXCLUDED.form_type,
+      updated_at = NOW();
+  `;
+
+  await runPsql(sql);
+}
+
+async function listQueueJobsByPrintedStatus(printedStatus) {
+  await ensureSchema();
+
+  const sql = `
+    SELECT COALESCE(
+      json_agg(
+        json_build_object(
+          'id', id,
+          'filename', filename,
+          'fileCount', file_count,
+          'printedStatus', printed_status,
+          'status', CASE WHEN printed_status = 1 THEN 'completed' ELSE 'queued' END,
+          'progress', 0,
+          'estimatedTime', estimated_time,
+          'timeRemaining', estimated_time,
+          'filamentUsed', 0,
+          'priority', priority,
+          'stlFileUrl', stl_file_url,
+          'submitterName', submitter_name,
+          'submitterEmail', submitter_email,
+          'notes', notes,
+          'submittedAt', CASE WHEN submitted_at IS NULL THEN NULL ELSE to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END
+        )
+        ORDER BY submitted_at DESC NULLS LAST, created_at DESC
+      ),
+      '[]'::json
+    )::text
+    FROM queue_jobs
+    WHERE form_type = 'สั่งพิมพ์งาน 3D Print'
+      AND printed_status = ${Number(printedStatus)};
+  `;
+
+  const output = await runPsql(sql);
+  return JSON.parse(output || '[]');
+}
+
+export async function listQueueData() {
+  const [queue, history] = await Promise.all([
+    listQueueJobsByPrintedStatus(0),
+    listQueueJobsByPrintedStatus(1),
+  ]);
+
+  return { queue, history };
+}
+
+export async function markQueueJobPrinted(id) {
+  await ensureSchema();
+  await runPsql(`
+    UPDATE queue_jobs
+    SET printed_status = 1,
+        updated_at = NOW()
+    WHERE id = ${sqlLiteral(id)};
+  `);
+}
+
+export async function resetQueueJobs() {
+  await ensureSchema();
+  await runPsql(`
+    UPDATE queue_jobs
+    SET printed_status = 0,
+        updated_at = NOW()
+    WHERE form_type = 'สั่งพิมพ์งาน 3D Print';
+  `);
 }

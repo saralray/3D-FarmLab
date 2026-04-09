@@ -318,9 +318,59 @@ def fetch_snapmaker_status(printer: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_spools_from_task_config(task_config: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+    if not task_config:
+        return None
+
+    filament_types = task_config.get("filament_type") or []
+    filament_colors = task_config.get("filament_color_rgba") or []
+    filament_exists = task_config.get("filament_exist") or []
+
+    if not filament_types:
+        return None
+
+    spools: list[dict[str, Any]] = []
+    for index, filament_type in enumerate(filament_types):
+        if not filament_exists or index >= len(filament_exists) or not filament_exists[index]:
+            continue
+
+        color_rgba = filament_colors[index] if index < len(filament_colors) else "808080FF"
+        hex_color = f"#{str(color_rgba)[:6]}"
+        material = filament_type if isinstance(filament_type, str) and filament_type else "Unknown"
+
+        spools.append(
+            {
+                "id": f"tool-{index + 1}",
+                "color": hex_color,
+                "material": material,
+                "remaining": 0,
+                "weight": 0,
+            }
+        )
+
+    return spools or None
+
+
+def fetch_snapmaker_task_config(printer: dict[str, Any]) -> list[dict[str, Any]] | None:
+    response = requests.get(
+        f"{printer['url']}/printer/objects/query?print_task_config",
+        headers=parse_header_string(printer.get("apiKeyHeader", "")),
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    task_config = (((payload.get("result") or {}).get("status")) or {}).get("print_task_config")
+    return build_spools_from_task_config(task_config)
+
+
 def refresh_status(printer: dict[str, Any]) -> dict[str, Any]:
     if printer.get("profile") == "snapmaker_u1":
         live_status = fetch_snapmaker_status(printer)
+        try:
+            live_status["spools"] = fetch_snapmaker_task_config(printer)
+        except Exception:
+            live_status["spools"] = printer.get("spools")
     else:
         live_status = fetch_generic_status(printer)
     return {**printer, **live_status}

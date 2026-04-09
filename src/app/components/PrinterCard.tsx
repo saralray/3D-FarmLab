@@ -5,7 +5,6 @@ import { Activity, AlertCircle, CheckCircle, Pause, WifiOff } from 'lucide-react
 import { Card } from './ui/card';
 import { Progress } from './ui/progress';
 import { Badge } from './ui/badge';
-import { SpoolIndicator } from './SpoolIndicator';
 import { buildPrinterWebcamSnapshotUrl } from '../lib/printerProfiles';
 
 interface PrinterCardProps {
@@ -129,16 +128,16 @@ export function PrinterCard({
         }, 0);
       }}
     >
-      <div className="mb-4 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-900">
+      <div className="mb-4 aspect-video overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-900">
         {isOnline ? (
           <img
             src={webcamSnapshotUrl}
             alt={`${printer.name} webcam`}
-            className="h-40 w-full object-cover"
+            className="h-full w-full object-cover"
             loading="lazy"
           />
         ) : (
-          <div className="flex h-40 w-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+          <div className="flex h-full w-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
             Webcam offline
           </div>
         )}
@@ -150,17 +149,30 @@ export function PrinterCard({
           <p className="text-sm text-gray-500 dark:text-gray-400">{printer.model}</p>
         </div>
         <div className="flex flex-1 items-start justify-end gap-2">
-          {printer.spools && <SpoolIndicator spools={printer.spools} compact />}
-          <div className="ml-auto flex items-center gap-2">
-            <Badge variant={getStatusBadgeVariant()} className="flex items-center gap-1 capitalize">
-              {getActivityIcon()}
-              {activityLabel}
-            </Badge>
-            <span
-              className={`size-3 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}
-              aria-label={isOnline ? 'online' : 'offline'}
-              title={isOnline ? 'online' : 'offline'}
-            />
+          <div className="ml-auto flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <Badge variant={getStatusBadgeVariant()} className="flex items-center gap-1 capitalize">
+                {getActivityIcon()}
+                {activityLabel}
+              </Badge>
+              <span
+                className={`size-3 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}
+                aria-label={isOnline ? 'online' : 'offline'}
+                title={isOnline ? 'online' : 'offline'}
+              />
+            </div>
+            {printer.spools && printer.spools.length > 0 && (
+              <div className="mt-1.5 flex items-center gap-2" aria-label="filament colors">
+                {printer.spools.map((spool, index) => (
+                  <span
+                    key={`${printer.id}-status-spool-${spool.id}-${index}`}
+                    className="size-3.5 rounded-full border border-white/80 shadow-sm dark:border-gray-900"
+                    style={{ backgroundColor: spool.color }}
+                    title={`Tool ${index + 1}: ${spool.material}`}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

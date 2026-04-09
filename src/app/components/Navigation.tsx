@@ -89,8 +89,8 @@ export function Navigation() {
         )}
 
         <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-          <div>9 Printers Connected</div>
-          <div>Last sync: Just now</div>
+          <div>Developer</div>
+          <div className="truncate">Saral Assabumrungrat CUD61</div>
         </div>
       </div>
     </nav>
