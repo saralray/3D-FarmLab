@@ -6,7 +6,6 @@ import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
 import { Badge } from '../components/ui/badge';
-import { SpoolIndicator } from '../components/SpoolIndicator';
 import {
   ArrowLeft,
   Activity,
@@ -478,16 +477,6 @@ export function PrinterDetail() {
 
         {/* Printer Stats */}
         <div className="space-y-6">
-          {printer.spools && (
-            <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
-              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
-                <Palette className="size-5" />
-                Filament Spools
-              </h2>
-              <SpoolIndicator spools={printer.spools} />
-            </Card>
-          )}
-
           <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
               <Thermometer className="size-5" />
