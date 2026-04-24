@@ -10,6 +10,7 @@ import requests
 
 POLL_INTERVAL_SECONDS = max(int(os.getenv("PRINTER_POLL_INTERVAL_MS", "5000")) / 1000, 1)
 REQUEST_TIMEOUT_SECONDS = max(int(os.getenv("PRINTER_REQUEST_TIMEOUT_MS", "3000")) / 1000, 1)
+OFFLINE_GRACE_SECONDS = 5
 
 SCHEMA_SQL = """
 SELECT pg_advisory_lock(90210);
@@ -32,10 +33,12 @@ CREATE TABLE IF NOT EXISTS printers (
   current_job JSONB,
   nozzle_temperatures JSONB,
   spools JSONB,
+  offline_since DOUBLE PRECISION,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_temperatures JSONB;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS offline_since DOUBLE PRECISION;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -96,7 +99,8 @@ def list_printers(conn: psycopg.Connection) -> list[dict[str, Any]]:
               success_rate AS "successRate",
               current_job AS "currentJob",
               nozzle_temperatures AS "nozzleTemperatures",
-              spools
+              spools,
+              offline_since AS "offlineSince"
             FROM printers
             ORDER BY sort_order ASC, created_at DESC
             """
@@ -126,7 +130,8 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               success_rate,
               current_job,
               nozzle_temperatures,
-              spools
+              spools,
+              offline_since
             ) VALUES (
               %(id)s,
               %(name)s,
@@ -145,7 +150,8 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               %(successRate)s,
               %(currentJob)s::jsonb,
               %(nozzleTemperatures)s::jsonb,
-              %(spools)s::jsonb
+              %(spools)s::jsonb,
+              %(offlineSince)s
             )
             ON CONFLICT (id) DO UPDATE SET
               name = EXCLUDED.name,
@@ -164,7 +170,8 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               success_rate = EXCLUDED.success_rate,
               current_job = EXCLUDED.current_job,
               nozzle_temperatures = EXCLUDED.nozzle_temperatures,
-              spools = EXCLUDED.spools
+              spools = EXCLUDED.spools,
+              offline_since = EXCLUDED.offline_since
             """,
             {
                 "id": printer["id"],
@@ -185,6 +192,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
                 "currentJob": json.dumps(printer.get("currentJob")),
                 "nozzleTemperatures": json.dumps(printer.get("nozzleTemperatures")),
                 "spools": json.dumps(printer.get("spools")),
+                "offlineSince": printer.get("offlineSince"),
             },
         )
 
@@ -282,6 +290,18 @@ def build_offline_printer_state(printer: dict[str, Any]) -> dict[str, Any]:
         "temperature": {"nozzle": 0, "bed": 0},
         "nozzleTemperatures": [0 for _ in nozzle_temperatures] if nozzle_temperatures else [0],
     }
+
+
+def apply_offline_grace_period(printer: dict[str, Any], now: float | None = None) -> dict[str, Any]:
+    detected_at = printer.get("offlineSince")
+    current_time = time.time() if now is None else now
+    if not isinstance(detected_at, (int, float)):
+        return {**printer, "offlineSince": current_time}
+
+    if current_time - detected_at < OFFLINE_GRACE_SECONDS:
+        return printer
+
+    return {**printer, **build_offline_printer_state(printer), "offlineSince": detected_at}
 
 
 def get_reachable_generic_status(printer: dict[str, Any]) -> str:
@@ -418,7 +438,7 @@ def refresh_status(printer: dict[str, Any]) -> dict[str, Any]:
             live_status["spools"] = printer.get("spools")
     else:
         live_status = fetch_generic_status(printer)
-    return {**printer, **live_status}
+    return {**printer, **live_status, "offlineSince": None}
 
 
 def finalize_job_analytics(
@@ -731,7 +751,7 @@ def run() -> None:
                     try:
                         next_printer = refresh_status(printer)
                     except Exception:
-                        next_printer = {**printer, **build_offline_printer_state(printer)}
+                        next_printer = apply_offline_grace_period(printer)
                     collect_analytics_for_transition(conn, printer, next_printer)
                     notify_for_transition(webhooks, printer, next_printer)
                     upsert_printer(conn, next_printer)

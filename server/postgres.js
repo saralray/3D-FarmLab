@@ -24,10 +24,12 @@ CREATE TABLE IF NOT EXISTS printers (
   current_job JSONB,
   nozzle_temperatures JSONB,
   spools JSONB,
+  offline_since DOUBLE PRECISION,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_temperatures JSONB;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS offline_since DOUBLE PRECISION;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -205,7 +207,8 @@ export async function upsertPrinter(printer) {
       success_rate,
       current_job,
       nozzle_temperatures,
-      spools
+      spools,
+      offline_since
     )
     SELECT
       data->>'id',
@@ -225,7 +228,8 @@ export async function upsertPrinter(printer) {
       COALESCE((data->>'successRate')::double precision, 0),
       data->'currentJob',
       data->'nozzleTemperatures',
-      data->'spools'
+      data->'spools',
+      (data->>'offlineSince')::double precision
     FROM input
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name,
@@ -244,7 +248,8 @@ export async function upsertPrinter(printer) {
       success_rate = EXCLUDED.success_rate,
       current_job = EXCLUDED.current_job,
       nozzle_temperatures = EXCLUDED.nozzle_temperatures,
-      spools = EXCLUDED.spools;
+      spools = EXCLUDED.spools,
+      offline_since = EXCLUDED.offline_since;
   `;
 
   await runPsql(sql);
