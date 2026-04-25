@@ -13,11 +13,14 @@ export function Root() {
         type="button"
         onClick={toggleSidebar}
         aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        className={`absolute top-6 z-20 flex size-7 items-center justify-center rounded-full border border-gray-200 bg-white shadow-md transition-[left,background-color] duration-300 ease-in-out hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800 ${
-          isCollapsed ? 'left-[72px]' : 'left-[276px]'
-        }`}
+        style={{ left: isCollapsed ? 72 : 276 }}
+        className="absolute top-6 z-20 flex h-7 w-7 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-md transition-[left,background-color,color] duration-300 ease-in-out hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
       >
-        {isCollapsed ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
+        {isCollapsed ? (
+          <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" />
+        ) : (
+          <ChevronLeft aria-hidden="true" className="h-4 w-4 shrink-0" />
+        )}
       </button>
       <main className="flex-1 overflow-y-auto">
         <Outlet />
