@@ -60,14 +60,6 @@ export function Analytics() {
   }, []);
 
   useEffect(() => {
-    fetchPrinters()
-      .then((storedPrinters) => setPrinters(storedPrinters.map(normalizePrinter)))
-      .catch(() => {
-        setPrinters(mockPrinters.map(normalizePrinter));
-      });
-  }, []);
-
-  useEffect(() => {
     let isCancelled = false;
 
     const refreshFromServer = async () => {
@@ -81,6 +73,7 @@ export function Analytics() {
       }
     };
 
+    refreshFromServer();
     const interval = window.setInterval(refreshFromServer, 10000);
 
     return () => {

@@ -122,8 +122,17 @@ async function runPsql(sql) {
   return stdout.trim();
 }
 
+let schemaReadyPromise;
+
 export async function ensureSchema() {
-  await runPsql(SCHEMA_SQL);
+  if (!schemaReadyPromise) {
+    schemaReadyPromise = runPsql(SCHEMA_SQL).catch((error) => {
+      schemaReadyPromise = undefined;
+      throw error;
+    });
+  }
+
+  await schemaReadyPromise;
 }
 
 export async function listPrinters() {

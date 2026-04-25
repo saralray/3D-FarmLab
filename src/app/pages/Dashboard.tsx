@@ -16,13 +16,6 @@ export function Dashboard() {
   const [printerFormError, setPrinterFormError] = useState('');
   const [printerFormSuccess, setPrinterFormSuccess] = useState('');
 
-  const loadPrinters = async () => {
-    const storedPrinters = await fetchPrinters();
-    const normalizedPrinters = storedPrinters.map(normalizePrinter);
-    setPrinters(normalizedPrinters);
-    setPrinterFormError('');
-  };
-
   const persistPrinterOrder = async (nextPrinters: Printer[]) => {
     await Promise.all(
       nextPrinters.map((printer, index) =>
@@ -33,13 +26,6 @@ export function Dashboard() {
       )
     );
   };
-
-  useEffect(() => {
-    loadPrinters().catch(() => {
-      setPrinters(mockPrinters.map(normalizePrinter));
-      setPrinterFormError('Unable to load printers from Postgres. Check DATABASE_URL and server access.');
-    });
-  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -53,7 +39,10 @@ export function Dashboard() {
         }
       } catch {
         if (!isCancelled) {
-          setPrinterFormError('Unable to refresh printer status from the server.');
+          setPrinters((currentPrinters) =>
+            currentPrinters.length > 0 ? currentPrinters : mockPrinters.map(normalizePrinter)
+          );
+          setPrinterFormError('Unable to load printer status from the server.');
         }
       }
     };
