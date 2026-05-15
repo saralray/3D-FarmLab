@@ -144,6 +144,68 @@ function normalizeSubmittedAt(value) {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString()
 }
 
+function isoTimestamp() {
+  return new Date().toISOString()
+}
+
+function buildQueueAddedEmbed(job) {
+  const fields = [
+    { name: 'Submitter', value: job.submitterName || 'Unknown', inline: true },
+    { name: 'Numbers', value: String(job.fileCount ?? 1), inline: true },
+  ]
+
+  if (job.notes) {
+    fields.push({ name: 'Notes', value: String(job.notes).slice(0, 1024), inline: false })
+  }
+
+  if (job.stlFileUrl) {
+    fields.push({ name: 'File', value: job.stlFileUrl, inline: false })
+  }
+
+  return {
+    title: 'New Queue Submission',
+    description: job.filename || job.id,
+    color: 0x3B82F6,
+    fields,
+    timestamp: isoTimestamp(),
+  }
+}
+
+async function sendQueueAddedNotifications(jobs) {
+  if (!Array.isArray(jobs) || jobs.length === 0) {
+    return
+  }
+
+  const webhooks = await listDiscordWebhooks()
+  if (webhooks.length === 0) {
+    return
+  }
+
+  for (const job of jobs) {
+    const embed = buildQueueAddedEmbed(job)
+    await Promise.allSettled(
+      webhooks
+        .filter((webhook) => webhook.webhookUrl)
+        .map((webhook) =>
+          fetch(webhook.webhookUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              username: 'PrintFarm Bot',
+              embeds: [embed],
+            }),
+          }).then((response) => {
+            if (!response.ok) {
+              throw new Error(`Discord webhook failed with ${response.status}`)
+            }
+          }),
+        ),
+    )
+  }
+}
+
 function mapSheetRowsToQueue(rows) {
   return rows
     .slice(1)
@@ -317,7 +379,10 @@ export default defineConfig(({ mode }) => {
 
               const csv = await response.text()
               const jobs = mapSheetRowsToQueue(parseCsv(csv))
-              await upsertQueueJobs(jobs)
+              const addedJobs = await upsertQueueJobs(jobs)
+              sendQueueAddedNotifications(addedJobs).catch((error) => {
+                console.error('Failed to send queue add notification', error)
+              })
               const queueData = await listQueueData()
 
               res.statusCode = 200

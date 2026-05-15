@@ -311,14 +311,39 @@ export async function upsertQueueJobs(jobs) {
   await ensureSchema();
 
   if (!Array.isArray(jobs) || jobs.length === 0) {
-    return;
+    return [];
   }
 
   const payload = sqlLiteral(JSON.stringify(jobs));
   const sql = `
     WITH input AS (
       SELECT jsonb_array_elements(${payload}::jsonb) AS data
-    )
+    ),
+    normalized AS (
+      SELECT
+        data->>'id' AS id,
+        COALESCE(data->>'filename', '') AS filename,
+        COALESCE((data->>'fileCount')::integer, 1) AS file_count,
+        NULLIF(data->>'stlFileUrl', '') AS stl_file_url,
+        NULLIF(data->>'submitterName', '') AS submitter_name,
+        NULLIF(data->>'submitterEmail', '') AS submitter_email,
+        NULLIF(data->>'notes', '') AS notes,
+        CASE
+          WHEN COALESCE(data->>'submittedAt', '') = '' THEN NULL
+          ELSE (data->>'submittedAt')::timestamptz
+        END AS submitted_at,
+        COALESCE(data->>'priority', 'low') AS priority,
+        COALESCE((data->>'estimatedTime')::integer, 0) AS estimated_time,
+        COALESCE(data->>'formType', '') AS form_type,
+        COALESCE((data->>'printedStatus')::integer, 0) AS printed_status
+      FROM input
+    ),
+    existing AS (
+      SELECT id
+      FROM queue_jobs
+      WHERE id IN (SELECT id FROM normalized)
+    ),
+    upserted AS (
     INSERT INTO queue_jobs (
       id,
       filename,
@@ -334,22 +359,19 @@ export async function upsertQueueJobs(jobs) {
       printed_status
     )
     SELECT
-      data->>'id',
-      COALESCE(data->>'filename', ''),
-      COALESCE((data->>'fileCount')::integer, 1),
-      NULLIF(data->>'stlFileUrl', ''),
-      NULLIF(data->>'submitterName', ''),
-      NULLIF(data->>'submitterEmail', ''),
-      NULLIF(data->>'notes', ''),
-      CASE
-        WHEN COALESCE(data->>'submittedAt', '') = '' THEN NULL
-        ELSE (data->>'submittedAt')::timestamptz
-      END,
-      COALESCE(data->>'priority', 'low'),
-      COALESCE((data->>'estimatedTime')::integer, 0),
-      COALESCE(data->>'formType', ''),
-      COALESCE((data->>'printedStatus')::integer, 0)
-    FROM input
+      id,
+      filename,
+      file_count,
+      stl_file_url,
+      submitter_name,
+      submitter_email,
+      notes,
+      submitted_at,
+      priority,
+      estimated_time,
+      form_type,
+      printed_status
+    FROM normalized
     ON CONFLICT (id) DO UPDATE SET
       filename = EXCLUDED.filename,
       file_count = EXCLUDED.file_count,
@@ -361,10 +383,50 @@ export async function upsertQueueJobs(jobs) {
       priority = EXCLUDED.priority,
       estimated_time = EXCLUDED.estimated_time,
       form_type = EXCLUDED.form_type,
-      updated_at = NOW();
+      updated_at = NOW()
+    RETURNING
+      id,
+      filename,
+      file_count,
+      stl_file_url,
+      submitter_name,
+      submitter_email,
+      notes,
+      submitted_at,
+      priority,
+      estimated_time,
+      form_type,
+      printed_status
+    )
+    SELECT COALESCE(
+      json_agg(
+        json_build_object(
+          'id', id,
+          'filename', filename,
+          'fileCount', file_count,
+          'printedStatus', printed_status,
+          'status', CASE WHEN printed_status = 1 THEN 'completed' ELSE 'queued' END,
+          'progress', 0,
+          'estimatedTime', estimated_time,
+          'timeRemaining', estimated_time,
+          'filamentUsed', 0,
+          'priority', priority,
+          'stlFileUrl', stl_file_url,
+          'submitterName', submitter_name,
+          'submitterEmail', submitter_email,
+          'notes', notes,
+          'submittedAt', CASE WHEN submitted_at IS NULL THEN NULL ELSE to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END
+        )
+        ORDER BY submitted_at ASC NULLS LAST
+      ),
+      '[]'::json
+    )::text
+    FROM upserted
+    WHERE id NOT IN (SELECT id FROM existing);
   `;
 
-  await runPsql(sql);
+  const output = await runPsql(sql);
+  return JSON.parse(output || '[]');
 }
 
 async function listQueueJobsByPrintedStatus(printedStatus) {
