@@ -504,9 +504,9 @@ export async function resetQueueJobs() {
   await runPsql(`
     UPDATE queue_jobs
     SET printed_status = 0,
-        deleted_at = NULL,
         updated_at = NOW()
-      WHERE form_type = 'สั่งพิมพ์งาน 3D Print';
+      WHERE form_type = 'สั่งพิมพ์งาน 3D Print'
+        AND deleted_at IS NULL;
   `);
 }
 
