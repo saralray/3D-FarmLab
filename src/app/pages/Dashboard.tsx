@@ -1,20 +1,38 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { mockPrinters } from '../data/mockData';
 import { Printer } from '../types';
 import { PrinterCard } from '../components/PrinterCard';
 import { Activity, AlertCircle, CheckCircle, Pause, WifiOff } from 'lucide-react';
 import { Card } from '../components/ui/card';
-import { Alert } from '../components/ui/alert';
 import { useAuth } from '../contexts/AuthContext';
 import { normalizePrinter } from '../lib/printerProfiles';
 import { fetchPrinters, savePrinter } from '../lib/printersApi';
+import { toast } from 'sonner';
 
 export function Dashboard() {
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [draggedPrinterId, setDraggedPrinterId] = useState<string | null>(null);
   const { user } = useAuth();
-  const [printerFormError, setPrinterFormError] = useState('');
-  const [printerFormSuccess, setPrinterFormSuccess] = useState('');
+  const loadErrorToastShownRef = useRef(false);
+
+  const loadPrinters = useCallback(async () => {
+    try {
+      const nextPrinters = (await fetchPrinters()).map(normalizePrinter);
+      setPrinters(nextPrinters);
+      loadErrorToastShownRef.current = false;
+    } catch {
+      setPrinters((currentPrinters) =>
+        currentPrinters.length > 0 ? currentPrinters : mockPrinters.map(normalizePrinter)
+      );
+
+      if (!loadErrorToastShownRef.current) {
+        toast.error('Unable to load printer status from the server.', {
+          id: 'dashboard-load-printers-error',
+        });
+        loadErrorToastShownRef.current = true;
+      }
+    }
+  }, []);
 
   const persistPrinterOrder = async (nextPrinters: Printer[]) => {
     await Promise.all(
@@ -31,19 +49,8 @@ export function Dashboard() {
     let isCancelled = false;
 
     const refreshFromServer = async () => {
-      try {
-        const nextPrinters = (await fetchPrinters()).map(normalizePrinter);
-        if (!isCancelled) {
-          setPrinters(nextPrinters);
-          setPrinterFormError('');
-        }
-      } catch {
-        if (!isCancelled) {
-          setPrinters((currentPrinters) =>
-            currentPrinters.length > 0 ? currentPrinters : mockPrinters.map(normalizePrinter)
-          );
-          setPrinterFormError('Unable to load printer status from the server.');
-        }
+      if (!isCancelled) {
+        await loadPrinters();
       }
     };
 
@@ -54,7 +61,7 @@ export function Dashboard() {
       isCancelled = true;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [loadPrinters]);
 
   const stats = {
     total: printers.length,
@@ -119,10 +126,9 @@ export function Dashboard() {
 
     try {
       await persistPrinterOrder(nextPrinters);
-      setPrinterFormSuccess('Dashboard order updated.');
-      setPrinterFormError('');
+      toast.success('Dashboard order updated.');
     } catch (error) {
-      setPrinterFormError(error instanceof Error ? error.message : 'Unable to save dashboard order.');
+      toast.error(error instanceof Error ? error.message : 'Unable to save dashboard order.');
       await loadPrinters();
     }
   };
@@ -133,18 +139,6 @@ export function Dashboard() {
         <h1 className="text-3xl font-bold mb-2 dark:text-white">CUD Stemlab PrintFarm</h1>
         <p className="text-gray-600 dark:text-gray-400">Monitor and manage all printers in real-time</p>
       </div>
-
-      {printerFormError && (
-        <Alert variant="destructive" className="py-2">
-          {printerFormError}
-        </Alert>
-      )}
-
-      {printerFormSuccess && (
-        <Alert className="py-2">
-          {printerFormSuccess}
-        </Alert>
-      )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {statCards.map((stat) => (
