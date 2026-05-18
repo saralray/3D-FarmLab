@@ -8,7 +8,8 @@ import { fetchQueueJobs } from '../lib/queueApi';
 type PrinterSnapshot = Pick<Printer, 'id' | 'name' | 'status' | 'currentJob' | 'progress'>;
 
 const PRINTER_POLL_INTERVAL_MS = 5000;
-const QUEUE_POLL_INTERVAL_MS = 30000;
+const QUEUE_POLL_INTERVAL_MS = 10000;
+const SEEN_QUEUE_JOB_IDS_KEY = 'printfarm_seen_queue_job_ids';
 
 function getJobName(printer: PrinterSnapshot) {
   return printer.currentJob?.filename || 'Print job';
@@ -97,6 +98,37 @@ function toPrinterMap(printers: Printer[]) {
   );
 }
 
+function readSeenQueueJobIds() {
+  try {
+    const rawValue = localStorage.getItem(SEEN_QUEUE_JOB_IDS_KEY);
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((value): value is string => typeof value === 'string'))
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSeenQueueJobIds(jobIds: Set<string>) {
+  try {
+    localStorage.setItem(SEEN_QUEUE_JOB_IDS_KEY, JSON.stringify([...jobIds]));
+  } catch {
+    // Ignore storage failures; notifications can still work for the current page session.
+  }
+}
+
+function showNewQueueJobToast(job: { filename: string; fileCount?: number; submitterName?: string }) {
+  const fileCount = job.fileCount ?? 1;
+  toast.info('New queue submission', {
+    description: `${job.submitterName || job.filename} - ${fileCount} file${fileCount === 1 ? '' : 's'}`,
+  });
+}
+
 export function PrinterStatusNotifier() {
   const previousPrintersRef = useRef<Map<string, PrinterSnapshot> | null>(null);
   const previousQueueJobIdsRef = useRef<Set<string> | null>(null);
@@ -148,21 +180,20 @@ export function PrinterStatusNotifier() {
           return;
         }
 
+        const storedJobIds = readSeenQueueJobIds();
+        const baselineJobIds = storedJobIds ?? previousQueueJobIdsRef.current;
         const nextJobIds = new Set(queue.map((job) => job.id));
-        const previousJobIds = previousQueueJobIdsRef.current;
 
-        if (previousJobIds) {
-          const newJobs = queue.filter((job) => !previousJobIds.has(job.id));
+        if (baselineJobIds) {
+          const newJobs = queue.filter((job) => !baselineJobIds.has(job.id));
           for (const job of newJobs) {
-            toast.info('New queue submission', {
-              description: `${job.submitterName || job.filename} - ${job.fileCount ?? 1} file${
-                (job.fileCount ?? 1) === 1 ? '' : 's'
-              }`,
-            });
+            showNewQueueJobToast(job);
           }
         }
 
+        const seenJobIds = new Set([...(storedJobIds ?? []), ...nextJobIds]);
         previousQueueJobIdsRef.current = nextJobIds;
+        writeSeenQueueJobIds(seenJobIds);
       } catch {
         // Keep notifications quiet when the queue sync is temporarily unavailable.
       }
