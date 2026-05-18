@@ -3,10 +3,12 @@ import { toast } from 'sonner';
 import { Printer } from '../types';
 import { fetchPrinters } from '../lib/printersApi';
 import { normalizePrinter } from '../lib/printerProfiles';
+import { fetchQueueJobs } from '../lib/queueApi';
 
 type PrinterSnapshot = Pick<Printer, 'id' | 'name' | 'status' | 'currentJob' | 'progress'>;
 
-const POLL_INTERVAL_MS = 5000;
+const PRINTER_POLL_INTERVAL_MS = 5000;
+const QUEUE_POLL_INTERVAL_MS = 30000;
 
 function getJobName(printer: PrinterSnapshot) {
   return printer.currentJob?.filename || 'Print job';
@@ -97,6 +99,7 @@ function toPrinterMap(printers: Printer[]) {
 
 export function PrinterStatusNotifier() {
   const previousPrintersRef = useRef<Map<string, PrinterSnapshot> | null>(null);
+  const previousQueueJobIdsRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
@@ -127,7 +130,46 @@ export function PrinterStatusNotifier() {
     };
 
     refreshPrinters();
-    const interval = window.setInterval(refreshPrinters, POLL_INTERVAL_MS);
+    const interval = window.setInterval(refreshPrinters, PRINTER_POLL_INTERVAL_MS);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const refreshQueue = async () => {
+      try {
+        const { queue } = await fetchQueueJobs();
+        if (isCancelled) {
+          return;
+        }
+
+        const nextJobIds = new Set(queue.map((job) => job.id));
+        const previousJobIds = previousQueueJobIdsRef.current;
+
+        if (previousJobIds) {
+          const newJobs = queue.filter((job) => !previousJobIds.has(job.id));
+          for (const job of newJobs) {
+            toast.info('New queue submission', {
+              description: `${job.submitterName || job.filename} - ${job.fileCount ?? 1} file${
+                (job.fileCount ?? 1) === 1 ? '' : 's'
+              }`,
+            });
+          }
+        }
+
+        previousQueueJobIdsRef.current = nextJobIds;
+      } catch {
+        // Keep notifications quiet when the queue sync is temporarily unavailable.
+      }
+    };
+
+    refreshQueue();
+    const interval = window.setInterval(refreshQueue, QUEUE_POLL_INTERVAL_MS);
 
     return () => {
       isCancelled = true;
