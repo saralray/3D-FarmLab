@@ -23,11 +23,11 @@ jobs:
         run: |
           docker build \
             -f Dockerfile.web \
-            -t yourname/printfarm-web:latest .
+            -t saralray/printfarm-web:latest .
 
       - name: Push web image
         run: |
-          docker push yourname/printfarm-web:latest
+          docker push saralray/printfarm-web:latest
 
       - name: Setup kubeconfig
         run: |
