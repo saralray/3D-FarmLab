@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+
+metadata:
+  name: printfarm-ingress
+  namespace: printfarm
+
+spec:
+  ingressClassName: traefik
+
+  rules:
+    - host: printfarm.stemlabs2.work
+
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80

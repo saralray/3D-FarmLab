@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: poller
+  namespace: printfarm
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: poller
+
+  template:
+    metadata:
+      labels:
+        app: poller
+
+    spec:
+      containers:
+        - name: poller
+          image: saralray/printfarm-poller:latest
+          imagePullPolicy: Always
+
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: printfarm-secret
+                  key: DATABASE_URL
+
+            - name: PRINTER_POLL_INTERVAL_MS
+              value: "5000"
+
+            - name: PRINTER_REQUEST_TIMEOUT_MS
+              value: "3000"
+
+            - name: PRINTER_OFFLINE_GRACE_SECONDS
+              value: "30"
