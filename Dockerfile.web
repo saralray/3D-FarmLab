@@ -23,13 +23,16 @@ ENV PORT=5173
 
 WORKDIR /app
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends postgresql-client \
-  && rm -rf /var/lib/apt/lists/* \
-  && groupadd --system printfarm \
+RUN groupadd --system printfarm \
   && useradd --system --gid printfarm --home-dir /app printfarm
 
 COPY package.json ./
+
+# The server's only runtime dependency is the pg client. Keep this version in
+# sync with "pg" in package.json. The build stage (npm ci) covers the rest.
+RUN npm install pg@8.21.0 --no-save --no-audit --no-fund \
+  && npm cache clean --force
+
 COPY --from=build /app/dist ./dist
 COPY server ./server
 
