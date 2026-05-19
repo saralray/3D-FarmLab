@@ -28,9 +28,23 @@ jobs:
             --build-arg VITE_GOOGLE_SHEET_QUEUE_URL='https://docs.google.com/spreadsheets/d/13CZxAD8lctUtJEcVHH-qUHKNIJY0ENxcxPP-DwNgelE/edit?usp=sharing' \
             -t saralray/printfarm-web:latest .
 
-      - name: Push web image
+      - name: Build poller image
+        run: |
+          docker build \
+            -f Dockerfile.poller \
+            -t saralray/printfarm-poller:latest .
+
+      - name: Build nginx image
+        run: |
+          docker build \
+            -f Dockerfile.nginx \
+            -t saralray/printfarm-nginx:latest .
+
+      - name: Push images
         run: |
           docker push saralray/printfarm-web:latest
+          docker push saralray/printfarm-poller:latest
+          docker push saralray/printfarm-nginx:latest
 
       - name: Setup kubeconfig
         run: |
@@ -41,6 +55,8 @@ jobs:
         run: |
           kubectl apply -f k8s/
 
-      - name: Restart deployment
+      - name: Restart deployments
         run: |
-          kubectl rollout restart deployment/web -n printfarm
+          kubectl rollout restart deployment/web deployment/poller deployment/nginx -n printfarm
+          kubectl rollout status deployment/web -n printfarm --timeout=120s
+          kubectl rollout status deployment/nginx -n printfarm --timeout=120s

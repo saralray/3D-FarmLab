@@ -37,3 +37,12 @@ spec:
 
             - name: PRINTER_OFFLINE_GRACE_SECONDS
               value: "30"
+
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+
+            limits:
+              memory: "128Mi"
+              cpu: "200m"

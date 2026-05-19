@@ -63,7 +63,9 @@ spec:
               command:
                 - pg_isready
                 - -U
-                - appuser
+                - $(POSTGRES_USER)
+                - -d
+                - $(POSTGRES_DB)
             initialDelaySeconds: 10
             periodSeconds: 10
 
@@ -72,9 +74,20 @@ spec:
               command:
                 - pg_isready
                 - -U
-                - appuser
+                - $(POSTGRES_USER)
+                - -d
+                - $(POSTGRES_DB)
             initialDelaySeconds: 30
             periodSeconds: 20
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
 
       volumes:
         - name: postgres-storage
