@@ -1,7 +1,6 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import pg from 'pg';
 
-const execFileAsync = promisify(execFile);
+const { Pool } = pg;
 
 const SCHEMA_SQL = `
 SELECT pg_advisory_lock(90210);
@@ -69,18 +68,40 @@ CREATE TABLE IF NOT EXISTS discord_webhooks (
 SELECT pg_advisory_unlock(90210);
 `;
 
-function getDatabaseUrl() {
-  return process.env.DATABASE_URL ?? '';
+const QUEUE_FORM_TYPE = 'สั่งพิมพ์งาน 3D Print';
+
+let pool;
+
+// The pool is created lazily so importing this module never fails when
+// DATABASE_URL is absent; the connection is only needed once a query runs.
+function getPool() {
+  if (!pool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error('DATABASE_URL is not configured');
+    }
+
+    pool = new Pool({
+      connectionString,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
+
+    // Without a listener, an error on an idle pooled client crashes the
+    // process. Log it instead and let the pool replace the client.
+    pool.on('error', (error) => {
+      console.error('Unexpected PostgreSQL pool error', error);
+    });
+  }
+
+  return pool;
 }
 
-function getPsqlArgs(sql) {
-  const args = ['--dbname', getDatabaseUrl(), '-X', '-v', 'ON_ERROR_STOP=1', '-At'];
-  args.push('-c', sql);
-  return args;
-}
-
-function sqlLiteral(value) {
-  return `'${String(value).replace(/'/g, "''")}'`;
+// All queries are parameterized: values travel via `params` ($1, $2, ...),
+// never string-interpolated into SQL.
+function query(text, params) {
+  return getPool().query(text, params);
 }
 
 function isPublicViewerMode() {
@@ -114,24 +135,11 @@ function buildPrinterListSelect(includeSensitive = true) {
   `;
 }
 
-async function runPsql(sql) {
-  const databaseUrl = getDatabaseUrl();
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL is not configured');
-  }
-
-  const { stdout } = await execFileAsync('psql', getPsqlArgs(sql), {
-    env: process.env,
-  });
-
-  return stdout.trim();
-}
-
 let schemaReadyPromise;
 
 export async function ensureSchema() {
   if (!schemaReadyPromise) {
-    schemaReadyPromise = runPsql(SCHEMA_SQL).catch((error) => {
+    schemaReadyPromise = query(SCHEMA_SQL).catch((error) => {
       schemaReadyPromise = undefined;
       throw error;
     });
@@ -144,67 +152,63 @@ export async function listPrinters() {
   await ensureSchema();
   const includeSensitive = !isPublicViewerMode();
 
-  const sql = `
+  const result = await query(`
     SELECT COALESCE(
       json_agg(
         ${buildPrinterListSelect(includeSensitive)}
         ORDER BY sort_order ASC, created_at DESC
       ),
       '[]'::json
-    )::text
+    ) AS data
     FROM printers;
-  `;
+  `);
 
-  const output = await runPsql(sql);
-  return JSON.parse(output || '[]');
+  return result.rows[0].data;
 }
 
 export async function getPrinterById(id) {
   await ensureSchema();
 
-  const sql = `
-    SELECT COALESCE(
-      (
-        SELECT json_build_object(
-          'id', id,
-          'name', name,
-          'model', model,
-          'sortOrder', sort_order,
-          'profile', profile,
-          'url', url,
-          'ipAddress', ip_address,
-          'apiKeyHeader', api_key_header,
-          'status', status,
-          'temperature', json_build_object(
-            'nozzle', ROUND(temperature_nozzle::numeric, 2),
-            'bed', ROUND(temperature_bed::numeric, 2)
-          ),
-          'progress', progress,
-          'lastMaintenance', last_maintenance,
-          'totalPrintTime', ROUND(total_print_time::numeric, 2),
-          'successRate', ROUND(success_rate::numeric, 2),
-          'currentJob', current_job,
-          'nozzleTemperatures', nozzle_temperatures,
-          'spools', spools
-        )::text
-        FROM printers
-        WHERE id = ${sqlLiteral(id)}
+  const result = await query(
+    `
+    SELECT json_build_object(
+      'id', id,
+      'name', name,
+      'model', model,
+      'sortOrder', sort_order,
+      'profile', profile,
+      'url', url,
+      'ipAddress', ip_address,
+      'apiKeyHeader', api_key_header,
+      'status', status,
+      'temperature', json_build_object(
+        'nozzle', ROUND(temperature_nozzle::numeric, 2),
+        'bed', ROUND(temperature_bed::numeric, 2)
       ),
-      ''
-    );
-  `;
+      'progress', progress,
+      'lastMaintenance', last_maintenance,
+      'totalPrintTime', ROUND(total_print_time::numeric, 2),
+      'successRate', ROUND(success_rate::numeric, 2),
+      'currentJob', current_job,
+      'nozzleTemperatures', nozzle_temperatures,
+      'spools', spools
+    ) AS printer
+    FROM printers
+    WHERE id = $1;
+  `,
+    [id],
+  );
 
-  const output = await runPsql(sql);
-  return output ? JSON.parse(output) : null;
+  return result.rows[0]?.printer ?? null;
 }
 
 export async function upsertPrinter(printer) {
   await ensureSchema();
 
-  const payload = sqlLiteral(JSON.stringify(printer));
-  const sql = `
+  await query(
+    `
     WITH input AS (
-      SELECT ${payload}::jsonb AS data
+      SELECT $1::jsonb AS data
     )
     INSERT INTO printers (
       id,
@@ -267,23 +271,24 @@ export async function upsertPrinter(printer) {
       nozzle_temperatures = EXCLUDED.nozzle_temperatures,
       spools = EXCLUDED.spools,
       offline_since = EXCLUDED.offline_since;
-  `;
-
-  await runPsql(sql);
+  `,
+    [JSON.stringify(printer)],
+  );
 }
 
 export async function deletePrinter(id) {
   await ensureSchema();
-  await runPsql(`DELETE FROM printers WHERE id = ${sqlLiteral(id)};`);
+  await query('DELETE FROM printers WHERE id = $1;', [id]);
 }
 
 export async function listDailyAnalytics(days = 7) {
   await ensureSchema();
 
-  const sql = `
+  const result = await query(
+    `
     WITH dates AS (
       SELECT generate_series(
-        CURRENT_DATE - (${Number(days) - 1} * INTERVAL '1 day'),
+        CURRENT_DATE - (($1::integer - 1) * INTERVAL '1 day'),
         CURRENT_DATE,
         INTERVAL '1 day'
       )::date AS analytics_date
@@ -300,19 +305,20 @@ export async function listDailyAnalytics(days = 7) {
         ORDER BY d.analytics_date ASC
       ),
       '[]'::json
-    )::text
+    ) AS data
     FROM dates d
     LEFT JOIN analytics_daily a
       ON a.analytics_date = d.analytics_date;
-  `;
+  `,
+    [Number(days)],
+  );
 
-  const output = await runPsql(sql);
-  return JSON.parse(output || '[]');
+  return result.rows[0].data;
 }
 
 export async function resetDailyAnalytics() {
   await ensureSchema();
-  await runPsql(`TRUNCATE TABLE analytics_daily;`);
+  await query('TRUNCATE TABLE analytics_daily;');
 }
 
 export async function upsertQueueJobs(jobs) {
@@ -322,10 +328,10 @@ export async function upsertQueueJobs(jobs) {
     return [];
   }
 
-  const payload = sqlLiteral(JSON.stringify(jobs));
-  const sql = `
+  const result = await query(
+    `
     WITH input AS (
-      SELECT jsonb_array_elements(${payload}::jsonb) AS data
+      SELECT jsonb_array_elements($1::jsonb) AS data
     ),
     normalized AS (
       SELECT
@@ -428,24 +434,27 @@ export async function upsertQueueJobs(jobs) {
         ORDER BY submitted_at ASC NULLS LAST
       ),
       '[]'::json
-    )::text
+    ) AS data
     FROM upserted
     WHERE id NOT IN (SELECT id FROM existing);
-  `;
+  `,
+    [JSON.stringify(jobs)],
+  );
 
-  const output = await runPsql(sql);
-  return JSON.parse(output || '[]');
+  return result.rows[0].data;
 }
 
 async function listQueueJobsByPrintedStatus(printedStatus) {
   await ensureSchema();
 
+  // Static whitelist — never derived from request input.
   const orderByClause =
     Number(printedStatus) === 1
       ? 'updated_at DESC, submitted_at DESC NULLS LAST, created_at DESC'
       : 'submitted_at ASC NULLS LAST, created_at ASC';
 
-  const sql = `
+  const result = await query(
+    `
     SELECT COALESCE(
       json_agg(
         json_build_object(
@@ -468,15 +477,16 @@ async function listQueueJobsByPrintedStatus(printedStatus) {
         ORDER BY ${orderByClause}
       ),
       '[]'::json
-    )::text
+    ) AS data
     FROM queue_jobs
-    WHERE form_type = 'สั่งพิมพ์งาน 3D Print'
+    WHERE form_type = $1
       AND deleted_at IS NULL
-      AND printed_status = ${Number(printedStatus)};
-  `;
+      AND printed_status = $2;
+  `,
+    [QUEUE_FORM_TYPE, Number(printedStatus)],
+  );
 
-  const output = await runPsql(sql);
-  return JSON.parse(output || '[]');
+  return result.rows[0].data;
 }
 
 export async function listQueueData() {
@@ -490,40 +500,49 @@ export async function listQueueData() {
 
 export async function markQueueJobPrinted(id) {
   await ensureSchema();
-  await runPsql(`
+  await query(
+    `
     UPDATE queue_jobs
     SET printed_status = 1,
         updated_at = NOW()
-    WHERE id = ${sqlLiteral(id)}
+    WHERE id = $1
       AND deleted_at IS NULL;
-  `);
+  `,
+    [id],
+  );
 }
 
 export async function resetQueueJobs() {
   await ensureSchema();
-  await runPsql(`
+  await query(
+    `
     UPDATE queue_jobs
     SET printed_status = 0,
         updated_at = NOW()
-      WHERE form_type = 'สั่งพิมพ์งาน 3D Print'
+      WHERE form_type = $1
         AND deleted_at IS NULL;
-  `);
+  `,
+    [QUEUE_FORM_TYPE],
+  );
 }
 
 export async function deleteQueueJob(id) {
   await ensureSchema();
-  await runPsql(`
+  await query(
+    `
     UPDATE queue_jobs
     SET deleted_at = NOW(),
         updated_at = NOW()
-    WHERE id = ${sqlLiteral(id)};
-  `);
+    WHERE id = $1;
+  `,
+    [id],
+  );
 }
 
 export async function listDiscordWebhooks() {
   await ensureSchema();
 
-  const sql = `
+  const result = await query(`
     SELECT COALESCE(
       json_agg(
         json_build_object(
@@ -535,21 +554,20 @@ export async function listDiscordWebhooks() {
         ORDER BY created_at ASC
       ),
       '[]'::json
-    )::text
+    ) AS data
     FROM discord_webhooks;
-  `;
+  `);
 
-  const output = await runPsql(sql);
-  return JSON.parse(output || '[]');
+  return result.rows[0].data;
 }
 
 export async function createDiscordWebhook(webhook) {
   await ensureSchema();
 
-  const payload = sqlLiteral(JSON.stringify(webhook));
-  const sql = `
+  await query(
+    `
     WITH input AS (
-      SELECT ${payload}::jsonb AS data
+      SELECT $1::jsonb AS data
     )
     INSERT INTO discord_webhooks (
       id,
@@ -564,12 +582,12 @@ export async function createDiscordWebhook(webhook) {
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name,
       webhook_url = EXCLUDED.webhook_url;
-  `;
-
-  await runPsql(sql);
+  `,
+    [JSON.stringify(webhook)],
+  );
 }
 
 export async function deleteDiscordWebhook(id) {
   await ensureSchema();
-  await runPsql(`DELETE FROM discord_webhooks WHERE id = ${sqlLiteral(id)};`);
+  await query('DELETE FROM discord_webhooks WHERE id = $1;', [id]);
 }
