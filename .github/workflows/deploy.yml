@@ -37,6 +37,10 @@ jobs:
           mkdir -p ~/.kube
           echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
 
+      - name: Apply manifests
+        run: |
+          kubectl apply -f k8s/
+
       - name: Restart deployment
         run: |
           kubectl rollout restart deployment/web -n printfarm
