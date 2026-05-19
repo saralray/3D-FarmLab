@@ -1,16 +1,40 @@
-FROM node:20-bookworm-slim
+FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends postgresql-client \
-  && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 RUN npm ci
 
 COPY . .
 
+ARG VITE_PUBLIC_VIEWER_MODE=false
+ARG VITE_GOOGLE_FORM_URL
+ARG VITE_GOOGLE_SHEET_QUEUE_URL
+ENV VITE_PUBLIC_VIEWER_MODE=$VITE_PUBLIC_VIEWER_MODE
+ENV VITE_GOOGLE_FORM_URL=$VITE_GOOGLE_FORM_URL
+ENV VITE_GOOGLE_SHEET_QUEUE_URL=$VITE_GOOGLE_SHEET_QUEUE_URL
+
+RUN npm run build
+
+FROM node:20-bookworm-slim AS runtime
+
+ENV NODE_ENV=production
+ENV PORT=5173
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends postgresql-client \
+  && rm -rf /var/lib/apt/lists/* \
+  && groupadd --system printfarm \
+  && useradd --system --gid printfarm --home-dir /app printfarm
+
+COPY package.json ./
+COPY --from=build /app/dist ./dist
+COPY server ./server
+
+USER printfarm
+
 EXPOSE 5173
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+CMD ["node", "server/app.js"]

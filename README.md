@@ -30,17 +30,29 @@ cp .env.example .env
 
 2. Review the values in `.env`.
 
-3. Start the full stack:
+3. Set production secrets in `.env`.
+
+Generate the Basic Auth password hash with:
+
+```bash
+node -e "console.log(require('node:crypto').createHash('sha256').update(process.argv[1]).digest('hex'))" "your-password"
+```
+
+Use a long random `POSTGRES_PASSWORD` and set `APP_BASIC_AUTH_PASSWORD_SHA256` to the generated hash.
+
+4. Start the full production-style stack:
 
 ```bash
 docker compose up --build
 ```
 
-4. Open the app:
+5. Open the app:
 
 ```text
-http://localhost:5173
+http://localhost:8080
 ```
+
+The browser will prompt for the `APP_BASIC_AUTH_USERNAME` and matching password.
 
 ## Development
 
@@ -67,10 +79,14 @@ Key settings in `.env.example`:
 - `POSTGRES_DB`
 - `POSTGRES_USER`
 - `POSTGRES_PASSWORD`
-- `POSTGRES_PORT`
+- `HTTP_PORT`
+- `APP_BASIC_AUTH_USERNAME`
+- `APP_BASIC_AUTH_PASSWORD_SHA256`
 - `VITE_PUBLIC_VIEWER_MODE`
 - `VITE_GOOGLE_SHEET_QUEUE_URL`
 - `VITE_GOOGLE_FORM_URL`
+- `PRINTER_POLL_INTERVAL_MS`
+- `PRINTER_REQUEST_TIMEOUT_MS`
 - `PRINTER_OFFLINE_GRACE_SECONDS`
 
 The app container and poller derive their `DATABASE_URL` from the PostgreSQL values in `docker-compose.yml`.
@@ -109,19 +125,20 @@ There is no dedicated test script in `package.json`. For frontend validation, ru
 npm run build
 ```
 
-For a full-stack smoke test, run:
+For a full-stack production smoke test, run:
 
 ```bash
 docker compose up --build
 ```
 
-Then verify the app loads at `http://localhost:5173` and the dashboard, queue, analytics, settings, and printer detail views render without console errors.
+Then verify the app loads at `http://localhost:8080`, `/healthz` returns `{"ok":true}`, and the dashboard, queue, analytics, settings, and printer detail views render without console errors.
 
 ## Notes
 
 - `.env` is intentionally ignored by git and should not be committed.
-- The built-in browser auth is suitable for local/demo use, not hardened production auth.
+- The deployed stack adds server-side Basic Auth in front of the app and APIs. The in-app browser auth still controls UI roles after the outer Basic Auth gate.
 - Keep sensitive printer connection details out of public viewer flows.
+- Put TLS in front of nginx for public deployments, either with a cloud/load-balancer certificate or a local TLS reverse proxy.
 
 ## License
 
