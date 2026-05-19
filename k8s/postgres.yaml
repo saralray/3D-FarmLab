@@ -18,6 +18,13 @@ metadata:
   namespace: printfarm
 spec:
   replicas: 1
+
+  # Recreate: the old pod must release the ReadWriteOnce PVC before the new
+  # pod starts. The default RollingUpdate deadlocks here (new pod can't mount
+  # the volume while the old pod still holds it).
+  strategy:
+    type: Recreate
+
   selector:
     matchLabels:
       app: postgres

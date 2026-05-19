@@ -298,7 +298,6 @@ function mapSheetRowsToQueue(rows) {
 
 async function handleApi(req, res, requestUrl) {
   if (requestUrl.pathname === '/healthz') {
-    await ensureSchema();
     sendJson(res, 200, { ok: true }, 'no-store');
     return true;
   }
@@ -471,12 +470,9 @@ async function handleRequest(req, res) {
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
   if (requestUrl.pathname === '/healthz') {
-    try {
-      await ensureSchema();
-      sendJson(res, 200, { ok: true }, 'no-store');
-    } catch (error) {
-      sendJson(res, 503, { ok: false });
-    }
+    // Liveness/readiness probe: keep this cheap and DB-independent so a
+    // brief database blip never cascades into web pods being killed.
+    sendJson(res, 200, { ok: true }, 'no-store');
     return;
   }
 
@@ -537,6 +533,13 @@ async function assertProductionInputs() {
 }
 
 await assertProductionInputs();
+
+// Ensure the schema proactively, but do not block startup on the database:
+// the SPA must still be served (and the liveness probe stay green) if the
+// database is briefly unavailable. Query paths also call ensureSchema lazily.
+ensureSchema().catch((error) => {
+  console.error('Initial schema setup failed; will retry on first database request', error);
+});
 
 createServer(handleRequest).listen(port, host, () => {
   console.log(`Print Farm server listening on ${host}:${port}`);
