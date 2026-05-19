@@ -81,12 +81,16 @@ jobs:
       - name: Apply manifests
         # Manifests use the upstream "saralray/" image prefix as a placeholder.
         # Each fork's images live under its own DOCKERHUB_USERNAME, so the
-        # prefix is rewritten on the fly before apply.
+        # prefix is rewritten into per-file copies, and kubectl is pointed at
+        # that directory. Per-file apply gives clear, file-named errors if a
+        # manifest is malformed (a stdin pipeline reports "line N" only).
         run: |
+          TMP="$(mktemp -d)"
           for f in k8s/*.yaml; do
-            sed "s|saralray/|${IMAGE_PREFIX}/|g" "$f"
-            echo "---"
-          done | kubectl apply -f -
+            sed "s|saralray/|${IMAGE_PREFIX}/|g" "$f" > "$TMP/$(basename "$f")"
+          done
+          kubectl apply -f "$TMP"
+          rm -rf "$TMP"
 
       - name: Restart deployments
         run: |
