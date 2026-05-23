@@ -367,6 +367,7 @@ export async function setPrinterTemperature(
   printer: Printer,
   heater: 'nozzle' | 'bed',
   target: number,
+  nozzleIndex = 0,
 ) {
   const value = Math.round(target);
   if (!Number.isFinite(value) || value < 0 || value > 350) {
@@ -378,10 +379,16 @@ export async function setPrinterTemperature(
     response = await fetch(`/api/printers/${encodeURIComponent(printer.id)}/command`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command: 'set_temperature', heater, target: value }),
+      body: JSON.stringify({ command: 'set_temperature', heater, target: value, nozzleIndex }),
     });
   } else if (printer.profile === 'snapmaker_u1') {
-    const klipperHeater = heater === 'nozzle' ? 'extruder' : 'heater_bed';
+    // Klipper names extra extruders extruder1, extruder2, … (the first is just "extruder").
+    const klipperHeater =
+      heater === 'nozzle'
+        ? nozzleIndex > 0
+          ? `extruder${nozzleIndex}`
+          : 'extruder'
+        : 'heater_bed';
     const script = `SET_HEATER_TEMPERATURE HEATER=${klipperHeater} TARGET=${value}`;
     response = await fetch(
       `/__printer_proxy/${encodeURIComponent(printer.id)}/printer/gcode/script?script=${encodeURIComponent(script)}`,
