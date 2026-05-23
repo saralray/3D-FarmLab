@@ -31,6 +31,7 @@ export interface Printer {
   totalPrintTime: number; // hours
   successRate: number; // percentage
   spools?: Spool[]; // Optional multi-spool support
+  lightOn?: boolean; // Last-known chamber/cavity light state (Bambu reports it over MQTT)
 }
 
 export interface PrintJob {

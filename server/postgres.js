@@ -31,6 +31,7 @@ ALTER TABLE printers ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAUL
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_temperatures JSONB;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS offline_since DOUBLE PRECISION;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS serial TEXT;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS light_on BOOLEAN;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -66,6 +67,11 @@ CREATE TABLE IF NOT EXISTS discord_webhooks (
   name TEXT NOT NULL,
   webhook_url TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 SELECT pg_advisory_unlock(90210);
 `;
@@ -133,7 +139,8 @@ function buildPrinterListSelect(includeSensitive = true) {
       'successRate', ROUND(success_rate::numeric, 2),
       'currentJob', current_job,
       'nozzleTemperatures', nozzle_temperatures,
-      'spools', spools
+      'spools', spools,
+      'lightOn', light_on
     )
   `;
 }
@@ -195,7 +202,8 @@ export async function getPrinterById(id) {
       'successRate', ROUND(success_rate::numeric, 2),
       'currentJob', current_job,
       'nozzleTemperatures', nozzle_temperatures,
-      'spools', spools
+      'spools', spools,
+      'lightOn', light_on
     ) AS printer
     FROM printers
     WHERE id = $1;
@@ -597,4 +605,24 @@ export async function createDiscordWebhook(webhook) {
 export async function deleteDiscordWebhook(id) {
   await ensureSchema();
   await query('DELETE FROM discord_webhooks WHERE id = $1;', [id]);
+}
+
+// Generic key/value store for app-wide preferences (e.g. the shared printer
+// detail card layout). Values are stored as JSONB and returned parsed.
+export async function getAppSetting(key) {
+  await ensureSchema();
+  const result = await query('SELECT value FROM app_settings WHERE key = $1;', [key]);
+  return result.rows.length > 0 ? result.rows[0].value : null;
+}
+
+export async function setAppSetting(key, value) {
+  await ensureSchema();
+  await query(
+    `INSERT INTO app_settings (key, value, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE
+       SET value = EXCLUDED.value,
+           updated_at = NOW();`,
+    [key, JSON.stringify(value)],
+  );
 }

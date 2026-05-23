@@ -121,6 +121,7 @@ export function normalizePrinter(printer: Partial<Printer>, index: number): Prin
     totalPrintTime: normalizeMaxTwoDecimals(printer.totalPrintTime),
     successRate: normalizeMaxTwoDecimals(printer.successRate),
     spools,
+    lightOn: printer.lightOn,
   };
 }
 
