@@ -3,6 +3,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
+import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import mqtt from 'mqtt';
 import {
@@ -297,16 +298,44 @@ function mapSheetRowsToQueue(rows) {
     .filter((job) => job && (job.stlFileUrl || job.submitterName));
 }
 
-// Bambu printers have no HTTP control API; pause/resume/cancel are MQTT commands
-// published to device/<serial>/request. We open a short-lived publish-only
-// connection (no subscribe), which coexists with the poller's connection.
-const BAMBU_COMMAND_ACTIONS = { pause: 'pause', resume: 'resume', cancel: 'stop' };
+// Bambu printers have no HTTP control API; pause/resume/cancel and the chamber
+// light are MQTT commands published to device/<serial>/request. We open a
+// short-lived publish-only connection (no subscribe), which coexists with the
+// poller's connection.
+const BAMBU_PRINT_ACTIONS = { pause: 'pause', resume: 'resume', cancel: 'stop' };
 
-function sendBambuCommand(printer, command) {
-  const action = BAMBU_COMMAND_ACTIONS[command];
+// Print actions go under `print`; the chamber light is a `system` ledctrl message.
+function buildBambuCommandPayload(command) {
+  const sequenceId = String(Date.now() % 1000000);
+
+  if (command === 'light_on' || command === 'light_off') {
+    return {
+      system: {
+        sequence_id: sequenceId,
+        command: 'ledctrl',
+        led_node: 'chamber_light',
+        led_mode: command === 'light_on' ? 'on' : 'off',
+        led_on_time: 500,
+        led_off_time: 500,
+        loop_times: 0,
+        interval_time: 0,
+      },
+    };
+  }
+
+  const action = BAMBU_PRINT_ACTIONS[command];
   if (!action) {
     throw new Error(`Unsupported command: ${command}`);
   }
+  const printCommand = { command: action, sequence_id: sequenceId };
+  if (action === 'stop') {
+    printCommand.param = '';
+  }
+  return { print: printCommand };
+}
+
+function sendBambuCommand(printer, command) {
+  const payload = buildBambuCommandPayload(command);
   const serial = (printer.serial || '').trim();
   if (!serial) {
     throw new Error('Bambu printer is missing its serial number');
@@ -336,13 +365,9 @@ function sendBambuCommand(printer, command) {
       // QoS 0 (the printer's broker isn't guaranteed to PUBACK on this topic, and
       // the poller already proves request-topic commands are honored). The fix for
       // the original dropped command is the graceful close below, not the QoS.
-      const printCommand = { command: action, sequence_id: String(Date.now() % 1000000) };
-      if (action === 'stop') {
-        printCommand.param = '';
-      }
       client.publish(
         `device/${serial}/request`,
-        JSON.stringify({ print: printCommand }),
+        JSON.stringify(payload),
         { qos: 0 },
         (error) => {
           if (error) return fail(error);
@@ -356,6 +381,77 @@ function sendBambuCommand(printer, command) {
       );
     });
   });
+}
+
+// The A1 Mini has no HTTP webcam; its chamber camera is a length-prefixed JPEG
+// stream over a raw TLS socket on port 6000 (auth: user "bblp" + LAN access
+// code, same code stored in api_key_header). We connect, read one frame, and
+// return it as a snapshot — the printer must have "LAN Mode Liveview" enabled.
+const BAMBU_CAMERA_PORT = 6000;
+
+function captureBambuSnapshot(host, accessCode, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    // 80-byte auth packet: 16-byte header, then "bblp" and the access code,
+    // each null-padded to 32 bytes.
+    const auth = Buffer.alloc(80);
+    auth.writeUInt32LE(0x40, 0);
+    auth.writeUInt32LE(0x3000, 4);
+    auth.write('bblp', 16, 'ascii');
+    auth.write(accessCode, 48, 'ascii');
+
+    const socket = tls.connect(
+      { host, port: BAMBU_CAMERA_PORT, rejectUnauthorized: false },
+      () => socket.write(auth),
+    );
+
+    let buffer = Buffer.alloc(0);
+    let payloadSize = null;
+    let settled = false;
+
+    const finish = (error, data) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      if (error) reject(error);
+      else resolve(data);
+    };
+    const timer = setTimeout(() => finish(new Error('Bambu camera timed out')), timeoutMs);
+
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      // Each frame starts with a 16-byte header whose first uint32 is the JPEG
+      // payload length; the JPEG bytes follow.
+      if (payloadSize === null) {
+        if (buffer.length < 16) return;
+        payloadSize = buffer.readUInt32LE(0);
+        buffer = buffer.subarray(16);
+      }
+      if (buffer.length >= payloadSize) {
+        finish(null, Buffer.from(buffer.subarray(0, payloadSize)));
+      }
+    });
+    socket.on('error', (error) => finish(error));
+    socket.on('close', () => finish(new Error('Bambu camera closed before a frame arrived')));
+  });
+}
+
+async function handleBambuWebcam(res, printer, pathParts) {
+  // Only still snapshots are supported (no live MJPEG player for Bambu).
+  if (pathParts[0] !== 'snapshot.jpg') {
+    sendJson(res, 404, { error: 'Bambu camera supports snapshots only' });
+    return;
+  }
+  try {
+    const jpeg = await captureBambuSnapshot(printer.ipAddress, (printer.apiKeyHeader || '').trim());
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(jpeg);
+  } catch (error) {
+    // A failed capture is non-fatal: the UI just shows "Webcam offline".
+    sendJson(res, 502, { error: error instanceof Error ? error.message : 'Bambu camera unavailable' });
+  }
 }
 
 async function handleApi(req, res, requestUrl) {
@@ -494,6 +590,12 @@ async function handlePrinterProxy(req, res, requestUrl, prefix, makeTargetUrl, e
   const printer = await getPrinterById(printerId);
   if (!printer) {
     sendJson(res, 404, { error: 'Printer not found' });
+    return true;
+  }
+
+  // Bambu's chamber camera isn't an HTTP endpoint — capture it over its TLS socket.
+  if (prefix === '/__printer_webcam/' && printer.profile === 'bambulab_a1_mini') {
+    await handleBambuWebcam(res, printer, pathParts);
     return true;
   }
 

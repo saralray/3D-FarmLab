@@ -351,6 +351,46 @@ export async function sendPrinterCommand(
   }
 }
 
+export function printerSupportsLight(printer: Printer) {
+  return printer.profile === 'snapmaker_u1' || printer.profile === 'bambulab_a1_mini';
+}
+
+export async function setPrinterLight(printer: Printer, on: boolean) {
+  // Snapmaker U1 (Klipper/Moonraker) toggles its cavity LED via a gcode script;
+  // Bambu has no HTTP API, so the server publishes an MQTT ledctrl command.
+  let response: Response;
+  if (printer.profile === 'bambulab_a1_mini') {
+    response = await fetch(`/api/printers/${encodeURIComponent(printer.id)}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: on ? 'light_on' : 'light_off' }),
+    });
+  } else if (printer.profile === 'snapmaker_u1') {
+    const script = `SET_LED LED=cavity_led WHITE=${on ? 1 : 0}`;
+    response = await fetch(
+      `/__printer_proxy/${encodeURIComponent(printer.id)}/printer/gcode/script?script=${encodeURIComponent(script)}`,
+      { method: 'POST' },
+    );
+  } else {
+    throw new Error('Light control is not available for this printer.');
+  }
+
+  if (!response.ok) {
+    let message = `Light command failed with ${response.status}`;
+
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload.error) {
+        message = payload.error;
+      }
+    } catch {
+      // Ignore non-JSON proxy responses.
+    }
+
+    throw new Error(message);
+  }
+}
+
 export function buildPrinterWebcamUrl(printer: Printer) {
   return `/__printer_webcam/${printer.id}/player`;
 }

@@ -19,11 +19,14 @@ import {
   Square,
   CheckCircle,
   Palette,
+  Lightbulb,
 } from 'lucide-react';
 import {
   buildPrinterWebcamSnapshotUrl,
   normalizePrinter,
+  printerSupportsLight,
   sendPrinterCommand,
+  setPrinterLight,
 } from '../lib/printerProfiles';
 import { fetchPrinters, removePrinter } from '../lib/printersApi';
 import { useAuth } from '../contexts/AuthContext';
@@ -104,6 +107,10 @@ export function PrinterDetail() {
   const [printer, setPrinter] = useState<Printer | null>(null);
   const [commandInFlight, setCommandInFlight] = useState<'pause' | 'resume' | 'cancel' | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
+  // The hardware doesn't report light state, so this tracks the last command sent.
+  const [lightOn, setLightOn] = useState(false);
+  const [lightInFlight, setLightInFlight] = useState(false);
+  const [lightError, setLightError] = useState<string | null>(null);
   const [removeInFlight, setRemoveInFlight] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [snapshotNonce, setSnapshotNonce] = useState(() => Date.now());
@@ -336,6 +343,26 @@ export function PrinterDetail() {
     }
   };
 
+  const handleToggleLight = async (next: boolean) => {
+    if (!canControlPrinter || !printer) {
+      return;
+    }
+
+    const previous = lightOn;
+    setLightOn(next); // optimistic — reverted if the command fails
+    setLightInFlight(true);
+    setLightError(null);
+
+    try {
+      await setPrinterLight(printer, next);
+    } catch (error) {
+      setLightOn(previous);
+      setLightError(error instanceof Error ? error.message : 'Unable to toggle the light');
+    } finally {
+      setLightInFlight(false);
+    }
+  };
+
   const handleRemovePrinter = async () => {
     if (!printer || user?.role !== 'admin') {
       return;
@@ -382,119 +409,122 @@ export function PrinterDetail() {
             Current Job
           </h2>
 
-          {printer.currentJob ? (
-            <div className="space-y-4">
-              <div className="overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-900">
-                {isOnline ? (
-                  <img
-                    src={webcamSnapshotUrl}
-                    alt={`${printer.name} preview`}
-                    className="h-80 w-full bg-black object-contain"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="flex h-80 w-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
-                    Webcam offline
+          <div className="space-y-4">
+            {/* Camera is always shown so staff can watch the printer regardless of job state. */}
+            <div className="overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-900">
+              {isOnline ? (
+                <img
+                  src={webcamSnapshotUrl}
+                  alt={`${printer.name} preview`}
+                  className="h-80 w-full bg-black object-contain"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="flex h-80 w-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                  Webcam offline
+                </div>
+              )}
+            </div>
+
+            {printer.currentJob ? (
+              <>
+                <div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">File</div>
+                  <div className="font-medium text-lg dark:text-white">{printer.currentJob.filename}</div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-gray-600 dark:text-gray-400">Progress</span>
+                    <span className="font-medium dark:text-white">{formatMaxTwoDecimals(printer.progress)}%</span>
+                  </div>
+                  <Progress value={printer.progress} className="h-3" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Time Remaining</div>
+                    <div className="font-medium flex items-center gap-1 dark:text-white">
+                      <Clock className="size-4" />
+                      {formattedTimeRemaining} h.
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Printing Time</div>
+                    <div className="font-medium dark:text-white">{formattedPrintingTime} h.</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Filament Used</div>
+                    <div className="font-medium dark:text-white">
+                      {formatMaxTwoDecimals(printer.currentJob.filamentUsed)}g
+                    </div>
+                  </div>
+                </div>
+
+                {canControlPrinter && (
+                  <div className="flex gap-2 pt-4">
+                    {printer.status === 'printing' && (
+                      <>
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          disabled={commandInFlight !== null}
+                          onClick={() => handlePrinterCommand('pause')}
+                        >
+                          <Pause className="size-4 mr-2" />
+                          {commandInFlight === 'pause' ? 'Pausing...' : 'Pause'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          disabled={commandInFlight !== null}
+                          onClick={() => handlePrinterCommand('cancel')}
+                        >
+                          <Square className="size-4 mr-2" />
+                          {commandInFlight === 'cancel' ? 'Cancelling...' : 'Cancel'}
+                        </Button>
+                      </>
+                    )}
+                    {printer.status === 'paused' && (
+                      <>
+                        <Button
+                          className="flex-1"
+                          disabled={commandInFlight !== null}
+                          onClick={() => handlePrinterCommand('resume')}
+                        >
+                          <Play className="size-4 mr-2" />
+                          {commandInFlight === 'resume' ? 'Resuming...' : 'Resume'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          disabled={commandInFlight !== null}
+                          onClick={() => handlePrinterCommand('cancel')}
+                        >
+                          <Square className="size-4 mr-2" />
+                          {commandInFlight === 'cancel' ? 'Cancelling...' : 'Cancel'}
+                        </Button>
+                      </>
+                    )}
                   </div>
                 )}
+
+                {!canControlPrinter && (
+                  <p className="pt-4 text-sm text-gray-500 dark:text-gray-400">
+                    Viewer accounts can monitor jobs but cannot pause, resume, or cancel them.
+                  </p>
+                )}
+
+                {commandError && <p className="text-sm text-red-500">{commandError}</p>}
+              </>
+            ) : (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                <CheckCircle className="size-12 mx-auto mb-3 opacity-50" />
+                <p>No active job</p>
+                <p className="text-sm mt-1">This printer is ready for new tasks</p>
               </div>
-
-              <div>
-                <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">File</div>
-                <div className="font-medium text-lg dark:text-white">{printer.currentJob.filename}</div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-gray-600 dark:text-gray-400">Progress</span>
-                  <span className="font-medium dark:text-white">{formatMaxTwoDecimals(printer.progress)}%</span>
-                </div>
-                <Progress value={printer.progress} className="h-3" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Time Remaining</div>
-                  <div className="font-medium flex items-center gap-1 dark:text-white">
-                    <Clock className="size-4" />
-                    {formattedTimeRemaining} h.
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Printing Time</div>
-                  <div className="font-medium dark:text-white">{formattedPrintingTime} h.</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Filament Used</div>
-                  <div className="font-medium dark:text-white">
-                    {formatMaxTwoDecimals(printer.currentJob.filamentUsed)}g
-                  </div>
-                </div>
-              </div>
-
-              {canControlPrinter && (
-                <div className="flex gap-2 pt-4">
-                  {printer.status === 'printing' && (
-                    <>
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        disabled={commandInFlight !== null}
-                        onClick={() => handlePrinterCommand('pause')}
-                      >
-                        <Pause className="size-4 mr-2" />
-                        {commandInFlight === 'pause' ? 'Pausing...' : 'Pause'}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        disabled={commandInFlight !== null}
-                        onClick={() => handlePrinterCommand('cancel')}
-                      >
-                        <Square className="size-4 mr-2" />
-                        {commandInFlight === 'cancel' ? 'Cancelling...' : 'Cancel'}
-                      </Button>
-                    </>
-                  )}
-                  {printer.status === 'paused' && (
-                    <>
-                      <Button
-                        className="flex-1"
-                        disabled={commandInFlight !== null}
-                        onClick={() => handlePrinterCommand('resume')}
-                      >
-                        <Play className="size-4 mr-2" />
-                        {commandInFlight === 'resume' ? 'Resuming...' : 'Resume'}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        disabled={commandInFlight !== null}
-                        onClick={() => handlePrinterCommand('cancel')}
-                      >
-                        <Square className="size-4 mr-2" />
-                        {commandInFlight === 'cancel' ? 'Cancelling...' : 'Cancel'}
-                      </Button>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {!canControlPrinter && printer.currentJob && (
-                <p className="pt-4 text-sm text-gray-500 dark:text-gray-400">
-                  Viewer accounts can monitor jobs but cannot pause, resume, or cancel them.
-                </p>
-              )}
-
-              {commandError && <p className="text-sm text-red-500">{commandError}</p>}
-            </div>
-          ) : (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              <CheckCircle className="size-12 mx-auto mb-3 opacity-50" />
-              <p>No active job</p>
-              <p className="text-sm mt-1">This printer is ready for new tasks</p>
-            </div>
-          )}
+            )}
+          </div>
         </Card>
 
         {/* Printer Stats */}
@@ -578,6 +608,39 @@ export function PrinterDetail() {
               </p>
             )}
           </Card>
+
+          {canControlPrinter && printerSupportsLight(printer) && (
+            <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
+              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
+                <Lightbulb className="size-5" />
+                {printer.profile === 'snapmaker_u1' ? 'Cavity Light' : 'Chamber Light'}
+              </h2>
+              <Button
+                type="button"
+                size="lg"
+                variant={lightOn ? 'default' : 'outline'}
+                disabled={!isOnline || lightInFlight}
+                onClick={() => handleToggleLight(!lightOn)}
+                className={`h-14 w-full justify-center text-base font-semibold ${
+                  lightOn ? 'bg-amber-400 text-amber-950 hover:bg-amber-300' : ''
+                }`}
+                aria-pressed={lightOn}
+              >
+                <Lightbulb className={`size-6 mr-2 ${lightOn ? 'fill-current' : ''}`} />
+                {lightInFlight
+                  ? 'Switching…'
+                  : lightOn
+                    ? 'Light On — tap to turn off'
+                    : 'Light Off — tap to turn on'}
+              </Button>
+              {!isOnline && (
+                <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                  Connect the printer to control its light.
+                </p>
+              )}
+              {lightError && <p className="mt-3 text-sm text-red-500">{lightError}</p>}
+            </Card>
+          )}
 
           <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
             <h2 className="text-xl font-semibold mb-4 dark:text-white">Information</h2>
