@@ -170,7 +170,9 @@ export function PrinterDetail() {
     setTaskConfig(null);
     setTaskConfigError(null);
 
-    if (!printer || !isOnline) {
+    // Only Snapmaker/Moonraker exposes this HTTP endpoint; other profiles
+    // (e.g. Bambu) surface filament via printer.spools instead.
+    if (!printer || !isOnline || printer.profile !== 'snapmaker_u1') {
       return;
     }
 
@@ -252,7 +254,7 @@ export function PrinterDetail() {
   const canControlPrinter = user?.role === 'admin' || user?.role === 'operator';
   const canViewSensitiveInfo = user?.role !== 'viewer';
   const webcamSnapshotUrl = `${buildPrinterWebcamSnapshotUrl(printer)}?t=${snapshotNonce}`;
-  const filamentSlots: FilamentSlot[] =
+  const taskConfigSlots: FilamentSlot[] =
     taskConfig?.filament_type?.map((type, index) => ({
       slot: index + 1,
       vendor: taskConfig.filament_vendor?.[index] || 'Unknown',
@@ -262,6 +264,19 @@ export function PrinterDetail() {
       isLoaded: Boolean(taskConfig.filament_exist?.[index]),
       isInUse: Boolean(taskConfig.extruders_used?.[index]),
     })) ?? [];
+  // Profiles without a Moonraker task config (e.g. Bambu) report loaded
+  // filament through printer.spools, populated by the poller.
+  const spoolSlots: FilamentSlot[] = (printer.spools ?? []).map((spool, index) => ({
+    slot: index + 1,
+    vendor: '',
+    type: spool.material || 'Unknown',
+    subType: '',
+    color: spool.color || '#808080',
+    isLoaded: true,
+    isInUse: printer.status === 'printing',
+  }));
+  const filamentSlots: FilamentSlot[] =
+    taskConfigSlots.length > 0 ? taskConfigSlots : spoolSlots;
   const formattedTimeRemaining = formatMinutesAsHourDotMinute(printer.currentJob?.timeRemaining ?? 0);
   const formattedPrintingTime = formatMinutesAsHourDotMinute(printer.currentJob?.printingTime ?? 0);
 
@@ -543,7 +558,7 @@ export function PrinterDetail() {
                           <div>
                             <div className="font-medium dark:text-white">Tool {slot.slot}</div>
                             <div className="text-sm text-gray-600 dark:text-gray-400">
-                              {slot.vendor} {slot.type}{slot.subType ? ` / ${slot.subType}` : ''}
+                              {`${slot.vendor} ${slot.type}`.trim()}{slot.subType ? ` / ${slot.subType}` : ''}
                             </div>
                           </div>
                         </div>

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import mqtt from 'mqtt';
 import {
   createDiscordWebhook,
   deleteDiscordWebhook,
@@ -296,6 +297,67 @@ function mapSheetRowsToQueue(rows) {
     .filter((job) => job && (job.stlFileUrl || job.submitterName));
 }
 
+// Bambu printers have no HTTP control API; pause/resume/cancel are MQTT commands
+// published to device/<serial>/request. We open a short-lived publish-only
+// connection (no subscribe), which coexists with the poller's connection.
+const BAMBU_COMMAND_ACTIONS = { pause: 'pause', resume: 'resume', cancel: 'stop' };
+
+function sendBambuCommand(printer, command) {
+  const action = BAMBU_COMMAND_ACTIONS[command];
+  if (!action) {
+    throw new Error(`Unsupported command: ${command}`);
+  }
+  const serial = (printer.serial || '').trim();
+  if (!serial) {
+    throw new Error('Bambu printer is missing its serial number');
+  }
+
+  return new Promise((resolve, reject) => {
+    const client = mqtt.connect(`mqtts://${printer.ipAddress}:8883`, {
+      username: 'bblp',
+      password: (printer.apiKeyHeader || '').trim(),
+      rejectUnauthorized: false,
+      reconnectPeriod: 0,
+      connectTimeout: 4000,
+    });
+
+    let settled = false;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      client.end(true);
+      reject(error);
+    };
+    const timer = setTimeout(() => fail(new Error('MQTT command timed out')), 6000);
+
+    client.once('error', fail);
+    client.once('connect', () => {
+      // QoS 0 (the printer's broker isn't guaranteed to PUBACK on this topic, and
+      // the poller already proves request-topic commands are honored). The fix for
+      // the original dropped command is the graceful close below, not the QoS.
+      const printCommand = { command: action, sequence_id: String(Date.now() % 1000000) };
+      if (action === 'stop') {
+        printCommand.param = '';
+      }
+      client.publish(
+        `device/${serial}/request`,
+        JSON.stringify({ print: printCommand }),
+        { qos: 0 },
+        (error) => {
+          if (error) return fail(error);
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          // Close gracefully so the queued packet is flushed to the socket before
+          // it closes — a force close here can drop the command in transit.
+          client.end(false, {}, () => resolve());
+        },
+      );
+    });
+  });
+}
+
 async function handleApi(req, res, requestUrl) {
   if (requestUrl.pathname === '/healthz') {
     sendJson(res, 200, { ok: true }, 'no-store');
@@ -312,6 +374,25 @@ async function handleApi(req, res, requestUrl) {
       sendEmpty(res);
       return true;
     }
+  }
+
+  if (
+    requestUrl.pathname.startsWith('/api/printers/') &&
+    requestUrl.pathname.endsWith('/command') &&
+    req.method === 'POST'
+  ) {
+    const id = decodeURIComponent(
+      requestUrl.pathname.slice('/api/printers/'.length, -'/command'.length),
+    );
+    const printer = await getPrinterById(id);
+    if (!printer) {
+      sendJson(res, 404, { error: 'Printer not found' });
+      return true;
+    }
+    const { command } = await readJsonBody(req);
+    await sendBambuCommand(printer, command);
+    sendEmpty(res);
+    return true;
   }
 
   if (requestUrl.pathname.startsWith('/api/printers/') && req.method === 'DELETE') {

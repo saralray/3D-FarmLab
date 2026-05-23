@@ -1,5 +1,5 @@
 export type PrinterStatus = 'printing' | 'idle' | 'error' | 'offline' | 'paused';
-export type PrinterProfile = 'generic' | 'snapmaker_u1';
+export type PrinterProfile = 'generic' | 'snapmaker_u1' | 'bambulab_a1_mini';
 
 export interface Spool {
   id: string;
@@ -18,6 +18,7 @@ export interface Printer {
   url: string;
   ipAddress: string;
   apiKeyHeader: string;
+  serial?: string; // Bambu Lab printers: device serial for the MQTT report topic
   status: PrinterStatus;
   currentJob?: PrintJob;
   temperature: {

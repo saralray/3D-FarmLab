@@ -28,9 +28,10 @@ RUN groupadd --system printfarm \
 
 COPY package.json ./
 
-# The server's only runtime dependency is the pg client. Keep this version in
-# sync with "pg" in package.json. The build stage (npm ci) covers the rest.
-RUN npm install pg@8.21.0 --no-save --no-audit --no-fund \
+# The server's runtime dependencies are the pg client and the mqtt client (used
+# for Bambu printer commands). Keep these versions in sync with package.json.
+# The build stage (npm ci) covers the rest.
+RUN npm install pg@8.21.0 mqtt@5.15.1 --no-save --no-audit --no-fund \
   && npm cache clean --force
 
 COPY --from=build /app/dist ./dist

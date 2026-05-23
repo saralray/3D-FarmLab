@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS printers (
   url TEXT NOT NULL,
   ip_address TEXT NOT NULL UNIQUE,
   api_key_header TEXT NOT NULL,
+  serial TEXT,
   status TEXT NOT NULL,
   temperature_nozzle DOUBLE PRECISION NOT NULL DEFAULT 0,
   temperature_bed DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS printers (
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_temperatures JSONB;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS offline_since DOUBLE PRECISION;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS serial TEXT;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -119,6 +121,7 @@ function buildPrinterListSelect(includeSensitive = true) {
       'url', ${includeSensitive ? 'url' : "''"},
       'ipAddress', ${includeSensitive ? 'ip_address' : "''"},
       'apiKeyHeader', ${includeSensitive ? 'api_key_header' : "''"},
+      'serial', ${includeSensitive ? 'serial' : "''"},
       'status', status,
       'temperature', json_build_object(
         'nozzle', ROUND(temperature_nozzle::numeric, 2),
@@ -180,6 +183,7 @@ export async function getPrinterById(id) {
       'url', url,
       'ipAddress', ip_address,
       'apiKeyHeader', api_key_header,
+      'serial', serial,
       'status', status,
       'temperature', json_build_object(
         'nozzle', ROUND(temperature_nozzle::numeric, 2),
@@ -219,6 +223,7 @@ export async function upsertPrinter(printer) {
       url,
       ip_address,
       api_key_header,
+      serial,
       status,
       temperature_nozzle,
       temperature_bed,
@@ -240,6 +245,7 @@ export async function upsertPrinter(printer) {
       data->>'url',
       data->>'ipAddress',
       data->>'apiKeyHeader',
+      data->>'serial',
       data->>'status',
       COALESCE((data->'temperature'->>'nozzle')::double precision, 0),
       COALESCE((data->'temperature'->>'bed')::double precision, 0),
@@ -260,6 +266,7 @@ export async function upsertPrinter(printer) {
       url = EXCLUDED.url,
       ip_address = EXCLUDED.ip_address,
       api_key_header = EXCLUDED.api_key_header,
+      serial = EXCLUDED.serial,
       status = EXCLUDED.status,
       temperature_nozzle = EXCLUDED.temperature_nozzle,
       temperature_bed = EXCLUDED.temperature_bed,

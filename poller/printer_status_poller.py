@@ -1,10 +1,13 @@
 import calendar
 import json
 import os
+import ssl
+import threading
 import time
 from io import BytesIO
 from typing import Any
 
+import paho.mqtt.client as mqtt
 import psycopg
 import requests
 
@@ -23,6 +26,7 @@ CREATE TABLE IF NOT EXISTS printers (
   url TEXT NOT NULL,
   ip_address TEXT NOT NULL UNIQUE,
   api_key_header TEXT NOT NULL,
+  serial TEXT,
   status TEXT NOT NULL,
   temperature_nozzle DOUBLE PRECISION NOT NULL DEFAULT 0,
   temperature_bed DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -39,6 +43,7 @@ CREATE TABLE IF NOT EXISTS printers (
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_temperatures JSONB;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS offline_since DOUBLE PRECISION;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS serial TEXT;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -63,6 +68,24 @@ SNAPMAKER_STATUS_PATH = (
     "&extruder3=temperature,target&heater_bed=temperature,target"
     "&virtual_sdcard=progress"
 )
+
+# Bambu Lab printers report over MQTT-over-TLS in LAN mode (no HTTP status API).
+# Auth is the LAN access code (stored in the printer's api_key_header field) with a
+# fixed "bblp" username; the serial is learned from the report topic.
+BAMBU_MQTT_PORT = 8883
+BAMBU_MQTT_USERNAME = "bblp"
+# Treat a Bambu printer as offline if no MQTT report arrives within this window.
+BAMBU_REPORT_FRESHNESS_SECONDS = max(POLL_INTERVAL_SECONDS * 4, 20)
+# Rate-limit full-snapshot (pushall) requests so we never flood the printer.
+BAMBU_PUSHALL_MIN_INTERVAL_SECONDS = 10
+BAMBU_STATE_MAP = {
+    "RUNNING": "printing",
+    "PREPARE": "printing",
+    "SLICING": "printing",
+    "PAUSE": "paused",
+    "FINISH": "idle",
+    "IDLE": "idle",
+}
 
 
 def db_url() -> str:
@@ -91,6 +114,7 @@ def list_printers(conn: psycopg.Connection) -> list[dict[str, Any]]:
               url,
               ip_address AS "ipAddress",
               api_key_header AS "apiKeyHeader",
+              serial,
               status,
               json_build_object('nozzle', temperature_nozzle, 'bed', temperature_bed) AS temperature,
               progress,
@@ -121,6 +145,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               url,
               ip_address,
               api_key_header,
+              serial,
               status,
               temperature_nozzle,
               temperature_bed,
@@ -141,6 +166,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               %(url)s,
               %(ipAddress)s,
               %(apiKeyHeader)s,
+              %(serial)s,
               %(status)s,
               %(temperature_nozzle)s,
               %(temperature_bed)s,
@@ -161,6 +187,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               url = EXCLUDED.url,
               ip_address = EXCLUDED.ip_address,
               api_key_header = EXCLUDED.api_key_header,
+              serial = EXCLUDED.serial,
               status = EXCLUDED.status,
               temperature_nozzle = EXCLUDED.temperature_nozzle,
               temperature_bed = EXCLUDED.temperature_bed,
@@ -182,6 +209,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
                 "url": printer["url"],
                 "ipAddress": printer["ipAddress"],
                 "apiKeyHeader": printer.get("apiKeyHeader", ""),
+                "serial": printer.get("serial"),
                 "status": printer["status"],
                 "temperature_nozzle": printer.get("temperature", {}).get("nozzle", 0),
                 "temperature_bed": printer.get("temperature", {}).get("bed", 0),
@@ -429,13 +457,276 @@ def fetch_snapmaker_task_config(printer: dict[str, Any]) -> list[dict[str, Any]]
     return build_spools_from_task_config(task_config)
 
 
+class _BambuMqttClient:
+    """Persistent MQTT-over-TLS connection to one Bambu printer in LAN mode.
+
+    Bambu's broker only authorizes a subscription to the printer's own exact topic
+    ``device/<serial>/report`` — a wildcard subscription gets the client kicked — and
+    an idle printer stays silent until asked, so we send a ``pushall`` request on
+    connect and again whenever the cached data is going stale. paho runs the network
+    loop on its own thread; each report is merged into a cached ``print`` object that
+    the poll loop reads synchronously.
+    """
+
+    def __init__(self, host: str, access_code: str, serial: str) -> None:
+        self.host = host
+        self.access_code = access_code
+        self.serial = serial
+        self._report_topic = f"device/{serial}/report"
+        self._request_topic = f"device/{serial}/request"
+        self._print: dict[str, Any] = {}
+        self._last_report = 0.0
+        self._last_pushall = 0.0
+        self._lock = threading.Lock()
+
+        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self._client.username_pw_set(BAMBU_MQTT_USERNAME, access_code)
+        # Bambu printers serve a self-signed certificate; trust the LAN device directly.
+        self._client.tls_set(cert_reqs=ssl.CERT_NONE)
+        self._client.tls_insecure_set(True)
+        self._client.reconnect_delay_set(min_delay=1, max_delay=30)
+        self._client.on_connect = self._on_connect
+        self._client.on_subscribe = self._on_subscribe
+        self._client.on_message = self._on_message
+        self._client.connect_async(host, BAMBU_MQTT_PORT, keepalive=30)
+        self._client.loop_start()
+
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None) -> None:
+        if getattr(reason_code, "is_failure", False):
+            print(f"bambu mqtt connect failed ({self.host}): {reason_code}", flush=True)
+            return
+        client.subscribe(self._report_topic)
+
+    def _on_subscribe(self, client, userdata, mid, reason_codes, properties=None) -> None:
+        # Once the subscription is live, ask for a full snapshot.
+        self._last_pushall = 0.0
+        self._request_pushall()
+
+    def _on_message(self, client, userdata, message) -> None:
+        try:
+            payload = json.loads(message.payload.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return
+        print_data = payload.get("print")
+        if isinstance(print_data, dict):
+            with self._lock:
+                self._print.update(print_data)
+                self._last_report = time.time()
+
+    def _request_pushall(self) -> None:
+        now = time.time()
+        if now - self._last_pushall < BAMBU_PUSHALL_MIN_INTERVAL_SECONDS:
+            return
+        self._last_pushall = now
+        try:
+            self._client.publish(
+                self._request_topic,
+                json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}}),
+            )
+        except Exception:
+            pass
+
+    def latest_report(self) -> dict[str, Any] | None:
+        with self._lock:
+            age = time.time() - self._last_report
+            data = dict(self._print) if self._print else None
+        # Idle printers go quiet; nudge a fresh snapshot before the cached data expires.
+        if data is None or age > BAMBU_REPORT_FRESHNESS_SECONDS / 2:
+            self._request_pushall()
+        if data is None or age > BAMBU_REPORT_FRESHNESS_SECONDS:
+            return None
+        return data
+
+    def close(self) -> None:
+        try:
+            self._client.loop_stop()
+            self._client.disconnect()
+        except Exception:
+            pass
+
+
+# One persistent MQTT connection per Bambu printer, keyed by printer id.
+_BAMBU_CLIENTS: dict[str, _BambuMqttClient] = {}
+
+
+def get_bambu_client(printer: dict[str, Any]) -> _BambuMqttClient:
+    printer_id = printer["id"]
+    host = printer.get("ipAddress") or ""
+    access_code = (printer.get("apiKeyHeader") or "").strip()
+    serial = (printer.get("serial") or "").strip()
+
+    client = _BAMBU_CLIENTS.get(printer_id)
+    if client is not None and (
+        client.host != host or client.access_code != access_code or client.serial != serial
+    ):
+        client.close()
+        client = None
+    if client is None:
+        client = _BambuMqttClient(host, access_code, serial)
+        _BAMBU_CLIENTS[printer_id] = client
+    return client
+
+
+def prune_bambu_clients(active_ids: set[str]) -> None:
+    """Drop MQTT connections for printers that no longer exist."""
+    for printer_id in list(_BAMBU_CLIENTS.keys()):
+        if printer_id not in active_ids:
+            _BAMBU_CLIENTS.pop(printer_id).close()
+
+
+def map_bambu_state(state: Any) -> str:
+    if not isinstance(state, str):
+        return "idle"
+    # FAILED is not surfaced as a printer error: it (and a lingering print_error
+    # code) persists after any stopped/failed print while the printer is actually
+    # idle and ready. The failed outcome is recorded via rawPrintState instead.
+    return BAMBU_STATE_MAP.get(state.upper(), "idle")
+
+
+def build_bambu_current_job(
+    print_data: dict[str, Any],
+    previous_job: dict[str, Any] | None,
+    progress: int,
+    status: str,
+    remaining_minutes: int,
+) -> dict[str, Any] | None:
+    if status not in {"printing", "paused"}:
+        return None
+
+    filename = print_data.get("subtask_name") or print_data.get("gcode_file")
+    if not filename:
+        return None
+
+    previous_filename = previous_job.get("filename") if previous_job else None
+    start_time = (
+        previous_job.get("startTime")
+        if previous_job and previous_filename == filename
+        else iso_timestamp()
+    )
+
+    printing_time_minutes = 0
+    try:
+        started_epoch = calendar.timegm(time.strptime(start_time, "%Y-%m-%dT%H:%M:%SZ"))
+        printing_time_minutes = max(0, round((time.time() - started_epoch) / 60))
+    except (ValueError, TypeError):
+        printing_time_minutes = 0
+
+    # The printer reports remaining time directly; derive the rest from our own
+    # start tracking so the numbers stay coherent across polls.
+    estimated_time_minutes = printing_time_minutes + remaining_minutes if remaining_minutes else 0
+
+    return {
+        "id": f"job-{filename}",
+        "filename": filename,
+        "status": "paused" if status == "paused" else "printing",
+        "progress": progress,
+        "estimatedTime": estimated_time_minutes,
+        "timeRemaining": remaining_minutes,
+        "printingTime": printing_time_minutes,
+        "filamentUsed": 0,
+        "startTime": start_time,
+        "priority": "medium",
+    }
+
+
+def build_bambu_spools(print_data: dict[str, Any]) -> list[dict[str, Any]] | None:
+    spools: list[dict[str, Any]] = []
+
+    def add_tray(tray: Any, slot_id: str) -> None:
+        if not isinstance(tray, dict):
+            return
+        material = tray.get("tray_type")
+        if not material:
+            return
+        color = str(tray.get("tray_color") or "808080FF")[:6]
+        remain = tray.get("remain")
+        remaining = (
+            max(0, min(100, round(remain)))
+            if isinstance(remain, (int, float)) and remain >= 0
+            else 0
+        )
+        try:
+            weight = float(tray.get("tray_weight") or 0)
+        except (TypeError, ValueError):
+            weight = 0
+        spools.append(
+            {
+                "id": slot_id,
+                "color": f"#{color}",
+                "material": material,
+                "remaining": remaining,
+                "weight": weight,
+            }
+        )
+
+    ams_root = print_data.get("ams")
+    if isinstance(ams_root, dict):
+        for unit in ams_root.get("ams") or []:
+            if not isinstance(unit, dict):
+                continue
+            unit_id = unit.get("id", "0")
+            for tray in unit.get("tray") or []:
+                tray_id = tray.get("id") if isinstance(tray, dict) else None
+                add_tray(tray, f"ams{unit_id}-{tray_id}")
+
+    # External spool (used by the A1 mini without an AMS).
+    add_tray(print_data.get("vt_tray"), "external")
+
+    return spools or None
+
+
+def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
+    if not (printer.get("serial") or "").strip():
+        raise RuntimeError("Bambu printer is missing its serial number")
+    client = get_bambu_client(printer)
+    print_data = client.latest_report()
+    if print_data is None:
+        # No fresh MQTT report — let the caller apply the offline grace period.
+        raise RuntimeError("No recent MQTT report from Bambu printer")
+
+    gcode_state = print_data.get("gcode_state")
+    status = map_bambu_state(gcode_state)
+
+    fallback_nozzle = ((printer.get("temperature") or {}).get("nozzle")) or 0
+    fallback_bed = ((printer.get("temperature") or {}).get("bed")) or 0
+    raw_nozzle = print_data.get("nozzle_temper")
+    raw_bed = print_data.get("bed_temper")
+    nozzle_temperature = round(raw_nozzle) if isinstance(raw_nozzle, (int, float)) else fallback_nozzle
+    bed_temperature = round(raw_bed) if isinstance(raw_bed, (int, float)) else fallback_bed
+
+    raw_percent = print_data.get("mc_percent")
+    progress = 0
+    if isinstance(raw_percent, (int, float)):
+        progress = max(0, min(100, round(raw_percent)))
+
+    raw_remaining = print_data.get("mc_remaining_time")
+    remaining_minutes = (
+        max(0, round(raw_remaining)) if isinstance(raw_remaining, (int, float)) else 0
+    )
+
+    return {
+        "status": status,
+        "currentJob": build_bambu_current_job(
+            print_data, printer.get("currentJob"), progress, status, remaining_minutes
+        ),
+        "progress": progress,
+        "rawPrintState": gcode_state.lower() if isinstance(gcode_state, str) else None,
+        "temperature": {"nozzle": nozzle_temperature, "bed": bed_temperature},
+        "nozzleTemperatures": [nozzle_temperature],
+        "spools": build_bambu_spools(print_data) or printer.get("spools"),
+    }
+
+
 def refresh_status(printer: dict[str, Any]) -> dict[str, Any]:
-    if printer.get("profile") == "snapmaker_u1":
+    profile = printer.get("profile")
+    if profile == "snapmaker_u1":
         live_status = fetch_snapmaker_status(printer)
         try:
             live_status["spools"] = fetch_snapmaker_task_config(printer)
         except Exception:
             live_status["spools"] = printer.get("spools")
+    elif profile == "bambulab_a1_mini":
+        live_status = fetch_bambu_status(printer)
     else:
         live_status = fetch_generic_status(printer)
     return {**printer, **live_status, "offlineSince": None}
@@ -626,7 +917,7 @@ def build_job_transition_event(
 
     if previous_filename and not next_filename:
         raw_print_state = next_printer.get("rawPrintState")
-        if raw_print_state == "cancelled":
+        if raw_print_state in ("cancelled", "failed"):
             title = f"{printer_name} Print Cancelled"
             description = f"{previous_filename}\nCancelled by printer state"
             color = discord_color_for_status("failed")
@@ -715,7 +1006,7 @@ def collect_analytics_for_transition(
         return
 
     raw_print_state = next_printer.get("rawPrintState")
-    if raw_print_state == "cancelled":
+    if raw_print_state in ("cancelled", "failed"):
         outcome = "failed"
     else:
         outcome = "failed" if next_status == "error" else "completed"
@@ -746,6 +1037,7 @@ def run() -> None:
             with psycopg.connect(db_url()) as conn:
                 ensure_schema(conn)
                 printers = list_printers(conn)
+                prune_bambu_clients({printer["id"] for printer in printers})
                 webhooks = list_discord_webhooks(conn)
                 for printer in printers:
                     try:

@@ -23,6 +23,7 @@ export function Settings() {
   const [printerProfile, setPrinterProfile] = useState<PrinterProfile>('generic');
   const [printerIpAddress, setPrinterIpAddress] = useState('');
   const [printerApiKeyHeader, setPrinterApiKeyHeader] = useState('');
+  const [printerSerial, setPrinterSerial] = useState('');
   const [printerFormError, setPrinterFormError] = useState('');
   const [printerFormSuccess, setPrinterFormSuccess] = useState('');
   const [name, setName] = useState('');
@@ -82,10 +83,18 @@ export function Settings() {
     const normalizedName = printerName.trim();
     const normalizedIpAddress = printerIpAddress.trim();
     const normalizedApiKeyHeader = printerApiKeyHeader.trim();
+    const normalizedSerial = printerSerial.trim();
     const profileConfig = PRINTER_PROFILES[printerProfile];
 
     if (!normalizedName || !normalizedIpAddress || !normalizedApiKeyHeader) {
-      setPrinterFormError('Name, profile, IP address, and API key header are required.');
+      setPrinterFormError(
+        `Name, IP address, and ${profileConfig.credentialLabel} are required.`,
+      );
+      return;
+    }
+
+    if (printerProfile === 'bambulab_a1_mini' && !normalizedSerial) {
+      setPrinterFormError('Bambu Lab printers require the device serial number.');
       return;
     }
 
@@ -108,6 +117,7 @@ export function Settings() {
       url: profileConfig.buildBaseUrl(normalizedIpAddress),
       ipAddress: normalizedIpAddress,
       apiKeyHeader: normalizedApiKeyHeader,
+      serial: normalizedSerial || undefined,
       status: 'offline',
       temperature: {
         nozzle: 25,
@@ -126,7 +136,8 @@ export function Settings() {
       setPrinterProfile('generic');
       setPrinterIpAddress('');
       setPrinterApiKeyHeader('');
-      setPrinterFormSuccess('Printer added successfully. Status will switch from offline after a real API check succeeds.');
+      setPrinterSerial('');
+      setPrinterFormSuccess('Printer added successfully. Status will switch from offline once a live status check succeeds.');
     } catch (error) {
       setPrinterFormError(error instanceof Error ? error.message : 'Unable to save printer.');
     }
@@ -308,6 +319,7 @@ export function Settings() {
                     <SelectContent>
                       <SelectItem value="generic">Generic</SelectItem>
                       <SelectItem value="snapmaker_u1">Snapmaker U1</SelectItem>
+                      <SelectItem value="bambulab_a1_mini">Bambu Lab A1 Mini</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -341,25 +353,43 @@ export function Settings() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="printer-api-key-header">API Key Header</Label>
+                  <Label htmlFor="printer-api-key-header">
+                    {PRINTER_PROFILES[printerProfile].credentialLabel}
+                  </Label>
                   <Input
                     id="printer-api-key-header"
                     type="password"
                     value={printerApiKeyHeader}
                     onChange={(event) => setPrinterApiKeyHeader(event.target.value)}
-                    placeholder="X-API-Key: printer-secret"
+                    placeholder={PRINTER_PROFILES[printerProfile].credentialPlaceholder}
                     autoComplete="off"
                     required
                   />
                 </div>
               </div>
 
+              {printerProfile === 'bambulab_a1_mini' && (
+                <div className="space-y-2">
+                  <Label htmlFor="printer-serial">Serial Number</Label>
+                  <Input
+                    id="printer-serial"
+                    value={printerSerial}
+                    onChange={(event) => setPrinterSerial(event.target.value.trim())}
+                    placeholder="e.g. 0309CA000000000"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    required
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Found on the printer (Settings → Device) or the Bambu Handy app. Required for live status over MQTT.
+                  </p>
+                </div>
+              )}
+
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
                 <div>Model: {PRINTER_PROFILES[printerProfile].defaultModel}</div>
-                <div>
-                  Status API path:{' '}
-                  {PRINTER_PROFILES[printerProfile].statusPath ?? 'Not configured for live polling'}
-                </div>
+                <div>Live status: {PRINTER_PROFILES[printerProfile].pollingDescription}</div>
               </div>
 
               {printerFormError && (

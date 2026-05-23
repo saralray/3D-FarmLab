@@ -10,6 +10,11 @@ export const PRINTER_PROFILES: Record<
     statusPath: string | null;
     defaultModel: string;
     buildBaseUrl: (ipAddress: string) => string;
+    /** Human label for the secret field — not every profile uses an HTTP header. */
+    credentialLabel: string;
+    credentialPlaceholder: string;
+    /** How the poller obtains live status, shown in the add-printer form. */
+    pollingDescription: string;
   }
 > = {
   generic: {
@@ -17,6 +22,9 @@ export const PRINTER_PROFILES: Record<
     statusPath: null,
     defaultModel: 'Custom Printer',
     buildBaseUrl: (ipAddress) => `http://${ipAddress}`,
+    credentialLabel: 'API Key Header',
+    credentialPlaceholder: 'X-API-Key: printer-secret',
+    pollingDescription: 'Reachability check only (online / offline)',
   },
   snapmaker_u1: {
     label: 'Snapmaker U1',
@@ -24,25 +32,45 @@ export const PRINTER_PROFILES: Record<
       '/printer/objects/query?print_stats&extruder=temperature,target&extruder1=temperature,target&extruder2=temperature,target&extruder3=temperature,target&heater_bed=temperature,target&virtual_sdcard=progress',
     defaultModel: 'Snapmaker U1',
     buildBaseUrl: (ipAddress) => `http://${ipAddress}`,
+    credentialLabel: 'API Key Header',
+    credentialPlaceholder: 'X-API-Key: printer-secret',
+    pollingDescription: 'Live status via Moonraker HTTP API',
+  },
+  bambulab_a1_mini: {
+    label: 'Bambu Lab A1 Mini',
+    // Bambu printers report over MQTT, not HTTP — the poller handles it directly.
+    statusPath: null,
+    defaultModel: 'Bambu Lab A1 Mini',
+    buildBaseUrl: (ipAddress) => `http://${ipAddress}`,
+    credentialLabel: 'LAN Access Code',
+    credentialPlaceholder: '8-digit access code from the printer screen',
+    pollingDescription: 'Live status via MQTT over TLS (LAN mode)',
   },
 };
 
+function inferProfileFromDescriptor(descriptor: string): PrinterProfile | null {
+  if (descriptor.includes('snapmaker u1')) {
+    return 'snapmaker_u1';
+  }
+  if (descriptor.includes('bambu') || descriptor.includes('a1 mini')) {
+    return 'bambulab_a1_mini';
+  }
+  return null;
+}
+
 function inferPrinterProfile(printer: Partial<Printer>): PrinterProfile {
   const profile = printer.profile;
-  if (profile === 'snapmaker_u1' || profile === 'generic') {
-    const descriptor = `${printer.name ?? ''} ${printer.model ?? ''}`.toLowerCase();
-    if (profile === 'generic' && descriptor.includes('snapmaker u1')) {
-      return 'snapmaker_u1';
+  const descriptor = `${printer.name ?? ''} ${printer.model ?? ''}`.toLowerCase();
+
+  if (profile === 'snapmaker_u1' || profile === 'generic' || profile === 'bambulab_a1_mini') {
+    // Upgrade legacy entries saved as "generic" that name a known printer.
+    if (profile === 'generic') {
+      return inferProfileFromDescriptor(descriptor) ?? profile;
     }
     return profile;
   }
 
-  const descriptor = `${printer.name ?? ''} ${printer.model ?? ''}`.toLowerCase();
-  if (descriptor.includes('snapmaker u1')) {
-    return 'snapmaker_u1';
-  }
-
-  return 'generic';
+  return inferProfileFromDescriptor(descriptor) ?? 'generic';
 }
 
 export function normalizePrinter(printer: Partial<Printer>, index: number): Printer {
@@ -78,6 +106,7 @@ export function normalizePrinter(printer: Partial<Printer>, index: number): Prin
     url,
     ipAddress: printer.ipAddress ?? '0.0.0.0',
     apiKeyHeader: printer.apiKeyHeader ?? '',
+    serial: printer.serial ?? '',
     status: printer.status ?? 'offline',
     currentJob,
     temperature: {
@@ -293,9 +322,18 @@ export async function sendPrinterCommand(
   printer: Printer,
   command: 'pause' | 'resume' | 'cancel'
 ) {
-  const response = await fetch(`/__printer_proxy/${printer.id}/printer/print/${command}`, {
-    method: 'POST',
-  });
+  // Bambu printers have no HTTP control API — the server publishes the command
+  // over MQTT instead. Other profiles use the Moonraker HTTP proxy.
+  const response =
+    printer.profile === 'bambulab_a1_mini'
+      ? await fetch(`/api/printers/${encodeURIComponent(printer.id)}/command`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command }),
+        })
+      : await fetch(`/__printer_proxy/${printer.id}/printer/print/${command}`, {
+          method: 'POST',
+        });
 
   if (!response.ok) {
     let message = `Printer command failed with ${response.status}`;
