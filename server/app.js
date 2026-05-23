@@ -12,6 +12,7 @@ import {
   deletePrinter,
   deleteQueueJob,
   ensureSchema,
+  getAppSetting,
   getPrinterById,
   listDailyAnalytics,
   listDiscordWebhooks,
@@ -20,9 +21,13 @@ import {
   markQueueJobPrinted,
   resetDailyAnalytics,
   resetQueueJobs,
+  setAppSetting,
   upsertPrinter,
   upsertQueueJobs,
 } from './postgres.js';
+
+const PRINTER_CARD_LAYOUT_KEY = 'printer_card_layout';
+const PRINTER_CARD_LAYOUT_PROFILES = new Set(['generic', 'snapmaker_u1', 'bambulab_a1_mini']);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, '..', 'dist');
@@ -570,6 +575,33 @@ async function handleApi(req, res, requestUrl) {
     await deleteDiscordWebhook(decodeURIComponent(requestUrl.pathname.slice('/api/notifications/discord-webhooks/'.length)));
     sendEmpty(res);
     return true;
+  }
+
+  // Printer-detail card layout, stored per printer profile so every printer of
+  // a given type (e.g. all Snapmaker U1) shares one arrangement.
+  if (requestUrl.pathname.startsWith('/api/settings/printer-card-layout/')) {
+    const profile = decodeURIComponent(
+      requestUrl.pathname.slice('/api/settings/printer-card-layout/'.length),
+    );
+    if (!PRINTER_CARD_LAYOUT_PROFILES.has(profile)) {
+      sendJson(res, 400, { error: 'unknown printer profile' });
+      return true;
+    }
+    const key = `${PRINTER_CARD_LAYOUT_KEY}:${profile}`;
+    if (req.method === 'GET') {
+      sendJson(res, 200, { layout: await getAppSetting(key) });
+      return true;
+    }
+    if (req.method === 'PUT') {
+      const { layout } = await readJsonBody(req);
+      if (!Array.isArray(layout) || !layout.every((column) => Array.isArray(column))) {
+        sendJson(res, 400, { error: 'layout must be an array of arrays' });
+        return true;
+      }
+      await setAppSetting(key, layout);
+      sendEmpty(res);
+      return true;
+    }
   }
 
   return false;

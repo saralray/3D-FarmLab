@@ -44,6 +44,7 @@ ALTER TABLE printers ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAUL
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_temperatures JSONB;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS offline_since DOUBLE PRECISION;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS serial TEXT;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS light_on BOOLEAN;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -124,6 +125,7 @@ def list_printers(conn: psycopg.Connection) -> list[dict[str, Any]]:
               current_job AS "currentJob",
               nozzle_temperatures AS "nozzleTemperatures",
               spools,
+              light_on AS "lightOn",
               offline_since AS "offlineSince"
             FROM printers
             ORDER BY sort_order ASC, created_at DESC
@@ -156,6 +158,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               current_job,
               nozzle_temperatures,
               spools,
+              light_on,
               offline_since
             ) VALUES (
               %(id)s,
@@ -177,6 +180,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               %(currentJob)s::jsonb,
               %(nozzleTemperatures)s::jsonb,
               %(spools)s::jsonb,
+              %(lightOn)s,
               %(offlineSince)s
             )
             ON CONFLICT (id) DO UPDATE SET
@@ -198,6 +202,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               current_job = EXCLUDED.current_job,
               nozzle_temperatures = EXCLUDED.nozzle_temperatures,
               spools = EXCLUDED.spools,
+              light_on = EXCLUDED.light_on,
               offline_since = EXCLUDED.offline_since
             """,
             {
@@ -220,6 +225,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
                 "currentJob": json.dumps(printer.get("currentJob")),
                 "nozzleTemperatures": json.dumps(printer.get("nozzleTemperatures")),
                 "spools": json.dumps(printer.get("spools")),
+                "lightOn": printer.get("lightOn"),
                 "offlineSince": printer.get("offlineSince"),
             },
         )
@@ -704,6 +710,16 @@ def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
         max(0, round(raw_remaining)) if isinstance(raw_remaining, (int, float)) else 0
     )
 
+    # The chamber light state only appears in the full (pushall) report; the
+    # cached report retains it, so fall back to the last-known value otherwise.
+    light_on = printer.get("lightOn")
+    lights_report = print_data.get("lights_report")
+    if isinstance(lights_report, list):
+        for entry in lights_report:
+            if isinstance(entry, dict) and entry.get("node") == "chamber_light":
+                light_on = entry.get("mode") == "on"
+                break
+
     return {
         "status": status,
         "currentJob": build_bambu_current_job(
@@ -714,6 +730,7 @@ def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
         "temperature": {"nozzle": nozzle_temperature, "bed": bed_temperature},
         "nozzleTemperatures": [nozzle_temperature],
         "spools": build_bambu_spools(print_data) or printer.get("spools"),
+        "lightOn": light_on,
     }
 
 

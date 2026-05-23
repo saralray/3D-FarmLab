@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Printer } from '../types';
 import { Card } from '../components/ui/card';
@@ -20,6 +20,8 @@ import {
   CheckCircle,
   Palette,
   Lightbulb,
+  LayoutGrid,
+  Check,
 } from 'lucide-react';
 import {
   buildPrinterWebcamSnapshotUrl,
@@ -31,6 +33,14 @@ import {
 import { fetchPrinters, removePrinter } from '../lib/printersApi';
 import { useAuth } from '../contexts/AuthContext';
 import { formatMaxTwoDecimals } from '../lib/numberFormat';
+import { PrinterCardLayout } from '../components/PrinterCardLayout';
+import {
+  DEFAULT_CARD_LAYOUT,
+  fetchCardLayout,
+  saveCardLayout,
+  type CardId,
+  type CardLayout,
+} from '../lib/cardLayoutApi';
 
 interface PrinterTaskConfig {
   filament_vendor?: string[];
@@ -107,15 +117,24 @@ export function PrinterDetail() {
   const [printer, setPrinter] = useState<Printer | null>(null);
   const [commandInFlight, setCommandInFlight] = useState<'pause' | 'resume' | 'cancel' | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
-  // The hardware doesn't report light state, so this tracks the last command sent.
+  // Snapmaker reports its cavity LED via Moonraker, so the displayed state is
+  // synced from the hardware below. Bambu has no HTTP readback, so for it this
+  // just tracks the last command sent.
   const [lightOn, setLightOn] = useState(false);
   const [lightInFlight, setLightInFlight] = useState(false);
+  // While set in the future, the hardware/poller sync won't overwrite the
+  // light state — it covers the command plus the lag before the printer reports.
+  const lightSyncBlockedUntil = useRef(0);
   const [lightError, setLightError] = useState<string | null>(null);
   const [removeInFlight, setRemoveInFlight] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [snapshotNonce, setSnapshotNonce] = useState(() => Date.now());
   const [taskConfig, setTaskConfig] = useState<PrinterTaskConfig | null>(null);
   const [taskConfigError, setTaskConfigError] = useState<string | null>(null);
+  // Shared card layout for every printer detail page; admins reorder it by drag.
+  const [cardLayout, setCardLayout] = useState<CardLayout>(DEFAULT_CARD_LAYOUT);
+  const [isLayoutEditing, setIsLayoutEditing] = useState(false);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPrinters()
@@ -126,6 +145,29 @@ export function PrinterDetail() {
         setPrinter(null);
       });
   }, [id]);
+
+  // The card layout is shared by all printers of the same profile, so reload
+  // it whenever the printer's profile becomes known or changes.
+  const printerProfile = printer?.profile;
+  useEffect(() => {
+    if (!printerProfile) {
+      return;
+    }
+    let isCancelled = false;
+    setCardLayout(DEFAULT_CARD_LAYOUT);
+    fetchCardLayout(printerProfile)
+      .then((layout) => {
+        if (!isCancelled) {
+          setCardLayout(layout);
+        }
+      })
+      .catch(() => {
+        // Fall back to the default layout if it can't be loaded.
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [printerProfile]);
 
   useEffect(() => {
     if (!id) {
@@ -224,6 +266,62 @@ export function PrinterDetail() {
       window.clearInterval(interval);
     };
   }, [isOnline, printer?.id]);
+
+  // Snapmaker U1 exposes its cavity LED via Moonraker, so reflect the real
+  // hardware state — it persists across page loads instead of resetting to off.
+  useEffect(() => {
+    if (!printer || !isOnline || printer.profile !== 'snapmaker_u1') {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const refreshLight = async () => {
+      try {
+        const response = await fetch(
+          `/__printer_proxy/${printer.id}/printer/objects/query?led%20cavity_led`,
+          { cache: 'no-store' },
+        );
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json()) as {
+          result?: { status?: { 'led cavity_led'?: { color_data?: number[][] } } };
+        };
+
+        const channels = payload.result?.status?.['led cavity_led']?.color_data?.[0];
+        const isLit = Array.isArray(channels) && channels.some((channel) => channel > 0);
+
+        // Don't overwrite the state right after a manual toggle.
+        if (!isCancelled && Date.now() >= lightSyncBlockedUntil.current) {
+          setLightOn(isLit);
+        }
+      } catch {
+        // Leave the last-known state if the query fails.
+      }
+    };
+
+    refreshLight();
+    const interval = window.setInterval(refreshLight, 10000);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [isOnline, printer?.id, printer?.profile]);
+
+  // Bambu reports its chamber light over MQTT, captured by the poller into the
+  // printer record — reflect that persisted state (unless a toggle just ran).
+  useEffect(() => {
+    if (!printer || printer.profile !== 'bambulab_a1_mini') {
+      return;
+    }
+    if (typeof printer.lightOn === 'boolean' && Date.now() >= lightSyncBlockedUntil.current) {
+      setLightOn(printer.lightOn);
+    }
+  }, [printer?.profile, printer?.lightOn]);
 
   if (!printer) {
     return (
@@ -351,12 +449,15 @@ export function PrinterDetail() {
     const previous = lightOn;
     setLightOn(next); // optimistic — reverted if the command fails
     setLightInFlight(true);
+    // Hold the displayed state through the command and the printer's report lag.
+    lightSyncBlockedUntil.current = Date.now() + 12000;
     setLightError(null);
 
     try {
       await setPrinterLight(printer, next);
     } catch (error) {
       setLightOn(previous);
+      lightSyncBlockedUntil.current = 0; // failed — let the real state resync
       setLightError(error instanceof Error ? error.message : 'Unable to toggle the light');
     } finally {
       setLightInFlight(false);
@@ -381,6 +482,18 @@ export function PrinterDetail() {
     }
   };
 
+  const handleCommitLayout = (next: CardLayout) => {
+    setCardLayout(next);
+    setLayoutError(null);
+    saveCardLayout(printer.profile, next).catch((error) => {
+      setLayoutError(error instanceof Error ? error.message : 'Unable to save layout');
+    });
+  };
+
+  const handleResetLayout = () => {
+    handleCommitLayout(DEFAULT_CARD_LAYOUT);
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-4">
@@ -391,19 +504,55 @@ export function PrinterDetail() {
           <h1 className="text-3xl font-bold dark:text-white">{printer.name}</h1>
           <p className="text-gray-600 dark:text-gray-400">{printer.model}</p>
         </div>
+        {user?.role === 'admin' && (
+          <div className="flex items-center gap-2">
+            {isLayoutEditing && (
+              <Button type="button" variant="ghost" size="sm" onClick={handleResetLayout}>
+                Reset
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant={isLayoutEditing ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setIsLayoutEditing((value) => !value)}
+            >
+              {isLayoutEditing ? (
+                <>
+                  <Check className="size-4 mr-2" />
+                  Done
+                </>
+              ) : (
+                <>
+                  <LayoutGrid className="size-4 mr-2" />
+                  Edit layout
+                </>
+              )}
+            </Button>
+          </div>
+        )}
         <div className="flex flex-col items-end gap-2">
           <Badge className="text-base px-4 py-2 capitalize">
             {isOnline ? 'online' : 'offline'}
           </Badge>
-          <div className="text-sm text-gray-600 dark:text-gray-400 capitalize">
-            Activity: {activityLabel}
-          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Current Job */}
-        <Card className="lg:col-span-2 p-6 dark:bg-gray-800 dark:border-gray-700">
+      {isLayoutEditing && (
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Drag the handle on each card to rearrange. Changes apply to every {printer.model} (and other {printer.profile} printers) and save automatically.
+        </p>
+      )}
+      {layoutError && <p className="text-sm text-red-500">{layoutError}</p>}
+
+      <PrinterCardLayout
+        layout={cardLayout}
+        editable={isLayoutEditing && user?.role === 'admin'}
+        onChange={setCardLayout}
+        onCommit={handleCommitLayout}
+        cards={{
+          currentJob: (
+        <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
             <Activity className="size-5" />
             Current Job
@@ -416,7 +565,7 @@ export function PrinterDetail() {
                 <img
                   src={webcamSnapshotUrl}
                   alt={`${printer.name} preview`}
-                  className="h-80 w-full bg-black object-contain"
+                  className="h-80 w-full object-cover"
                   loading="lazy"
                 />
               ) : (
@@ -526,9 +675,8 @@ export function PrinterDetail() {
             )}
           </div>
         </Card>
-
-        {/* Printer Stats */}
-        <div className="space-y-6">
+          ),
+          temperature: (
           <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
               <Thermometer className="size-5" />
@@ -565,7 +713,8 @@ export function PrinterDetail() {
               </div>
             </div>
           </Card>
-
+          ),
+          filament: (
           <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
               <Palette className="size-5" />
@@ -574,7 +723,7 @@ export function PrinterDetail() {
             {taskConfigError ? (
               <p className="text-sm text-red-500">{taskConfigError}</p>
             ) : filamentSlots.length > 0 ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {filamentSlots.map((slot) => (
                     <div
                       key={`${printer.id}-filament-${slot.slot}`}
@@ -608,8 +757,9 @@ export function PrinterDetail() {
               </p>
             )}
           </Card>
-
-          {canControlPrinter && printerSupportsLight(printer) && (
+          ),
+          light:
+            canControlPrinter && printerSupportsLight(printer) ? (
             <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
               <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
                 <Lightbulb className="size-5" />
@@ -640,8 +790,8 @@ export function PrinterDetail() {
               )}
               {lightError && <p className="mt-3 text-sm text-red-500">{lightError}</p>}
             </Card>
-          )}
-
+          ) : null,
+          information: (
           <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
             <h2 className="text-xl font-semibold mb-4 dark:text-white">Information</h2>
             <div className="space-y-3">
@@ -732,8 +882,9 @@ export function PrinterDetail() {
               )}
             </div>
           </Card>
-        </div>
-      </div>
+          ),
+        }}
+      />
     </div>
   );
 }
