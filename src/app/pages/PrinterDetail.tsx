@@ -107,14 +107,14 @@ function FilamentSpoolIcon({ color }: { color: string }) {
 }
 
 function TemperatureTargetControl({
-  heater,
+  label,
   value,
   inFlight,
   disabled,
   onChange,
   onSubmit,
 }: {
-  heater: 'nozzle' | 'bed';
+  label: string;
   value: string;
   inFlight: boolean;
   disabled: boolean;
@@ -122,35 +122,25 @@ function TemperatureTargetControl({
   onSubmit: () => void;
 }) {
   return (
-    <div className="mt-2 flex items-center gap-2">
-      <Input
-        type="number"
-        inputMode="numeric"
-        min={0}
-        max={350}
-        value={value}
-        disabled={disabled}
-        placeholder="Target °C"
-        aria-label={`Set ${heater} target temperature`}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            onSubmit();
-          }
-        }}
-        className="h-9 w-28"
-      />
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        disabled={disabled || value.trim() === ''}
-        onClick={onSubmit}
-      >
-        {inFlight ? 'Setting…' : 'Set'}
-      </Button>
-    </div>
+    <Input
+      type="number"
+      inputMode="numeric"
+      min={0}
+      max={350}
+      value={value}
+      disabled={disabled}
+      placeholder={inFlight ? 'Setting…' : 'Set °C'}
+      aria-label={`Set ${label} target temperature, press Enter to apply`}
+      title="Type a target and press Enter"
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          onSubmit();
+        }
+      }}
+      className="h-8 w-20"
+    />
   );
 }
 
@@ -179,14 +169,11 @@ export function PrinterDetail() {
   const [lightError, setLightError] = useState<string | null>(null);
   const [removeInFlight, setRemoveInFlight] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
-  // Temperature target inputs (per heater) and the just-sent targets, shown
-  // optimistically — the poller only reports actual temps, not targets.
-  const [tempInputs, setTempInputs] = useState<{ nozzle: string; bed: string }>({
-    nozzle: '',
-    bed: '',
-  });
-  const [tempTargets, setTempTargets] = useState<{ nozzle?: number; bed?: number }>({});
-  const [tempInFlight, setTempInFlight] = useState<'nozzle' | 'bed' | null>(null);
+  // Temperature target inputs and just-sent targets, keyed per heater
+  // ("nozzle-<index>" or "bed"). Targets are shown optimistically — the poller
+  // only reports actual temps, not targets.
+  const [tempInputs, setTempInputs] = useState<Record<string, string>>({});
+  const [tempInFlight, setTempInFlight] = useState<string | null>(null);
   const [tempError, setTempError] = useState<string | null>(null);
   const [snapshotNonce, setSnapshotNonce] = useState(() => Date.now());
   const [taskConfig, setTaskConfig] = useState<PrinterTaskConfig | null>(null);
@@ -526,25 +513,29 @@ export function PrinterDetail() {
     }
   };
 
-  const handleSetTemperature = async (heater: 'nozzle' | 'bed') => {
+  const handleSetTemperature = async (heater: 'nozzle' | 'bed', nozzleIndex = 0) => {
     if (!canControlPrinter || !printer) {
       return;
     }
 
-    const raw = tempInputs[heater].trim();
+    const key = heater === 'bed' ? 'bed' : `nozzle-${nozzleIndex}`;
+    const raw = (tempInputs[key] ?? '').trim();
     const target = Number(raw);
     if (raw === '' || !Number.isFinite(target) || target < 0 || target > 350) {
       setTempError('Enter a target between 0 and 350°C.');
       return;
     }
 
-    setTempInFlight(heater);
+    setTempInFlight(key);
     setTempError(null);
 
     try {
-      await setPrinterTemperature(printer, heater, target);
-      setTempTargets((prev) => ({ ...prev, [heater]: Math.round(target) }));
-      setTempInputs((prev) => ({ ...prev, [heater]: '' }));
+      await setPrinterTemperature(printer, heater, target, nozzleIndex);
+      // Keep a non-zero target visible in the box; clear it back to the
+      // placeholder for 0, which just turns the heater off.
+      if (target === 0) {
+        setTempInputs((prev) => ({ ...prev, [key]: '' }));
+      }
     } catch (error) {
       setTempError(error instanceof Error ? error.message : 'Unable to set temperature');
     } finally {
@@ -771,65 +762,55 @@ export function PrinterDetail() {
               Temperature
             </h2>
             <div className="space-y-4">
-              {nozzleTemperatures.map((temperature, index) => (
-                <div key={`${printer.id}-detail-nozzle-${index}`}>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      {nozzleTemperatures.length > 1 ? `Nozzle ${index + 1}` : 'Nozzle'}
-                    </span>
-                    <span className={`font-bold text-lg ${getStatusColor()}`}>
-                      {formatMaxTwoDecimals(temperature)}°C
-                      {tempTargets.nozzle !== undefined && index === 0 && (
-                        <span className="ml-1 text-sm font-normal text-gray-500 dark:text-gray-400">
-                          → {tempTargets.nozzle}°C
+              {nozzleTemperatures.map((temperature, index) => {
+                const key = `nozzle-${index}`;
+                const label = nozzleTemperatures.length > 1 ? `Nozzle ${index + 1}` : 'Nozzle';
+                return (
+                  <div key={`${printer.id}-detail-${key}`}>
+                    <div className="flex justify-between items-center gap-2 mb-2">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold text-lg ${getStatusColor()}`}>
+                          {formatMaxTwoDecimals(temperature)}°C
                         </span>
-                      )}
-                    </span>
+                        {canControlTemp && (
+                          <TemperatureTargetControl
+                            label={label}
+                            value={tempInputs[key] ?? ''}
+                            inFlight={tempInFlight === key}
+                            disabled={tempInFlight !== null}
+                            onChange={(next) =>
+                              setTempInputs((prev) => ({ ...prev, [key]: next }))
+                            }
+                            onSubmit={() => handleSetTemperature('nozzle', index)}
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <Progress value={(temperature / 250) * 100} className="h-2" />
                   </div>
-                  <Progress
-                    value={(temperature / 250) * 100}
-                    className="h-2"
-                  />
-                  {canControlTemp && index === 0 && (
-                    <TemperatureTargetControl
-                      heater="nozzle"
-                      value={tempInputs.nozzle}
-                      inFlight={tempInFlight === 'nozzle'}
-                      disabled={tempInFlight !== null}
-                      onChange={(next) =>
-                        setTempInputs((prev) => ({ ...prev, nozzle: next }))
-                      }
-                      onSubmit={() => handleSetTemperature('nozzle')}
-                    />
-                  )}
-                </div>
-              ))}
+                );
+              })}
               <div>
-                <div className="flex justify-between mb-2">
+                <div className="flex justify-between items-center gap-2 mb-2">
                   <span className="text-sm text-gray-600 dark:text-gray-400">Bed</span>
-                  <span className={`font-bold text-lg ${getStatusColor()}`}>
-                    {formatMaxTwoDecimals(printer.temperature.bed)}°C
-                    {tempTargets.bed !== undefined && (
-                      <span className="ml-1 text-sm font-normal text-gray-500 dark:text-gray-400">
-                        → {tempTargets.bed}°C
-                      </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`font-bold text-lg ${getStatusColor()}`}>
+                      {formatMaxTwoDecimals(printer.temperature.bed)}°C
+                    </span>
+                    {canControlTemp && (
+                      <TemperatureTargetControl
+                        label="Bed"
+                        value={tempInputs.bed ?? ''}
+                        inFlight={tempInFlight === 'bed'}
+                        disabled={tempInFlight !== null}
+                        onChange={(next) => setTempInputs((prev) => ({ ...prev, bed: next }))}
+                        onSubmit={() => handleSetTemperature('bed')}
+                      />
                     )}
-                  </span>
+                  </div>
                 </div>
-                <Progress
-                  value={(printer.temperature.bed / 100) * 100}
-                  className="h-2"
-                />
-                {canControlTemp && (
-                  <TemperatureTargetControl
-                    heater="bed"
-                    value={tempInputs.bed}
-                    inFlight={tempInFlight === 'bed'}
-                    disabled={tempInFlight !== null}
-                    onChange={(next) => setTempInputs((prev) => ({ ...prev, bed: next }))}
-                    onSubmit={() => handleSetTemperature('bed')}
-                  />
-                )}
+                <Progress value={(printer.temperature.bed / 100) * 100} className="h-2" />
               </div>
               {canControlTemp && tempError && (
                 <p className="text-sm text-red-500">{tempError}</p>

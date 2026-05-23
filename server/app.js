@@ -310,13 +310,14 @@ function mapSheetRowsToQueue(rows) {
 const BAMBU_PRINT_ACTIONS = { pause: 'pause', resume: 'resume', cancel: 'stop' };
 
 // Map a heater target to the M-code Bambu accepts over `gcode_line`.
-function buildBambuTemperatureGcode(heater, target) {
+function buildBambuTemperatureGcode(heater, target, nozzleIndex = 0) {
   const value = Math.round(Number(target));
   if (!Number.isFinite(value) || value < 0 || value > 350) {
     throw new Error('Temperature target is out of range');
   }
   if (heater === 'nozzle') {
-    return `M104 S${value}\n`;
+    const tool = Number(nozzleIndex) > 0 ? ` T${Number(nozzleIndex)}` : '';
+    return `M104${tool} S${value}\n`;
   }
   if (heater === 'bed') {
     return `M140 S${value}\n`;
@@ -347,7 +348,7 @@ function buildBambuCommandPayload(command, params = {}) {
     return {
       print: {
         command: 'gcode_line',
-        param: buildBambuTemperatureGcode(params.heater, params.target),
+        param: buildBambuTemperatureGcode(params.heater, params.target, params.nozzleIndex),
         sequence_id: sequenceId,
       },
     };
@@ -515,8 +516,8 @@ async function handleApi(req, res, requestUrl) {
       sendJson(res, 404, { error: 'Printer not found' });
       return true;
     }
-    const { command, heater, target } = await readJsonBody(req);
-    await sendBambuCommand(printer, command, { heater, target });
+    const { command, heater, target, nozzleIndex } = await readJsonBody(req);
+    await sendBambuCommand(printer, command, { heater, target, nozzleIndex });
     sendEmpty(res);
     return true;
   }
