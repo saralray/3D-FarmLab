@@ -105,7 +105,7 @@ export function Analytics() {
   const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#ef4444', '#6b7280'];
 
   const printerUtilization = printers.map((p) => ({
-    name: p.name.split(' ')[0] + ' ' + p.name.split('#')[1],
+    name: p.name,
     hours: p.totalPrintTime,
     success: p.successRate,
   }));
@@ -266,11 +266,18 @@ export function Analytics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
           <h2 className="text-xl font-semibold mb-4 dark:text-white">Printer Utilization (Hours)</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={printerUtilization}>
+          {/* Horizontal bars scale to many printers: each gets its own row with a
+              readable label, and the chart grows taller instead of cramming the X axis. */}
+          <ResponsiveContainer width="100%" height={Math.max(300, printerUtilization.length * 40)}>
+            <BarChart data={printerUtilization} layout="vertical" margin={{ left: 16 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-              <XAxis dataKey="name" className="text-gray-600 dark:text-gray-400" />
-              <YAxis className="text-gray-600 dark:text-gray-400" />
+              <XAxis type="number" className="text-gray-600 dark:text-gray-400" />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={120}
+                className="text-gray-600 dark:text-gray-400"
+              />
               <Tooltip contentStyle={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }} />
               <Legend />
               <Bar dataKey="hours" fill="#3b82f6" name="Total Hours" />

@@ -280,7 +280,10 @@ export async function upsertPrinter(printer) {
       temperature_bed = EXCLUDED.temperature_bed,
       progress = EXCLUDED.progress,
       last_maintenance = EXCLUDED.last_maintenance,
-      total_print_time = EXCLUDED.total_print_time,
+      -- total_print_time is deliberately omitted: the poller owns this lifetime
+      -- counter and is its sole writer. Re-saving a printer from the API (e.g.
+      -- dashboard reorder) carries an API-rounded value that would round the
+      -- counter down on every write, so we keep the existing DB value here.
       success_rate = EXCLUDED.success_rate,
       current_job = EXCLUDED.current_job,
       nozzle_temperatures = EXCLUDED.nozzle_temperatures,

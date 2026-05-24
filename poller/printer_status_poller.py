@@ -14,6 +14,11 @@ import requests
 POLL_INTERVAL_SECONDS = max(int(os.getenv("PRINTER_POLL_INTERVAL_MS", "5000")) / 1000, 1)
 REQUEST_TIMEOUT_SECONDS = max(int(os.getenv("PRINTER_REQUEST_TIMEOUT_MS", "3000")) / 1000, 1)
 OFFLINE_GRACE_SECONDS = max(int(os.getenv("PRINTER_OFFLINE_GRACE_SECONDS", "30")), 0)
+# Largest gap (seconds) ever credited to the lifetime print-hours counter in a
+# single poll. Bounds the damage from a backward/forward clock jump or a long
+# poller stall, so a printer seen "printing" on both sides of a big gap can't
+# bank the whole gap as runtime.
+MAX_PRINT_TIME_STEP_SECONDS = max(POLL_INTERVAL_SECONDS * 6, 120)
 
 SCHEMA_SQL = """
 SELECT pg_advisory_lock(90210);
@@ -1048,19 +1053,60 @@ def notify_for_transition(
     send_discord_embed(webhooks, job_event["embed"], snapshot_bytes)
 
 
+# The lifetime print-hours counter (printers.total_print_time) is owned by the
+# poller, not the API: while a printer reports "printing" we add the wall-clock
+# time elapsed since we last saw it printing. Idle/paused/offline printers don't
+# accrue. The per-printer timestamp lives in memory, so a poller restart simply
+# forgoes crediting the single interval that spans the restart (an undercount,
+# never an overcount). Full precision is kept in the DB; only the API/UI round
+# the value for display, so even sub-second per-poll increments add up.
+_PRINTING_SINCE: dict[str, float] = {}
+
+
+def accumulate_total_print_time(printer: dict[str, Any], now: float | None = None) -> float:
+    printer_id = printer.get("id")
+    current_time = time.time() if now is None else now
+
+    total = printer.get("totalPrintTime")
+    if not isinstance(total, (int, float)):
+        total = 0.0
+
+    last_seen = _PRINTING_SINCE.get(printer_id)
+    if printer.get("status") == "printing":
+        if last_seen is not None:
+            elapsed = current_time - last_seen
+            if 0 < elapsed <= MAX_PRINT_TIME_STEP_SECONDS:
+                total += elapsed / 3600
+        _PRINTING_SINCE[printer_id] = current_time
+    elif printer_id is not None:
+        _PRINTING_SINCE.pop(printer_id, None)
+
+    return total
+
+
+def prune_print_time_tracking(active_ids: set[str]) -> None:
+    """Forget print-time timestamps for printers that no longer exist."""
+    for printer_id in list(_PRINTING_SINCE.keys()):
+        if printer_id not in active_ids:
+            _PRINTING_SINCE.pop(printer_id, None)
+
+
 def run() -> None:
     while True:
         try:
             with psycopg.connect(db_url()) as conn:
                 ensure_schema(conn)
                 printers = list_printers(conn)
-                prune_bambu_clients({printer["id"] for printer in printers})
+                active_ids = {printer["id"] for printer in printers}
+                prune_bambu_clients(active_ids)
+                prune_print_time_tracking(active_ids)
                 webhooks = list_discord_webhooks(conn)
                 for printer in printers:
                     try:
                         next_printer = refresh_status(printer)
                     except Exception:
                         next_printer = apply_offline_grace_period(printer)
+                    next_printer["totalPrintTime"] = accumulate_total_print_time(next_printer)
                     collect_analytics_for_transition(conn, printer, next_printer)
                     notify_for_transition(webhooks, printer, next_printer)
                     upsert_printer(conn, next_printer)
