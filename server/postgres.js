@@ -32,6 +32,8 @@ ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_temperatures JSONB;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS offline_since DOUBLE PRECISION;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS serial TEXT;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS light_on BOOLEAN;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_targets JSONB;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS bed_target DOUBLE PRECISION;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -139,6 +141,8 @@ function buildPrinterListSelect(includeSensitive = true) {
       'successRate', ROUND(success_rate::numeric, 2),
       'currentJob', current_job,
       'nozzleTemperatures', nozzle_temperatures,
+      'nozzleTargets', nozzle_targets,
+      'bedTarget', ROUND(bed_target::numeric, 2),
       'spools', spools,
       'lightOn', light_on
     )
@@ -202,6 +206,8 @@ export async function getPrinterById(id) {
       'successRate', ROUND(success_rate::numeric, 2),
       'currentJob', current_job,
       'nozzleTemperatures', nozzle_temperatures,
+      'nozzleTargets', nozzle_targets,
+      'bedTarget', ROUND(bed_target::numeric, 2),
       'spools', spools,
       'lightOn', light_on
     ) AS printer

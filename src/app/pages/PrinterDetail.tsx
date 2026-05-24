@@ -28,6 +28,8 @@ import {
   Home,
   Move,
   Power,
+  ArrowDownToLine,
+  ArrowUpFromLine,
 } from 'lucide-react';
 import {
   MOTION_STEP_OPTIONS,
@@ -35,8 +37,10 @@ import {
   buildPrinterWebcamSnapshotUrl,
   disablePrinterMotors,
   homePrinterAxes,
+  loadPrinterFilament,
   movePrinterAxis,
   normalizePrinter,
+  printerSupportsFilamentControl,
   printerSupportsLight,
   printerSupportsMotionControl,
   printerSupportsTemperatureControl,
@@ -44,6 +48,7 @@ import {
   sendPrinterCommand,
   setPrinterLight,
   setPrinterTemperature,
+  unloadPrinterFilament,
   type MotionAxis,
 } from '../lib/printerProfiles';
 import { Input } from '../components/ui/input';
@@ -77,6 +82,19 @@ interface FilamentSlot {
   color: string;
   isLoaded: boolean;
   isInUse: boolean;
+  // Bambu global tray id (AMS unit * 4 + tray, or 254 for the external spool)
+  // used to target load/unload commands; undefined for Snapmaker tool slots.
+  trayId?: number;
+}
+
+// Derive a Bambu global tray id from a poller spool id (e.g. "ams0-2" → 2,
+// "ams1-0" → 4, "external" → 254).
+function bambuTrayId(spoolId: string): number | undefined {
+  if (spoolId === 'external') {
+    return 254;
+  }
+  const match = /^ams(\d+)-(\d+)$/.exec(spoolId);
+  return match ? Number(match[1]) * 4 + Number(match[2]) : undefined;
 }
 
 function FilamentSpoolIcon({ color }: { color: string }) {
@@ -127,6 +145,8 @@ function TemperatureTargetControl({
   disabled,
   onChange,
   onSubmit,
+  onFocus,
+  onBlur,
 }: {
   label: string;
   value: string;
@@ -134,6 +154,8 @@ function TemperatureTargetControl({
   disabled: boolean;
   onChange: (next: string) => void;
   onSubmit: () => void;
+  onFocus: () => void;
+  onBlur: () => void;
 }) {
   return (
     <Input
@@ -147,6 +169,8 @@ function TemperatureTargetControl({
       aria-label={`Set ${label} target temperature, press Enter to apply`}
       title="Type a target and press Enter"
       onChange={(event) => onChange(event.target.value)}
+      onFocus={onFocus}
+      onBlur={onBlur}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
@@ -158,12 +182,25 @@ function TemperatureTargetControl({
   );
 }
 
+// Format a reported target temperature for the input box: a positive target is
+// shown as an integer; 0 / off / missing falls back to the empty placeholder.
+function formatTargetForInput(target: number | undefined): string {
+  return typeof target === 'number' && target > 0 ? String(Math.round(target)) : '';
+}
+
 function formatMinutesAsHourDotMinute(totalMinutes: number) {
   const normalizedMinutes = Math.max(0, Math.round(totalMinutes));
   const hours = Math.floor(normalizedMinutes / 60);
   const minutes = normalizedMinutes % 60;
   return `${hours}.${String(minutes).padStart(2, '0')}`;
 }
+
+// Inner blue tint on hover for the interactive control buttons (motion, light,
+// filament, edit layout), matching the dashboard sidebar tab's hover/active fill
+// rather than an outer halo. `!` overrides the outline variant's grey accent
+// hover; it fades out automatically while a button is disabled.
+const CONTROL_GLOW =
+  'hover:bg-blue-50! hover:text-blue-600! dark:hover:bg-blue-900/30! dark:hover:text-blue-400!';
 
 export function PrinterDetail() {
   const { id } = useParams<{ id: string }>();
@@ -183,17 +220,26 @@ export function PrinterDetail() {
   const [lightError, setLightError] = useState<string | null>(null);
   const [removeInFlight, setRemoveInFlight] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
-  // Temperature target inputs and just-sent targets, keyed per heater
-  // ("nozzle-<index>" or "bed"). Targets are shown optimistically — the poller
-  // only reports actual temps, not targets.
+  // Temperature target inputs keyed per heater ("nozzle-<index>" or "bed"). The
+  // box mirrors the printer's reported target (synced in the effect below) so it
+  // reflects changes made from the printer screen or slicer.
   const [tempInputs, setTempInputs] = useState<Record<string, string>>({});
   const [tempInFlight, setTempInFlight] = useState<string | null>(null);
   const [tempError, setTempError] = useState<string | null>(null);
+  // The heater key the user is currently editing — its box isn't overwritten by
+  // the hardware sync while focused.
+  const [tempEditingKey, setTempEditingKey] = useState<string | null>(null);
+  // Per-key timestamps; while set in the future the hardware sync won't overwrite
+  // that box, covering a just-sent target plus the printer's report lag.
+  const tempSyncBlockedUntil = useRef<Record<string, number>>({});
   // Manual jog/home controls. The selected step (mm) applies to every jog; the
   // in-flight key (e.g. "x+", "home") disables the pad while a command runs.
   const [motionStep, setMotionStep] = useState<number>(10);
   const [motionInFlight, setMotionInFlight] = useState<string | null>(null);
   const [motionError, setMotionError] = useState<string | null>(null);
+  // Keyed "load-<slot>"/"unload-<slot>" while a filament command is in flight.
+  const [filamentInFlight, setFilamentInFlight] = useState<string | null>(null);
+  const [filamentError, setFilamentError] = useState<string | null>(null);
   const [snapshotNonce, setSnapshotNonce] = useState(() => Date.now());
   const [taskConfig, setTaskConfig] = useState<PrinterTaskConfig | null>(null);
   const [taskConfigError, setTaskConfigError] = useState<string | null>(null);
@@ -264,6 +310,42 @@ export function PrinterDetail() {
   }, [id]);
 
   const isOnline = printer?.status !== 'offline' && printer !== null;
+
+  // Keep each set-temp box in sync with the printer's reported target, unless the
+  // user is editing that field, a command is in flight for it, or it's inside the
+  // post-send grace window.
+  useEffect(() => {
+    if (!printer) {
+      return;
+    }
+    const nozzleCount =
+      printer.nozzleTemperatures && printer.nozzleTemperatures.length > 0
+        ? printer.nozzleTemperatures.length
+        : 1;
+    const now = Date.now();
+    setTempInputs((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      const sync = (key: string, target: number | undefined) => {
+        if (key === tempEditingKey || tempInFlight === key) {
+          return;
+        }
+        if (now < (tempSyncBlockedUntil.current[key] ?? 0)) {
+          return;
+        }
+        const value = formatTargetForInput(target);
+        if (next[key] !== value) {
+          next[key] = value;
+          changed = true;
+        }
+      };
+      for (let index = 0; index < nozzleCount; index += 1) {
+        sync(`nozzle-${index}`, printer.nozzleTargets?.[index]);
+      }
+      sync('bed', printer.bedTarget);
+      return changed ? next : prev;
+    });
+  }, [printer, tempEditingKey, tempInFlight]);
 
   useEffect(() => {
     setSnapshotNonce(Date.now());
@@ -432,6 +514,11 @@ export function PrinterDetail() {
   const canControlMotion = canControlPrinter && printerSupportsMotionControl(printer);
   const isMotionReady = canControlMotion && isOnline && printer.status === 'idle';
   const motionControlsDisabled = !isMotionReady || motionInFlight !== null;
+  // Loading/unloading mid-print would ruin the job, so filament swaps are only
+  // live when the printer is connected and idle, mirroring the motion gate.
+  const canControlFilament = canControlPrinter && printerSupportsFilamentControl(printer);
+  const isFilamentReady = canControlFilament && isOnline && printer.status === 'idle';
+  const filamentControlsDisabled = !isFilamentReady || filamentInFlight !== null;
   const canViewSensitiveInfo = user?.role !== 'viewer';
   const supportsWebcamStream = printerSupportsWebcamStream(printer);
   const webcamSnapshotUrl = `${buildPrinterWebcamSnapshotUrl(printer)}?t=${snapshotNonce}`;
@@ -456,6 +543,7 @@ export function PrinterDetail() {
     color: spool.color || '#808080',
     isLoaded: true,
     isInUse: printer.status === 'printing',
+    trayId: bambuTrayId(spool.id),
   }));
   const filamentSlots: FilamentSlot[] =
     taskConfigSlots.length > 0 ? taskConfigSlots : spoolSlots;
@@ -559,11 +647,10 @@ export function PrinterDetail() {
 
     try {
       await setPrinterTemperature(printer, heater, target, nozzleIndex);
-      // Keep a non-zero target visible in the box; clear it back to the
-      // placeholder for 0, which just turns the heater off.
-      if (target === 0) {
-        setTempInputs((prev) => ({ ...prev, [key]: '' }));
-      }
+      // Show the just-sent target (placeholder for 0 = off) and hold it through
+      // the printer's report lag before the hardware sync takes back over.
+      setTempInputs((prev) => ({ ...prev, [key]: formatTargetForInput(target) }));
+      tempSyncBlockedUntil.current[key] = Date.now() + 12000;
     } catch (error) {
       setTempError(error instanceof Error ? error.message : 'Unable to set temperature');
     } finally {
@@ -597,6 +684,27 @@ export function PrinterDetail() {
 
   const handleDisableMotors = () =>
     runMotionCommand('disable', () => disablePrinterMotors(printer));
+
+  const handleFilamentAction = async (action: 'load' | 'unload', slot: FilamentSlot) => {
+    if (!isFilamentReady) {
+      return;
+    }
+
+    setFilamentInFlight(`${action}-${slot.slot}`);
+    setFilamentError(null);
+
+    try {
+      if (action === 'load') {
+        await loadPrinterFilament(printer, slot.slot, slot.trayId);
+      } else {
+        await unloadPrinterFilament(printer, slot.slot, slot.trayId);
+      }
+    } catch (error) {
+      setFilamentError(error instanceof Error ? error.message : 'Unable to control filament');
+    } finally {
+      setFilamentInFlight(null);
+    }
+  };
 
   const handleRemovePrinter = async () => {
     if (!printer || user?.role !== 'admin') {
@@ -649,6 +757,7 @@ export function PrinterDetail() {
               type="button"
               variant={isLayoutEditing ? 'default' : 'outline'}
               size="sm"
+              className={CONTROL_GLOW}
               onClick={() => setIsLayoutEditing((value) => !value)}
             >
               {isLayoutEditing ? (
@@ -850,6 +959,8 @@ export function PrinterDetail() {
                               setTempInputs((prev) => ({ ...prev, [key]: next }))
                             }
                             onSubmit={() => handleSetTemperature('nozzle', index)}
+                            onFocus={() => setTempEditingKey(key)}
+                            onBlur={() => setTempEditingKey((current) => (current === key ? null : current))}
                           />
                         )}
                       </div>
@@ -873,6 +984,8 @@ export function PrinterDetail() {
                         disabled={tempInFlight !== null}
                         onChange={(next) => setTempInputs((prev) => ({ ...prev, bed: next }))}
                         onSubmit={() => handleSetTemperature('bed')}
+                        onFocus={() => setTempEditingKey('bed')}
+                        onBlur={() => setTempEditingKey((current) => (current === 'bed' ? null : current))}
                       />
                     )}
                   </div>
@@ -918,6 +1031,32 @@ export function PrinterDetail() {
                           </Badge>
                           {slot.isInUse && <Badge>In Use</Badge>}
                         </div>
+                        {canControlFilament && (
+                          <div className="flex gap-1.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className={`h-7 min-w-0 flex-1 gap-1 px-2 text-xs ${CONTROL_GLOW}`}
+                              disabled={filamentControlsDisabled}
+                              onClick={() => handleFilamentAction('load', slot)}
+                            >
+                              <ArrowDownToLine className="size-3.5" />
+                              {filamentInFlight === `load-${slot.slot}` ? '…' : 'Load'}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className={`h-7 min-w-0 flex-1 gap-1 px-2 text-xs ${CONTROL_GLOW}`}
+                              disabled={filamentControlsDisabled}
+                              onClick={() => handleFilamentAction('unload', slot)}
+                            >
+                              <ArrowUpFromLine className="size-3.5" />
+                              {filamentInFlight === `unload-${slot.slot}` ? '…' : 'Unload'}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -926,6 +1065,14 @@ export function PrinterDetail() {
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 No live filament status available.
               </p>
+            )}
+            {canControlFilament && filamentSlots.length > 0 && !isFilamentReady && (
+              <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                Filament can only be loaded or unloaded while the printer is online and idle.
+              </p>
+            )}
+            {canControlFilament && filamentError && (
+              <p className="mt-3 text-sm text-red-500">{filamentError}</p>
             )}
           </Card>
           ),
@@ -942,7 +1089,7 @@ export function PrinterDetail() {
                 variant={lightOn ? 'default' : 'outline'}
                 disabled={!isOnline || lightInFlight}
                 onClick={() => handleToggleLight(!lightOn)}
-                className={`h-14 w-full justify-center text-base font-semibold ${
+                className={`h-14 w-full justify-center text-base font-semibold ${CONTROL_GLOW} ${
                   lightOn ? 'bg-amber-400 text-amber-950 hover:bg-amber-300' : ''
                 }`}
                 aria-pressed={lightOn}
@@ -978,6 +1125,7 @@ export function PrinterDetail() {
                         type="button"
                         size="sm"
                         variant={motionStep === step ? 'default' : 'outline'}
+                        className={CONTROL_GLOW}
                         onClick={() => setMotionStep(step)}
                       >
                         {step}
@@ -994,6 +1142,7 @@ export function PrinterDetail() {
                         type="button"
                         variant="outline"
                         size="icon"
+                        className={CONTROL_GLOW}
                         disabled={motionControlsDisabled}
                         onClick={() => handleJog('y', 1)}
                         aria-label="Jog Y positive"
@@ -1005,6 +1154,7 @@ export function PrinterDetail() {
                         type="button"
                         variant="outline"
                         size="icon"
+                        className={CONTROL_GLOW}
                         disabled={motionControlsDisabled}
                         onClick={() => handleJog('x', -1)}
                         aria-label="Jog X negative"
@@ -1015,6 +1165,7 @@ export function PrinterDetail() {
                         type="button"
                         variant="outline"
                         size="icon"
+                        className={CONTROL_GLOW}
                         disabled={motionControlsDisabled}
                         onClick={handleHomeAll}
                         aria-label="Home all axes"
@@ -1025,6 +1176,7 @@ export function PrinterDetail() {
                         type="button"
                         variant="outline"
                         size="icon"
+                        className={CONTROL_GLOW}
                         disabled={motionControlsDisabled}
                         onClick={() => handleJog('x', 1)}
                         aria-label="Jog X positive"
@@ -1036,6 +1188,7 @@ export function PrinterDetail() {
                         type="button"
                         variant="outline"
                         size="icon"
+                        className={CONTROL_GLOW}
                         disabled={motionControlsDisabled}
                         onClick={() => handleJog('y', -1)}
                         aria-label="Jog Y negative"
@@ -1053,6 +1206,7 @@ export function PrinterDetail() {
                         type="button"
                         variant="outline"
                         size="icon"
+                        className={CONTROL_GLOW}
                         disabled={motionControlsDisabled}
                         onClick={() => handleJog('z', 1)}
                         aria-label="Jog Z up"
@@ -1063,6 +1217,7 @@ export function PrinterDetail() {
                         type="button"
                         variant="outline"
                         size="icon"
+                        className={CONTROL_GLOW}
                         disabled={motionControlsDisabled}
                         onClick={() => handleJog('z', -1)}
                         aria-label="Jog Z down"
@@ -1077,7 +1232,7 @@ export function PrinterDetail() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full"
+                  className={`w-full ${CONTROL_GLOW}`}
                   disabled={motionControlsDisabled}
                   onClick={handleDisableMotors}
                 >

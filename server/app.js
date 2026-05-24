@@ -389,6 +389,28 @@ function buildBambuCommandPayload(command, params = {}) {
     };
   }
 
+  if (command === 'load_filament' || command === 'unload_filament') {
+    // ams_change_filament: `target` is the global tray id (AMS unit * 4 + tray,
+    // or 254 for the external spool). 255 tells the printer to unload whatever
+    // is currently loaded. `tar_temp` preheats the hotend for the swap; the
+    // printer applies its own filament profile when handed 0.
+    const isUnload = command === 'unload_filament';
+    const target = isUnload ? 255 : Number(params.trayId);
+    if (!Number.isFinite(target) || target < 0 || target > 255) {
+      throw new Error('Filament tray target is out of range');
+    }
+    const tarTemp = isUnload ? 0 : Math.round(Number(params.target) || 220);
+    return {
+      print: {
+        command: 'ams_change_filament',
+        target,
+        curr_temp: 0,
+        tar_temp: tarTemp,
+        sequence_id: sequenceId,
+      },
+    };
+  }
+
   const action = BAMBU_PRINT_ACTIONS[command];
   if (!action) {
     throw new Error(`Unsupported command: ${command}`);
@@ -551,8 +573,8 @@ async function handleApi(req, res, requestUrl) {
       sendJson(res, 404, { error: 'Printer not found' });
       return true;
     }
-    const { command, heater, target, nozzleIndex, gcode } = await readJsonBody(req);
-    await sendBambuCommand(printer, command, { heater, target, nozzleIndex, gcode });
+    const { command, heater, target, nozzleIndex, gcode, trayId } = await readJsonBody(req);
+    await sendBambuCommand(printer, command, { heater, target, nozzleIndex, gcode, trayId });
     sendEmpty(res);
     return true;
   }

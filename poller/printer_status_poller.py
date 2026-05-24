@@ -50,6 +50,8 @@ ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_temperatures JSONB;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS offline_since DOUBLE PRECISION;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS serial TEXT;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS light_on BOOLEAN;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS nozzle_targets JSONB;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS bed_target DOUBLE PRECISION;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -129,6 +131,8 @@ def list_printers(conn: psycopg.Connection) -> list[dict[str, Any]]:
               success_rate AS "successRate",
               current_job AS "currentJob",
               nozzle_temperatures AS "nozzleTemperatures",
+              nozzle_targets AS "nozzleTargets",
+              bed_target AS "bedTarget",
               spools,
               light_on AS "lightOn",
               offline_since AS "offlineSince"
@@ -162,6 +166,8 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               success_rate,
               current_job,
               nozzle_temperatures,
+              nozzle_targets,
+              bed_target,
               spools,
               light_on,
               offline_since
@@ -184,6 +190,8 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               %(successRate)s,
               %(currentJob)s::jsonb,
               %(nozzleTemperatures)s::jsonb,
+              %(nozzleTargets)s::jsonb,
+              %(bedTarget)s,
               %(spools)s::jsonb,
               %(lightOn)s,
               %(offlineSince)s
@@ -206,6 +214,8 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               success_rate = EXCLUDED.success_rate,
               current_job = EXCLUDED.current_job,
               nozzle_temperatures = EXCLUDED.nozzle_temperatures,
+              nozzle_targets = EXCLUDED.nozzle_targets,
+              bed_target = EXCLUDED.bed_target,
               spools = EXCLUDED.spools,
               light_on = EXCLUDED.light_on,
               offline_since = EXCLUDED.offline_since
@@ -229,6 +239,8 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
                 "successRate": printer.get("successRate", 0),
                 "currentJob": json.dumps(printer.get("currentJob")),
                 "nozzleTemperatures": json.dumps(printer.get("nozzleTemperatures")),
+                "nozzleTargets": json.dumps(printer.get("nozzleTargets")),
+                "bedTarget": printer.get("bedTarget"),
                 "spools": json.dumps(printer.get("spools")),
                 "lightOn": printer.get("lightOn"),
                 "offlineSince": printer.get("offlineSince"),
@@ -388,8 +400,10 @@ def fetch_snapmaker_status(printer: dict[str, Any]) -> dict[str, Any]:
     heater_bed = status.get("heater_bed") or {}
     fallback_nozzle = ((printer.get("temperature") or {}).get("nozzle")) or 0
     existing_nozzles = printer.get("nozzleTemperatures") or []
+    existing_nozzle_targets = printer.get("nozzleTargets") or []
 
     nozzle_temperatures = []
+    nozzle_targets = []
     for index, extruder in enumerate(extruders):
         temperature = (extruder or {}).get("temperature")
         if isinstance(temperature, (int, float)):
@@ -399,9 +413,23 @@ def fetch_snapmaker_status(printer: dict[str, Any]) -> dict[str, Any]:
         else:
             nozzle_temperatures.append(fallback_nozzle)
 
+        # Target temps drive the set-temp box so it reflects the live target even
+        # when changed from the printer screen or slicer. Default to 0 (heater off).
+        target = (extruder or {}).get("target")
+        if isinstance(target, (int, float)):
+            nozzle_targets.append(round(target))
+        elif index < len(existing_nozzle_targets):
+            nozzle_targets.append(existing_nozzle_targets[index])
+        else:
+            nozzle_targets.append(0)
+
     bed_temperature = heater_bed.get("temperature")
     if not isinstance(bed_temperature, (int, float)):
         bed_temperature = ((printer.get("temperature") or {}).get("bed")) or 0
+
+    bed_target = heater_bed.get("target")
+    if not isinstance(bed_target, (int, float)):
+        bed_target = printer.get("bedTarget") or 0
 
     raw_print_state = print_stats.get("state")
     raw_progress = virtual_sdcard.get("progress")
@@ -419,6 +447,8 @@ def fetch_snapmaker_status(printer: dict[str, Any]) -> dict[str, Any]:
             "bed": round(bed_temperature),
         },
         "nozzleTemperatures": nozzle_temperatures,
+        "nozzleTargets": nozzle_targets,
+        "bedTarget": round(bed_target),
     }
 
 
@@ -705,6 +735,22 @@ def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
     nozzle_temperature = round(raw_nozzle) if isinstance(raw_nozzle, (int, float)) else fallback_nozzle
     bed_temperature = round(raw_bed) if isinstance(raw_bed, (int, float)) else fallback_bed
 
+    # Target temps keep the set-temp box in sync with the live target.
+    existing_nozzle_targets = printer.get("nozzleTargets") or []
+    fallback_nozzle_target = existing_nozzle_targets[0] if existing_nozzle_targets else 0
+    raw_nozzle_target = print_data.get("nozzle_target_temper")
+    raw_bed_target = print_data.get("bed_target_temper")
+    nozzle_target = (
+        round(raw_nozzle_target)
+        if isinstance(raw_nozzle_target, (int, float))
+        else fallback_nozzle_target
+    )
+    bed_target = (
+        round(raw_bed_target)
+        if isinstance(raw_bed_target, (int, float))
+        else (printer.get("bedTarget") or 0)
+    )
+
     raw_percent = print_data.get("mc_percent")
     progress = 0
     if isinstance(raw_percent, (int, float)):
@@ -734,6 +780,8 @@ def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
         "rawPrintState": gcode_state.lower() if isinstance(gcode_state, str) else None,
         "temperature": {"nozzle": nozzle_temperature, "bed": bed_temperature},
         "nozzleTemperatures": [nozzle_temperature],
+        "nozzleTargets": [nozzle_target],
+        "bedTarget": bed_target,
         "spools": build_bambu_spools(print_data) or printer.get("spools"),
         "lightOn": light_on,
     }

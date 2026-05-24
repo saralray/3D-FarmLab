@@ -26,6 +26,10 @@ export interface Printer {
     bed: number;
   };
   nozzleTemperatures?: number[];
+  // Target temps reported by the printer, used to keep the set-temp inputs in
+  // sync even when the target is changed from the printer screen or slicer.
+  nozzleTargets?: number[];
+  bedTarget?: number;
   progress: number;
   lastMaintenance: string;
   totalPrintTime: number; // hours

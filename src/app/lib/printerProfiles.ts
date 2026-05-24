@@ -116,6 +116,9 @@ export function normalizePrinter(printer: Partial<Printer>, index: number): Prin
     nozzleTemperatures:
       printer.nozzleTemperatures?.map((temperature) => normalizeMaxTwoDecimals(temperature)) ??
       (supportsLiveStatus ? [0, 0, 0, 0] : [fallbackNozzleTemperature]),
+    nozzleTargets: printer.nozzleTargets?.map((target) => normalizeMaxTwoDecimals(target)),
+    bedTarget:
+      typeof printer.bedTarget === 'number' ? normalizeMaxTwoDecimals(printer.bedTarget) : undefined,
     progress: normalizeMaxTwoDecimals(printer.progress),
     lastMaintenance: printer.lastMaintenance ?? new Date().toISOString().slice(0, 10),
     totalPrintTime: normalizeMaxTwoDecimals(printer.totalPrintTime),
@@ -448,6 +451,70 @@ export async function setPrinterLight(printer: Printer, on: boolean) {
 
     throw new Error(message);
   }
+}
+
+export function printerSupportsFilamentControl(printer: Printer) {
+  return printer.profile === 'snapmaker_u1' || printer.profile === 'bambulab_a1_mini';
+}
+
+// Load or unload filament for one tool/tray. Snapmaker U1 (Klipper/Moonraker)
+// runs LOAD_FILAMENT/UNLOAD_FILAMENT macros over the gcode proxy; Bambu A1 Mini
+// has no HTTP API, so the server publishes an MQTT ams_change_filament. `slot`
+// is the 1-based card index; `trayId` is the Bambu global tray id (AMS unit * 4
+// + tray, or 254 for the external spool).
+async function sendFilamentCommand(
+  printer: Printer,
+  action: 'load' | 'unload',
+  slot: number,
+  trayId?: number,
+) {
+  let response: Response;
+  if (printer.profile === 'bambulab_a1_mini') {
+    response = await fetch(`/api/printers/${encodeURIComponent(printer.id)}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        command: action === 'load' ? 'load_filament' : 'unload_filament',
+        trayId,
+      }),
+    });
+  } else if (printer.profile === 'snapmaker_u1') {
+    // The U1 drives its 4-lane AFC (Automated Filament Changer) through Klipper
+    // macros keyed by lane name E0–E3; the card slot is 1-based, so lane = E(slot-1).
+    // CHANGE_TOOL feeds/loads a lane (AUTO_FEEDING … LOAD=1); LANE_UNLOAD retracts it.
+    const lane = `E${Math.max(0, slot - 1)}`;
+    const script =
+      action === 'load' ? `CHANGE_TOOL LANE=${lane}` : `LANE_UNLOAD LANE=${lane}`;
+    response = await fetch(
+      `/__printer_proxy/${encodeURIComponent(printer.id)}/printer/gcode/script?script=${encodeURIComponent(script)}`,
+      { method: 'POST' },
+    );
+  } else {
+    throw new Error('Filament control is not available for this printer.');
+  }
+
+  if (!response.ok) {
+    let message = `Filament command failed with ${response.status}`;
+
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload.error) {
+        message = payload.error;
+      }
+    } catch {
+      // Ignore non-JSON proxy responses.
+    }
+
+    throw new Error(message);
+  }
+}
+
+export async function loadPrinterFilament(printer: Printer, slot: number, trayId?: number) {
+  await sendFilamentCommand(printer, 'load', slot, trayId);
+}
+
+export async function unloadPrinterFilament(printer: Printer, slot: number, trayId?: number) {
+  await sendFilamentCommand(printer, 'unload', slot, trayId);
 }
 
 export type MotionAxis = 'x' | 'y' | 'z';
