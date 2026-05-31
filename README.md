@@ -19,9 +19,11 @@ A print-farm management dashboard for monitoring 3D printers, queue requests, pr
 - `src/`: React, Vite, TypeScript, Tailwind, Radix UI, lucide icons, and Sonner toasts
 - `server/`: lightweight Node API middleware used by the web container
 - `poller/`: Python background service for printer status refresh and offline detection
+- `exporter/`: read-only Prometheus exporter that publishes print-farm metrics from PostgreSQL
 - `db`: PostgreSQL
 - `nginx`: reverse proxy in front of the app
-- `docker-compose.yml`: full local stack for PostgreSQL, web, nginx, and poller
+- `monitoring/`: Prometheus scrape config and an importable Grafana dashboard
+- `docker-compose.yml`: full local stack for PostgreSQL, web, nginx, poller, exporter, and Prometheus
 
 ## Quick Start
 
@@ -87,8 +89,10 @@ Key settings in `.env.example`:
 - `PRINTER_POLL_INTERVAL_MS`
 - `PRINTER_REQUEST_TIMEOUT_MS`
 - `PRINTER_OFFLINE_GRACE_SECONDS`
+- `PROMETHEUS_PORT` — host port for the Prometheus server (default 9090); use it as the Grafana datasource URL
+- `EXPORTER_PORT` — internal metrics-exporter port (default 9180)
 
-The app container and poller derive their `DATABASE_URL` from the PostgreSQL values in `docker-compose.yml`.
+The app container, poller, and exporter derive their `DATABASE_URL` from the PostgreSQL values in `docker-compose.yml`.
 
 `PRINTER_OFFLINE_GRACE_SECONDS` controls how long a printer must be unreachable before the poller sends an offline notification.
 
@@ -120,14 +124,54 @@ The poller and web API support three printer profiles, selected per printer:
 - Admin deletion is a soft delete so removed jobs do not reappear after the next Google Sheet sync.
 - Operators can mark jobs as printed. Admins can delete queue and history jobs.
 
+## Monitoring (Prometheus + Grafana)
+
+The stack ships a read-only **exporter** and a **Prometheus** server so you can
+graph and alert on print-farm activity in your own Grafana.
+
+- The `exporter` service reads PostgreSQL on every scrape and exposes metrics
+  under the `printfarm_*` namespace on `:9180/metrics`. It is internal only (not
+  proxied through nginx), so metrics never appear on the public site.
+- The `prometheus` service scrapes the exporter every 15s and stores the time
+  series. It is published on `PROMETHEUS_PORT` (default 9090).
+
+Metrics include per-printer status, nozzle/bed temperature, progress, success
+rate and lifetime print hours; fleet counts by status; cumulative and today's
+completed/failed jobs, print hours and filament grams; and queue depth. (No
+connection secrets — IP, API key, serial — are ever exposed as metrics.)
+
+**Connect your Grafana** (it runs separately):
+
+- **Provision it (recommended):** mount the datasource file into your Grafana at
+  `/etc/grafana/provisioning/datasources/` and restart Grafana — e.g. add to your
+  Grafana's `docker run`/compose:
+
+  ```bash
+  -v /path/to/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+  ```
+
+  Edit `url` in `monitoring/grafana/provisioning/datasources/prometheus.yml`
+  first: use `http://prometheus:9090` if Grafana shares this Docker/Kubernetes
+  network, or `http://<this-host>:9090` (the published `PROMETHEUS_PORT`) if it
+  runs on another host.
+
+- **Or add it in the UI:** Connections → Data sources → add **Prometheus** with
+  the same URL.
+
+Then import `monitoring/grafana-dashboard.json` (Dashboards → New → Import) and
+pick the **Print Farm Prometheus** data source when prompted.
+
+Prometheus only retains data from when it started scraping, so analytics from
+before it was deployed are not backfilled.
+
 ## Kubernetes Deployment
 
 This repo is designed to be forked and deployed by anyone — **no secrets or
-deployment-specific URLs are committed**. Each fork supplies its own values
-via GitHub Actions secrets (for the GitHub-Actions deploy path) or directly
-to the cluster (for a manual `kubectl` deploy).
+deployment-specific URLs are committed**. On every push to `main`, GitHub
+Actions builds the images and pushes them to Docker Hub; deploying them to a
+cluster is a manual `kubectl` step (below).
 
-### One-time setup — GitHub Actions deploy
+### One-time setup — GitHub Actions (build & push)
 
 Configure these in your repo under **Settings → Secrets and variables →
 Actions**.
@@ -138,7 +182,6 @@ Actions**.
 |------|---------|
 | `DOCKERHUB_USERNAME` | Username used to push images; also the K8s image prefix |
 | `DOCKERHUB_TOKEN` | Docker Hub access token for that user |
-| `KUBE_CONFIG` | Contents of a kubeconfig with rights on the cluster |
 
 The Google Sheet/Form URLs are **not** repo secrets — admins configure them at
 runtime in Settings → Integrations (stored in the DB).
@@ -152,7 +195,7 @@ runtime in Settings → Integrations (stored in the DB).
 ### One-time setup — cluster
 
 The cluster needs a `printfarm-secret` Secret holding the database credentials.
-The deploy workflow does **not** create it (the values never enter the repo
+The build workflow does **not** create it (the values never enter the repo
 or workflow). Create it once, with strong random values:
 
 ```bash
@@ -172,17 +215,19 @@ kubectl -n printfarm create secret generic printfarm-secret \
 `k8s/examples/secret.example.yaml` documents the same shape if you'd rather
 template it.
 
-After that, every push to `main` builds and deploys automatically.
+After that, every push to `main` builds and pushes the images to Docker Hub
+automatically; deploy them to your cluster with the manual step below.
 
-### Manual deploy (no GitHub Actions)
+### Manual deploy
 
-If you're applying manifests yourself, the workflow's `sed` step has an
-equivalent one-liner:
+Deploying to the cluster is manual. With the images built and pushed (by the
+workflow above, or by hand), rewrite the placeholder image prefix and apply the
+manifests:
 
 ```bash
 export IMAGE_PREFIX=your-dockerhub-username
 
-# (build & push your three images as in deploy.yml…)
+# (build & push your four images as in deploy.yml…)
 
 kubectl apply -f k8s/namespace.yaml
 

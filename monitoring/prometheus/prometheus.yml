@@ -1,0 +1,18 @@
+# Prometheus scrape configuration for the STEM Lab Print Farm.
+#
+# The print-farm metrics come from the `exporter` service (a read-only view of
+# the PostgreSQL data). `exporter` resolves on both the Docker Compose network
+# and the Kubernetes namespace, so this file is shared by both deployments.
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: printfarm
+    static_configs:
+      - targets: ["exporter:9180"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

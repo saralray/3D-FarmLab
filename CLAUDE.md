@@ -42,13 +42,15 @@ Before applying, edit `k8s/secret.yaml` (fill in `CHANGE_ME` values). The Google
 Sheet/Form URLs are no longer build/deploy config — admins set them at runtime in
 Settings → Integrations (stored in the DB).
 
-Build and push the two custom images (only `web` and `poller` — nginx uses the upstream image directly):
+Build and push the custom images (`web`, `poller`, and `exporter` — nginx uses the upstream image directly, and `prometheus` runs the upstream `prom/prometheus` image):
 ```bash
 docker build \
   --build-arg VITE_PUBLIC_VIEWER_MODE=false \
   -f Dockerfile.web -t stemlab-printfarm/web:latest .
 
 docker build -f Dockerfile.poller -t stemlab-printfarm/poller:latest .
+
+docker build -f Dockerfile.exporter -t stemlab-printfarm/exporter:latest .
 
 # Push to your registry, or load into a local cluster:
 # kind:      kind load docker-image stemlab-printfarm/web:latest
@@ -66,7 +68,7 @@ kubectl -n stemlab-printfarm get svc nginx   # check EXTERNAL-IP for LoadBalance
 
 ## Architecture
 
-Four services orchestrated via Docker Compose:
+Six services orchestrated via Docker Compose:
 
 | Service | Tech | Role |
 |---------|------|------|
@@ -74,6 +76,8 @@ Four services orchestrated via Docker Compose:
 | `db` | PostgreSQL 16 | Stores printers, queue jobs, analytics, Discord webhooks |
 | `poller` | Python 3.12 + psycopg | Polls each printer every `PRINTER_POLL_INTERVAL_MS` ms, upserts state into `db` |
 | `nginx` | Nginx 1.27 | Reverse proxy on `HTTP_PORT` (default 8080), adds security headers |
+| `exporter` | Python 3.12 + prometheus-client | Read-only Prometheus exporter; serves `printfarm_*` metrics from `db` on `:9180/metrics` (internal only) |
+| `prometheus` | Prometheus 2.55 | Scrapes `exporter`, stores the time series; an external Grafana reads it on `PROMETHEUS_PORT` (default 9090) |
 
 **Request flow:**
 ```
@@ -102,6 +106,8 @@ Browser → nginx:8080 → Node web:5173
 **Printer polling:** The Python poller queries all active printers from PostgreSQL and applies an offline grace period (`PRINTER_OFFLINE_GRACE_SECONDS`, default 30 s) before marking a printer offline. Supports three printer profiles: generic (HTTP reachability ping), Snapmaker U1 (Moonraker HTTP API), and Bambu Lab A1 Mini. The Bambu profile is the exception to the HTTP model — it holds a persistent MQTT-over-TLS connection per printer (port 8883, user `bblp`, password = the printer's LAN access code stored in `api_key_header`). It requires the device **serial** (stored in the `serial` column): Bambu's broker only authorizes a subscription to the printer's exact `device/<serial>/report` topic — a wildcard subscription gets the client disconnected — and an idle printer stays silent until sent a `pushall` request on `device/<serial>/request`, so the poller pushalls on connect and when its cached data goes stale. The printer must be in LAN Mode. Pause/resume/cancel are not HTTP-proxied for Bambu — the web server publishes them as MQTT commands to `device/<serial>/request` (via `POST /api/printers/:id/command`; `mqtt` is a web runtime dep installed in `Dockerfile.web`). The webcam is also not HTTP: the A1 Mini chamber camera is a length-prefixed JPEG stream over a raw TLS socket on port 6000 (auth: user `bblp` + the LAN access code in `api_key_header`). For Bambu, `/__printer_webcam/:id/snapshot.jpg` connects to port 6000, reads one frame, and returns it as a JPEG (see `captureBambuSnapshot` in `server/app.js`); only still snapshots are supported, not the live `/player` stream, and the printer must have **LAN Mode Liveview** enabled. Note: recreating only the `web` container can leave nginx pointing at its old IP (502) — restart nginx or rebuild all services.
 
 **Viewer mode:** When `VITE_PUBLIC_VIEWER_MODE="true"`, the app auto-enters the viewer session, printer list responses server-side redact sensitive connection fields (IP, API key, profile), and viewers cannot pause/resume/cancel/reorder printers.
+
+**Metrics / monitoring:** The `exporter` service (`exporter/printfarm_exporter.py`, a `prometheus_client` custom collector) exposes the print-farm data as Prometheus metrics under the `printfarm_*` namespace on `:9180/metrics`. It is read-only, queries PostgreSQL fresh on each scrape (printers, `analytics_daily`, `queue_jobs`), never creates schema, and reports a database failure as `printfarm_scrape_success 0` instead of crashing. Cumulative job/print-time/filament series are counters (`_total`); per-printer temps/progress/status and queue depth are gauges. The `prometheus` service scrapes it and retains the series for an external Grafana — point Grafana at `http://<host>:PROMETHEUS_PORT` (or provision the datasource from `monitoring/grafana/provisioning/datasources/prometheus.yml`, mounted into Grafana's `/etc/grafana/provisioning/datasources/`) and import `monitoring/grafana-dashboard.json`. The exporter is deliberately **not** proxied through nginx, so metrics are never reachable on the public `:8080` site; only Prometheus publishes a host port. Connection secrets (IP, API key, serial) are never emitted as metrics.
 
 **Numeric formatting:** All printer and analytics values shown in the frontend must use no more than two decimal places.
 

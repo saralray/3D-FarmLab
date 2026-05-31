@@ -1,0 +1,27 @@
+# Grafana datasource provisioning for the Print Farm Prometheus.
+#
+# Mount this file into your (separately run) Grafana so the datasource is created
+# automatically on startup:
+#
+#   /etc/grafana/provisioning/datasources/prometheus.yml
+#
+# Docker example (add to your Grafana's `docker run` or compose):
+#   -v /path/to/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+#
+# IMPORTANT — set `url` to wherever YOUR Grafana can reach this Prometheus:
+#   - Grafana on the same Docker / Kubernetes network: http://prometheus:9090
+#   - Grafana on another host:  http://<this-host>:9090   (the published PROMETHEUS_PORT)
+apiVersion: 1
+
+datasources:
+  - name: Print Farm Prometheus
+    uid: printfarm-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    editable: true
+    jsonData:
+      httpMethod: POST
+      # Matches the exporter scrape interval so $__rate_interval behaves well.
+      timeInterval: 15s

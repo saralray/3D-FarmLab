@@ -1,4 +1,4 @@
-name: Deploy
+name: Build and Push Images
 
 on:
   push:
@@ -6,12 +6,12 @@ on:
       - main
 
 jobs:
-  deploy:
+  build:
     runs-on: self-hosted
 
     env:
-      # Forks set DOCKERHUB_USERNAME in repo secrets; the same value is used
-      # for the build/push registry and as the Kubernetes image prefix.
+      # Forks set DOCKERHUB_USERNAME in repo secrets; it's the push registry
+      # prefix (and the Kubernetes image prefix when you deploy manually).
       IMAGE_PREFIX: ${{ secrets.DOCKERHUB_USERNAME }}
 
     steps:
@@ -21,8 +21,7 @@ jobs:
       - name: Validate required secrets
         run: |
           : "${IMAGE_PREFIX:?DOCKERHUB_USERNAME secret is not set}"
-          test -n "${{ secrets.DOCKERHUB_TOKEN }}"           || { echo "DOCKERHUB_TOKEN secret is not set"; exit 1; }
-          test -n "${{ secrets.KUBE_CONFIG }}"               || { echo "KUBE_CONFIG secret is not set"; exit 1; }
+          test -n "${{ secrets.DOCKERHUB_TOKEN }}" || { echo "DOCKERHUB_TOKEN secret is not set"; exit 1; }
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -49,46 +48,15 @@ jobs:
             -f Dockerfile.nginx \
             -t "${IMAGE_PREFIX}/printfarm-nginx:latest" .
 
+      - name: Build exporter image
+        run: |
+          docker build \
+            -f Dockerfile.exporter \
+            -t "${IMAGE_PREFIX}/printfarm-exporter:latest" .
+
       - name: Push images
         run: |
           docker push "${IMAGE_PREFIX}/printfarm-web:latest"
           docker push "${IMAGE_PREFIX}/printfarm-poller:latest"
           docker push "${IMAGE_PREFIX}/printfarm-nginx:latest"
-
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
-
-      - name: Apply namespace
-        run: |
-          kubectl apply -f k8s/namespace.yaml
-
-      - name: Apply runtime ConfigMap
-        # Generated in-cluster from repo variables. The Google Sheet/Form URLs
-        # are no longer baked in here — admins set them at runtime in
-        # Settings → Integrations (stored in the DB).
-        run: |
-          kubectl -n printfarm create configmap printfarm-config \
-            --from-literal=VITE_PUBLIC_VIEWER_MODE='${{ vars.PUBLIC_VIEWER_MODE || 'false' }}' \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Apply manifests
-        # Manifests use the upstream "saralray/" image prefix as a placeholder.
-        # Each fork's images live under its own DOCKERHUB_USERNAME, so the
-        # prefix is rewritten into per-file copies, and kubectl is pointed at
-        # that directory. Per-file apply gives clear, file-named errors if a
-        # manifest is malformed (a stdin pipeline reports "line N" only).
-        run: |
-          TMP="$(mktemp -d)"
-          for f in k8s/*.yaml; do
-            sed "s|saralray/|${IMAGE_PREFIX}/|g" "$f" > "$TMP/$(basename "$f")"
-          done
-          kubectl apply -f "$TMP"
-          rm -rf "$TMP"
-
-      - name: Restart deployments
-        run: |
-          kubectl rollout restart deployment/web deployment/poller deployment/nginx -n printfarm
-          kubectl rollout status deployment/web -n printfarm --timeout=120s
-          kubectl rollout status deployment/nginx -n printfarm --timeout=120s
+          docker push "${IMAGE_PREFIX}/printfarm-exporter:latest"

@@ -1,0 +1,21 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+COPY exporter/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY exporter ./exporter
+
+RUN groupadd --system exporter \
+  && useradd --system --gid exporter --home-dir /app exporter \
+  && chown -R exporter:exporter /app
+
+USER exporter
+
+EXPOSE 9180
+
+CMD ["python", "exporter/printfarm_exporter.py"]

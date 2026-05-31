@@ -60,5 +60,36 @@ services:
       PRINTER_REQUEST_TIMEOUT_MS: ${PRINTER_REQUEST_TIMEOUT_MS:-3000}
       PRINTER_OFFLINE_GRACE_SECONDS: ${PRINTER_OFFLINE_GRACE_SECONDS:-30}
 
+  # Read-only Prometheus exporter: exposes the PostgreSQL print-farm data as
+  # metrics on :9180/metrics. Not published to the host — Prometheus scrapes it
+  # over the internal network, so metrics never reach the public site.
+  exporter:
+    build:
+      context: .
+      dockerfile: Dockerfile.exporter
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      # If you change this, also update the target in
+      # monitoring/prometheus/prometheus.yml.
+      EXPORTER_PORT: ${EXPORTER_PORT:-9180}
+
+  # Scrapes the exporter and stores the time series. Point your Grafana at this
+  # service (http://<host>:${PROMETHEUS_PORT:-9090}) as a Prometheus datasource.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    depends_on:
+      - exporter
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
 volumes:
   postgres_data:
+  prometheus_data:
