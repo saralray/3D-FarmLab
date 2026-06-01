@@ -175,6 +175,8 @@ All series are namespaced `printfarm_*`. Per-printer metrics carry `id` and
 | `printfarm_jobs_failed_today` | — | Failed jobs today. |
 | `printfarm_print_time_hours_today` | — | Print time today, hours. |
 | `printfarm_filament_grams_today` | — | Filament used today, grams. |
+| `printfarm_success_rate_percent` | — | Overall success rate — completed/(completed+failed)×100 (the Analytics page's Success Rate card). |
+| `printfarm_success_rate_percent_today` | — | Success rate for today's jobs. |
 
 ### Cumulative (counter — exposed with the `_total` suffix)
 
