@@ -11,7 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Printer, PrinterProfile } from '../types';
 import { DiscordWebhook, fetchDiscordWebhooks, removeDiscordWebhook, saveDiscordWebhook } from '../lib/notificationsApi';
 import { fetchPrinters, savePrinter } from '../lib/printersApi';
-import { generateId } from '../lib/id';
+import { generateId, slugifyPrinterId } from '../lib/id';
 import { normalizePrinter, PRINTER_PROFILES } from '../lib/printerProfiles';
 import { fetchIntegrationSettings, saveIntegrationSettings } from '../lib/settingsApi';
 
@@ -125,7 +125,7 @@ export function Settings() {
     }
 
     const nextPrinter: Printer = {
-      id: generateId(),
+      id: slugifyPrinterId(normalizedName, printers.map((printer) => printer.id)),
       name: normalizedName,
       model: profileConfig.defaultModel,
       sortOrder: printers.length,

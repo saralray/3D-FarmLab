@@ -31,3 +31,32 @@ export function generateId(): string {
     `${hex[8]}${hex[9]}-${hex[10]}${hex[11]}${hex[12]}${hex[13]}${hex[14]}${hex[15]}`
   );
 }
+
+// Build a human-readable, URL-safe printer id from its name (e.g. "A1 MINI" ->
+// "A1-MINI", "U1-01" -> "U1-01"). The id ends up in proxy/webcam/command URLs,
+// some of which are not URL-encoded, so we collapse anything that isn't a letter
+// or digit into a single hyphen and trim stray hyphens. `existingIds` guarantees
+// uniqueness by appending -2, -3, … on collision. Falls back to a random UUID if
+// the name has no usable characters (e.g. all-emoji) so an id is always produced.
+export function slugifyPrinterId(name: string, existingIds: Iterable<string> = []): string {
+  const base = name
+    .normalize('NFKD')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (!base) {
+    return generateId();
+  }
+
+  const taken = new Set(existingIds);
+  if (!taken.has(base)) {
+    return base;
+  }
+
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${base}-${suffix}`;
+    if (!taken.has(candidate)) {
+      return candidate;
+    }
+  }
+}
