@@ -30,6 +30,10 @@ import {
 const PRINTER_CARD_LAYOUT_KEY = 'printer_card_layout';
 const PRINTER_CARD_LAYOUT_PROFILES = new Set(['generic', 'snapmaker_u1', 'bambulab_a1_mini']);
 
+// Analytics page grid layout: a single shared arrangement (admins drag/resize
+// the cards) stored in app_settings, like the printer-detail card layout above.
+const ANALYTICS_LAYOUT_KEY = 'analytics_layout';
+
 // Google Sheet (queue feed) and Google Form (print-request) URLs. Configured by
 // admins in Settings → Integrations and persisted in app_settings; they are
 // empty until an admin sets them (no build-time/env defaults).
@@ -695,6 +699,35 @@ async function handleApi(req, res, requestUrl) {
         return true;
       }
       await setAppSetting(key, layout);
+      sendEmpty(res);
+      return true;
+    }
+  }
+
+  // Analytics page grid layout — one shared arrangement of cards (position and
+  // size in grid units). GET returns the stored layout (null until first save);
+  // the client normalizes it against the known card set.
+  if (requestUrl.pathname === '/api/settings/analytics-layout') {
+    if (req.method === 'GET') {
+      sendJson(res, 200, { layout: await getAppSetting(ANALYTICS_LAYOUT_KEY) });
+      return true;
+    }
+    if (req.method === 'PUT') {
+      const { layout } = await readJsonBody(req);
+      if (
+        !Array.isArray(layout) ||
+        !layout.every(
+          (item) =>
+            item &&
+            typeof item === 'object' &&
+            typeof item.i === 'string' &&
+            ['x', 'y', 'w', 'h'].every((key) => typeof item[key] === 'number'),
+        )
+      ) {
+        sendJson(res, 400, { error: 'layout must be an array of {i,x,y,w,h} items' });
+        return true;
+      }
+      await setAppSetting(ANALYTICS_LAYOUT_KEY, layout);
       sendEmpty(res);
       return true;
     }

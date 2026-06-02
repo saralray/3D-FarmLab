@@ -211,6 +211,11 @@ class PrintFarmCollector:
         today_jobs = (today[0] or 0) + (today[1] or 0)
         today_success_rate = (today[0] / today_jobs * 100) if today_jobs else 0
 
+        # Average print time per completed job, matching the Analytics page's
+        # "Avg Print Time" card (total print time / completed jobs, 0 when none).
+        avg_print_time = (total_hours / total_completed) if total_completed else 0
+        today_avg_print_time = (today[2] / today[0]) if today[0] else 0
+
         return [
             # Cumulative counters. The admin "reset analytics" TRUNCATEs the
             # table; Prometheus treats the drop to 0 as a normal counter reset.
@@ -228,6 +233,11 @@ class PrintFarmCollector:
                         "Overall success rate: completed / (completed + failed) * 100", success_rate),
             self._gauge("printfarm_success_rate_percent_today",
                         "Success rate for today's jobs, 0-100", today_success_rate),
+            # Average print time per completed job, matching the Analytics page.
+            self._gauge("printfarm_avg_print_time_hours",
+                        "Average print time per completed job, in hours", avg_print_time),
+            self._gauge("printfarm_avg_print_time_hours_today",
+                        "Average print time per completed job today, in hours", today_avg_print_time),
         ]
 
     def _queue_metric(self, conn):
