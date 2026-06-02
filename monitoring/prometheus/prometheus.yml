@@ -4,9 +4,9 @@
 # the PostgreSQL data). `exporter` resolves on both the Docker Compose network
 # and the Kubernetes namespace, so this file is shared by both deployments.
 global:
-  scrape_interval: 15s
-  scrape_timeout: 10s
-  evaluation_interval: 15s
+  scrape_interval: 5s
+  scrape_timeout: 4s
+  evaluation_interval: 5s
 
 scrape_configs:
   - job_name: printfarm

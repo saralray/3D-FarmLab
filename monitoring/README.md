@@ -32,9 +32,9 @@ in the `printfarm` namespace alike:
 
 ```yaml
 global:
-  scrape_interval: 15s      # how often each target is scraped
-  scrape_timeout: 10s       # per-scrape timeout
-  evaluation_interval: 15s
+  scrape_interval: 5s       # how often each target is scraped
+  scrape_timeout: 4s        # per-scrape timeout (must be <= scrape_interval)
+  evaluation_interval: 5s
 
 scrape_configs:
   - job_name: printfarm
