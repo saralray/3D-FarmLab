@@ -126,10 +126,7 @@ export function Navigation() {
             {PUBLIC_VIEWER_MODE ? (
               <div className="truncate">Public Viewer Mode</div>
             ) : (
-              <>
-                <div className="truncate">Saral Assabumrungrat CUD61</div>
-                <div className="truncate">Thiraphat Srichit CUD62</div>
-              </>
+              <div className="truncate">Saral Assabumrungrat CUD61</div>
             )}
           </div>
         )}
