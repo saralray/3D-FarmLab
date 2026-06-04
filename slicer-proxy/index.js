@@ -58,9 +58,18 @@ function buildDeviceUrl(req, printerId) {
 }
 
 function defaultAppBase(req) {
-  const hostHeader = req.headers.host || `localhost:${port}`;
-  const hostname = hostHeader.split(':')[0];
-  return `http://${hostname}:${httpPort}`;
+  const proto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
+
+  // Behind nginx (same domain as the dashboard) the forwarded host already
+  // carries the right hostname and port, so the redirect stays on this origin.
+  const forwardedHost = req.headers['x-forwarded-host'];
+  if (forwardedHost) {
+    return `${proto}://${String(forwardedHost).split(',')[0].trim()}`;
+  }
+
+  // Direct hit on the proxy's own port: swap it for the dashboard's HTTP_PORT.
+  const hostname = String(req.headers.host || `localhost:${port}`).split(':')[0];
+  return `${proto}://${hostname}:${httpPort}`;
 }
 
 function sendJson(res, statusCode, payload) {

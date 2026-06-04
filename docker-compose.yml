@@ -43,6 +43,9 @@ services:
     depends_on:
       web:
         condition: service_healthy
+      # nginx resolves the slicer-proxy upstream at startup, so it must be up.
+      slicer-proxy:
+        condition: service_started
     environment:
       # Substituted into nginx/default.conf.template at startup. Default "_"
       # matches any Host header; set a real domain in .env for name-based vhosts.
@@ -66,8 +69,10 @@ services:
 
   # Slicer-upload proxy: an OctoPrint-compatible endpoint a slicer (Orca etc.)
   # can push sliced files to. Authenticated with named API keys (managed in
-  # Settings → Slicer Upload). Published on its own host port — uploads are large
-  # and bypass nginx. Point the slicer at http://<host>:SLICER_PROXY_PORT/printers/<id>.
+  # Settings → Slicer Upload). nginx routes /printers/ to it on the main site, so
+  # the slicer uses the same domain as the dashboard:
+  # http://<domain>/printers/<id>. The host port below is also published for
+  # direct/legacy access; drop the mapping if you only use the nginx route.
   slicer-proxy:
     build:
       context: .
