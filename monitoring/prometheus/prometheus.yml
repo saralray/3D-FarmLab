@@ -20,5 +20,9 @@ scrape_configs:
       - targets: ["exporter:9180"]
 
   - job_name: prometheus
+    # In Docker Compose, Prometheus runs with --web.route-prefix=/prometheus, so
+    # its own /metrics endpoint moves under that prefix. (Harmless in Kubernetes,
+    # where Prometheus serves at root — adjust there if you scrape it.)
+    metrics_path: /prometheus/metrics
     static_configs:
       - targets: ["localhost:9090"]

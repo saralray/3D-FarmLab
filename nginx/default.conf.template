@@ -66,6 +66,25 @@ server {
     proxy_send_timeout 3600s;
   }
 
+  # Prometheus UI/API, served under /prometheus on the main site (its host port
+  # is no longer published). Prometheus runs with --web.route-prefix=/prometheus,
+  # so the path is passed through unchanged. NOTE: this puts Prometheus on the
+  # public site — gate it by network/auth if the dashboard is internet-facing.
+  location = /prometheus {
+    # Relative Location so the browser keeps the original host:port (nginx only
+    # knows its internal "listen 80", and would otherwise drop a custom port).
+    absolute_redirect off;
+    return 301 /prometheus/;
+  }
+  location /prometheus/ {
+    proxy_pass http://prometheus:9090;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 3600s;
+  }
+
   location / {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;

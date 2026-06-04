@@ -8,9 +8,12 @@
 # Docker example (add to your Grafana's `docker run` or compose):
 #   -v /path/to/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
 #
-# IMPORTANT — set `url` to wherever YOUR Grafana can reach this Prometheus:
-#   - Grafana on the same Docker / Kubernetes network: http://prometheus:9090
-#   - Grafana on another host:  http://<this-host>:9090   (the published PROMETHEUS_PORT)
+# IMPORTANT — set `url` to wherever YOUR Grafana can reach this Prometheus.
+# In Docker Compose, Prometheus runs under the /prometheus route prefix and is
+# no longer published on its own host port — it is served via nginx instead:
+#   - Grafana on the same Docker network:   http://prometheus:9090/prometheus
+#   - Grafana on another host (via nginx):  http://<this-host>:8080/prometheus
+# (In a plain Kubernetes deploy where Prometheus serves at root, drop /prometheus.)
 apiVersion: 1
 
 datasources:
@@ -18,7 +21,7 @@ datasources:
     uid: printfarm-prometheus
     type: prometheus
     access: proxy
-    url: http://prometheus:9090
+    url: http://prometheus:9090/prometheus
     isDefault: false
     editable: true
     jsonData:

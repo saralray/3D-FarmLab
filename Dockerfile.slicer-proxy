@@ -22,6 +22,7 @@ COPY slicer-proxy ./slicer-proxy
 
 USER printfarm
 
-EXPOSE 8091
+# No EXPOSE: the proxy is never published to the host. nginx reaches it over the
+# internal compose network at slicer-proxy:8091 (SLICER_PROXY_PORT).
 
 CMD ["node", "slicer-proxy/index.js"]

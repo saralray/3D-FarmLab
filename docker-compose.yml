@@ -43,8 +43,10 @@ services:
     depends_on:
       web:
         condition: service_healthy
-      # nginx resolves the slicer-proxy upstream at startup, so it must be up.
+      # nginx resolves these upstreams at startup, so they must be up.
       slicer-proxy:
+        condition: service_started
+      prometheus:
         condition: service_started
     environment:
       # Substituted into nginx/default.conf.template at startup. Default "_"
@@ -104,18 +106,26 @@ services:
       # monitoring/prometheus/prometheus.yml.
       EXPORTER_PORT: ${EXPORTER_PORT:-9180}
 
-  # Scrapes the exporter and stores the time series. Point your Grafana at this
-  # service (http://<host>:${PROMETHEUS_PORT:-9090}) as a Prometheus datasource.
+  # Scrapes the exporter and stores the time series. Not published to the host —
+  # nginx serves it under /prometheus on the main site (see default.conf.template).
+  # Runs with --web.route-prefix=/prometheus so every route lives under that path.
+  # Point Grafana at http://prometheus:9090/prometheus (same network) or
+  # http://<host>:${HTTP_PORT:-8080}/prometheus (external).
   prometheus:
     image: prom/prometheus:v2.55.1
     restart: unless-stopped
     depends_on:
       - exporter
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.external-url=/prometheus'
+      - '--web.route-prefix=/prometheus'
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
-    ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
 
 volumes:
   postgres_data:
