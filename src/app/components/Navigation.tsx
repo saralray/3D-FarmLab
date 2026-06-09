@@ -21,8 +21,8 @@ export function Navigation() {
   ];
   const adminNavItems = !PUBLIC_VIEWER_MODE && user?.role === 'admin'
     ? [
-        { path: '/settings', label: 'Settings', icon: Settings },
         { path: '/logs', label: 'Activity Log', icon: ScrollText },
+        { path: '/settings', label: 'Settings', icon: Settings },
       ]
     : [];
   const showUserProfile = user && user.role !== 'viewer';
