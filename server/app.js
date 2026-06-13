@@ -33,10 +33,22 @@ import {
   upsertQueueJobs,
 } from './postgres.js';
 import { verifySlicerGrant } from './slicerGrant.js';
+import {
+  addCameraViewer,
+  getAllCameraHealth,
+  getCameraHealth,
+  getCameraSnapshot,
+} from './bambuCamera.js';
 
 // Bambu Lab printers share one LAN integration (MQTT status/commands, port-6000
 // camera), so they're grouped rather than matched by a single model id.
-const BAMBU_PROFILES = new Set(['bambulab_a1_mini', 'bambulab_h2s']);
+const BAMBU_PROFILES = new Set(['bambulab_a1_mini', 'bambulab_h2s', 'bambulab_h2d']);
+
+// The H2 series (like the X1) exposes its camera as an RTSP-over-TLS stream on
+// port 322 (LIVE555 server, digest auth) — a different protocol from the A1/P1
+// port-6000 length-prefixed JPEG socket — so its snapshots are grabbed via
+// ffmpeg instead of captureBambuSnapshot.
+const BAMBU_RTSP_PROFILES = new Set(['bambulab_h2s', 'bambulab_h2d']);
 
 const PRINTER_CARD_LAYOUT_KEY = 'printer_card_layout';
 const PRINTER_CARD_LAYOUT_PROFILES = new Set([
@@ -44,6 +56,7 @@ const PRINTER_CARD_LAYOUT_PROFILES = new Set([
   'snapmaker_u1',
   'bambulab_a1_mini',
   'bambulab_h2s',
+  'bambulab_h2d',
 ]);
 
 // Analytics page grid layout: a single shared arrangement (admins drag/resize
@@ -456,6 +469,7 @@ function buildBambuLedPayload(node, on, sequenceId) {
 // so one toggle has to drive both. Other Bambu models only expose chamber_light.
 const BAMBU_LIGHT_NODES = {
   bambulab_h2s: ['chamber_light', 'chamber_light2'],
+  bambulab_h2d: ['chamber_light', 'chamber_light2'],
 };
 
 function bambuLightNodes(profile) {
@@ -606,7 +620,11 @@ function sendBambuCommand(printer, command, params) {
 // return it as a snapshot — the printer must have "LAN Mode Liveview" enabled.
 const BAMBU_CAMERA_PORT = 6000;
 
-function captureBambuSnapshot(host, accessCode, timeoutMs = 5000) {
+// The A1 Mini's camera is slow — a single ~150 KB frame can take ~5 s to stream
+// over the TLS socket — so the default timeout is generous. The H2 series, by
+// contrast, rejects the request with a tiny non-JPEG status frame (validated
+// below) rather than streaming, so it fails fast regardless.
+function captureBambuSnapshot(host, accessCode, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     // 80-byte auth packet: 16-byte header, then "bblp" and the access code,
     // each null-padded to 32 bytes.
@@ -643,9 +661,28 @@ function captureBambuSnapshot(host, accessCode, timeoutMs = 5000) {
         if (buffer.length < 16) return;
         payloadSize = buffer.readUInt32LE(0);
         buffer = buffer.subarray(16);
+        // The H2 series rejects the camera request with a tiny status frame
+        // (observed: an 8-byte 0xffffffff payload) instead of a JPEG. A real
+        // frame is ~100 KB+, so an implausible length means the camera isn't
+        // serving us an image — usually LAN Mode Liveview is off.
+        if (payloadSize < 1024 || payloadSize > 20 * 1024 * 1024) {
+          finish(
+            new Error(
+              `Bambu camera returned a non-image frame (${payloadSize} bytes) — enable LAN Mode Liveview on the printer`,
+            ),
+          );
+          return;
+        }
       }
       if (buffer.length >= payloadSize) {
-        finish(null, Buffer.from(buffer.subarray(0, payloadSize)));
+        const frame = Buffer.from(buffer.subarray(0, payloadSize));
+        // Sanity-check the JPEG magic (FF D8 FF); anything else is an error frame
+        // we shouldn't pass off to the browser as an image.
+        if (frame[0] !== 0xff || frame[1] !== 0xd8 || frame[2] !== 0xff) {
+          finish(new Error('Bambu camera frame was not a JPEG'));
+          return;
+        }
+        finish(null, frame);
       }
     });
     socket.on('error', (error) => finish(error));
@@ -653,14 +690,28 @@ function captureBambuSnapshot(host, accessCode, timeoutMs = 5000) {
   });
 }
 
-async function handleBambuWebcam(res, printer, pathParts) {
-  // Only still snapshots are supported (no live MJPEG player for Bambu).
+// H2/X1-class cameras (RTSP-over-TLS, port 322) are served by the camera hub
+// (server/bambuCamera.js): one persistent ffmpeg per printer, fanned out to all
+// viewers and reused for snapshots, with a health-check supervisor. The A1/P1
+// port-6000 JPEG socket stays on captureBambuSnapshot below.
+
+async function handleBambuWebcam(req, res, printer, pathParts) {
+  // H2/X1-class printers (RTSP) can stream live MJPEG; the A1/P1 port-6000
+  // camera is snapshot-only.
+  if (pathParts[0] === 'stream.mjpg' && BAMBU_RTSP_PROFILES.has(printer.profile)) {
+    addCameraViewer(printer, req, res);
+    return;
+  }
   if (pathParts[0] !== 'snapshot.jpg') {
-    sendJson(res, 404, { error: 'Bambu camera supports snapshots only' });
+    sendJson(res, 404, { error: 'Unsupported Bambu camera path' });
     return;
   }
   try {
-    const jpeg = await captureBambuSnapshot(printer.ipAddress, (printer.apiKeyHeader || '').trim());
+    // H2/X1-class cameras are RTSP-over-TLS (served from the shared hub feed);
+    // A1/P1 are the port-6000 JPEG socket.
+    const jpeg = BAMBU_RTSP_PROFILES.has(printer.profile)
+      ? await getCameraSnapshot(printer)
+      : await captureBambuSnapshot(printer.ipAddress, (printer.apiKeyHeader || '').trim());
     res.statusCode = 200;
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('Cache-Control', 'no-store');
@@ -720,6 +771,25 @@ async function handleApi(req, res, requestUrl) {
       speed,
     });
     sendEmpty(res);
+    return true;
+  }
+
+  // Live-view camera health: supervisor status, frame freshness, viewer count,
+  // restarts. Read-only and in-memory, so it's cheap to poll from a status badge.
+  if (requestUrl.pathname === '/api/cameras/health' && req.method === 'GET') {
+    sendJson(res, 200, getAllCameraHealth(), 'no-store');
+    return true;
+  }
+
+  if (
+    requestUrl.pathname.startsWith('/api/printers/') &&
+    requestUrl.pathname.endsWith('/camera/health') &&
+    req.method === 'GET'
+  ) {
+    const id = decodeURIComponent(
+      requestUrl.pathname.slice('/api/printers/'.length, -'/camera/health'.length),
+    );
+    sendJson(res, 200, getCameraHealth(id), 'no-store');
     return true;
   }
 
@@ -1073,7 +1143,7 @@ async function handlePrinterProxy(req, res, requestUrl, prefix, makeTargetUrl, e
 
   // Bambu's chamber camera isn't an HTTP endpoint — capture it over its TLS socket.
   if (prefix === '/__printer_webcam/' && BAMBU_PROFILES.has(printer.profile)) {
-    await handleBambuWebcam(res, printer, pathParts);
+    await handleBambuWebcam(req, res, printer, pathParts);
     return true;
   }
 

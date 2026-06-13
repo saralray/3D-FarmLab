@@ -22,6 +22,12 @@ ENV PORT=5173
 
 WORKDIR /app
 
+# ffmpeg grabs JPEG snapshots from the Bambu H2/X1-class RTSP-over-TLS camera
+# (port 322); the A1/P1 port-6000 camera path needs no external binary.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system printfarm \
   && useradd --system --gid printfarm --home-dir /app printfarm
 

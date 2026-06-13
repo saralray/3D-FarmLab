@@ -553,6 +553,7 @@ export function Settings() {
                       <SelectItem value="snapmaker_u1">Snapmaker U1</SelectItem>
                       <SelectItem value="bambulab_a1_mini">Bambu Lab A1 Mini</SelectItem>
                       <SelectItem value="bambulab_h2s">Bambu Lab H2S</SelectItem>
+                      <SelectItem value="bambulab_h2d">Bambu Lab H2D</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

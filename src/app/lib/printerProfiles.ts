@@ -57,13 +57,28 @@ export const PRINTER_PROFILES: Record<
     credentialPlaceholder: '8-digit access code from the printer screen',
     pollingDescription: 'Live status via MQTT over TLS (LAN mode)',
   },
+  bambulab_h2d: {
+    label: 'Bambu Lab H2D',
+    // Same Bambu LAN protocol as the rest of the H2 series — MQTT report, no
+    // HTTP status; the camera is RTSP-over-TLS (port 322) like the H2S/X1.
+    statusPath: null,
+    defaultModel: 'Bambu Lab H2D',
+    buildBaseUrl: (ipAddress) => `http://${ipAddress}`,
+    credentialLabel: 'LAN Access Code',
+    credentialPlaceholder: '8-digit access code from the printer screen',
+    pollingDescription: 'Live status via MQTT over TLS (LAN mode)',
+  },
 };
 
 // Bambu Lab printers share one LAN integration (MQTT-over-TLS status/commands,
 // FTPS upload, port-6000 camera), so feature checks key off this rather than a
 // single model id.
 export function isBambuProfile(profile: PrinterProfile): boolean {
-  return profile === 'bambulab_a1_mini' || profile === 'bambulab_h2s';
+  return (
+    profile === 'bambulab_a1_mini' ||
+    profile === 'bambulab_h2s' ||
+    profile === 'bambulab_h2d'
+  );
 }
 
 // A controllable cooling fan. `id` keys the poller's reported speed; `bambuPort`
@@ -87,6 +102,11 @@ export const PRINTER_FANS: Partial<Record<PrinterProfile, FanDescriptor[]>> = {
     { id: 'aux', label: 'Auxiliary', bambuPort: 2 },
     { id: 'chamber', label: 'Chamber', bambuPort: 3 },
   ],
+  bambulab_h2d: [
+    { id: 'part', label: 'Part Cooling', bambuPort: 1 },
+    { id: 'aux', label: 'Auxiliary', bambuPort: 2 },
+    { id: 'chamber', label: 'Chamber', bambuPort: 3 },
+  ],
 };
 
 function inferProfileFromDescriptor(descriptor: string): PrinterProfile | null {
@@ -95,6 +115,9 @@ function inferProfileFromDescriptor(descriptor: string): PrinterProfile | null {
   }
   if (descriptor.includes('h2s')) {
     return 'bambulab_h2s';
+  }
+  if (descriptor.includes('h2d')) {
+    return 'bambulab_h2d';
   }
   if (descriptor.includes('bambu') || descriptor.includes('a1 mini')) {
     return 'bambulab_a1_mini';
@@ -715,6 +738,17 @@ export function buildPrinterWebcamUrl(printer: Printer) {
 
 export function buildPrinterWebcamSnapshotUrl(printer: Printer) {
   return `/__printer_webcam/${printer.id}/snapshot.jpg`;
+}
+
+// The H2 series exposes an RTSP-over-TLS camera the web server transcodes to a
+// live MJPEG stream (multipart/x-mixed-replace) renderable in an <img>. The A1
+// Mini's slow port-6000 camera can only do still snapshots, so it's excluded.
+export function printerSupportsLiveMjpeg(printer: Printer) {
+  return printer.profile === 'bambulab_h2s' || printer.profile === 'bambulab_h2d';
+}
+
+export function buildPrinterWebcamMjpegUrl(printer: Printer) {
+  return `/__printer_webcam/${printer.id}/stream.mjpg`;
 }
 
 // Snapmaker U1 serves a real-time webcam player at /webcam/player — an H264

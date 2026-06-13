@@ -756,6 +756,7 @@ BAMBU_FAN_FIELDS = {
 BAMBU_PROFILE_FANS = {
     "bambulab_a1_mini": ("part", "aux"),
     "bambulab_h2s": ("part", "aux", "chamber"),
+    "bambulab_h2d": ("part", "aux", "chamber"),
 }
 
 
@@ -855,7 +856,7 @@ def refresh_status(printer: dict[str, Any]) -> dict[str, Any]:
             live_status["spools"] = fetch_snapmaker_task_config(printer)
         except Exception:
             live_status["spools"] = printer.get("spools")
-    elif profile in ("bambulab_a1_mini", "bambulab_h2s"):
+    elif profile in ("bambulab_a1_mini", "bambulab_h2s", "bambulab_h2d"):
         live_status = fetch_bambu_status(printer)
     else:
         live_status = fetch_generic_status(printer)

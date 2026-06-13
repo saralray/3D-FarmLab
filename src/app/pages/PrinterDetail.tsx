@@ -36,6 +36,7 @@ import {
 import {
   MOTION_STEP_OPTIONS,
   buildPrinterWebcamPlayerUrl,
+  buildPrinterWebcamMjpegUrl,
   buildPrinterWebcamSnapshotUrl,
   disablePrinterMotors,
   homePrinterAxes,
@@ -48,6 +49,7 @@ import {
   printerSupportsCoolingControl,
   printerSupportsFilamentControl,
   printerSupportsLight,
+  printerSupportsLiveMjpeg,
   printerSupportsMotionControl,
   printerSupportsTemperatureControl,
   printerSupportsWebcamStream,
@@ -59,6 +61,7 @@ import {
   type FanDescriptor,
   type MotionAxis,
 } from '../lib/printerProfiles';
+import { fetchCameraHealth, type CameraHealth } from '../lib/cameraApi';
 import { Slider } from '../components/ui/slider';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -214,6 +217,45 @@ function formatMinutesAsHourDotMinute(totalMinutes: number) {
   return `${hours}.${String(minutes).padStart(2, '0')}`;
 }
 
+// Small status pill overlaid on the live MJPEG view, reflecting the server
+// camera hub's supervisor state: green "Live" when frames are flowing, amber
+// "Reconnecting" while it restarts a stalled feed, grey "Connecting" on startup.
+function CameraHealthBadge({
+  health,
+  imageErrored,
+}: {
+  health: CameraHealth | null;
+  imageErrored: boolean;
+}) {
+  if (!health) return null;
+
+  const reconnecting = imageErrored || health.status === 'error';
+  const live = health.online && !reconnecting;
+
+  const dotClass = live
+    ? 'bg-green-500'
+    : reconnecting
+      ? 'bg-amber-500 animate-pulse'
+      : 'bg-gray-400';
+  const label = live ? 'Live' : reconnecting ? 'Reconnecting' : 'Connecting';
+  const title =
+    health.restarts > 0
+      ? `${label} · ${health.restarts} reconnect${health.restarts === 1 ? '' : 's'}${
+          health.lastError ? ` · ${health.lastError}` : ''
+        }`
+      : label;
+
+  return (
+    <div
+      title={title}
+      className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm"
+    >
+      <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+      {label}
+    </div>
+  );
+}
+
 // Inner blue tint on hover for the interactive control buttons (motion, light,
 // filament, edit layout), matching the dashboard sidebar tab's hover/active fill
 // rather than an outer halo. `!` overrides the outline variant's grey accent
@@ -280,6 +322,15 @@ export function PrinterDetail() {
   // that slider, covering a just-sent speed plus the printer's report lag.
   const fanSyncBlockedUntil = useRef<Record<string, number>>({});
   const [snapshotNonce, setSnapshotNonce] = useState(() => Date.now());
+  // Bambu snapshots are refreshed load-driven (see the webcam effect): the next
+  // frame is requested only after the current <img> finishes, via this timer.
+  const snapshotTimerRef = useRef<number | undefined>(undefined);
+  // True when the latest Bambu snapshot failed to load (e.g. the H2S camera
+  // rejects the request) so the UI shows a placeholder instead of a broken image.
+  const [snapshotErrored, setSnapshotErrored] = useState(false);
+  // Live-view camera health from the server hub (supervisor status, restarts,
+  // frame freshness), polled while an H2/X1 live MJPEG feed is shown.
+  const [cameraHealth, setCameraHealth] = useState<CameraHealth | null>(null);
   const [taskConfig, setTaskConfig] = useState<PrinterTaskConfig | null>(null);
   const [taskConfigError, setTaskConfigError] = useState<string | null>(null);
   // Shared card layout for every printer detail page; admins reorder it by drag.
@@ -415,21 +466,44 @@ export function PrinterDetail() {
 
   useEffect(() => {
     setSnapshotNonce(Date.now());
+    setSnapshotErrored(false);
 
-    // Snapmaker shows a live MJPEG stream (see the markup), so it doesn't need
-    // snapshot polling — only refresh snapshots for snapshot-only profiles.
-    if (!printer || !isOnline || printerSupportsWebcamStream(printer)) {
+    // Snapmaker shows a live MJPEG/H264 stream (iframe), so it doesn't poll
+    // snapshots. For snapshot-only profiles (Bambu) the refresh is driven by the
+    // <img> onLoad/onError handlers below rather than a fixed timer: the Bambu
+    // camera serves one slow frame (~5 s) per connection, so a 2 s timer just
+    // aborts each in-flight load and nothing ever renders. Clear any pending
+    // refresh when the printer/online state changes or the page unmounts.
+    return () => {
+      window.clearTimeout(snapshotTimerRef.current);
+    };
+  }, [isOnline, printer?.id]);
+
+  // Poll the live-view camera health while an H2/X1 MJPEG feed is on screen so
+  // the badge reflects the hub's supervisor state (running / reconnecting).
+  useEffect(() => {
+    setCameraHealth(null);
+    if (!printer || !isOnline || !printerSupportsLiveMjpeg(printer)) {
       return;
     }
 
-    const interval = window.setInterval(() => {
-      setSnapshotNonce(Date.now());
-    }, 2000);
-
+    const printerId = printer.id;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const health = await fetchCameraHealth(printerId);
+        if (!cancelled) setCameraHealth(health);
+      } catch {
+        if (!cancelled) setCameraHealth(null);
+      }
+    };
+    poll();
+    const interval = window.setInterval(poll, 5000);
     return () => {
+      cancelled = true;
       window.clearInterval(interval);
     };
-  }, [isOnline, printer?.id]);
+  }, [isOnline, printer?.id, printer?.profile]);
 
   useEffect(() => {
     setTaskConfig(null);
@@ -595,7 +669,10 @@ export function PrinterDetail() {
   // admin-only — a tighter gate than the rest of the sensitive info block.
   const canViewIpAddress = user?.role === 'admin';
   const supportsWebcamStream = printerSupportsWebcamStream(printer);
+  const supportsLiveMjpeg = printerSupportsLiveMjpeg(printer);
   const webcamSnapshotUrl = `${buildPrinterWebcamSnapshotUrl(printer)}?t=${snapshotNonce}`;
+  // The nonce lets onError force a fresh connection by changing the src.
+  const webcamMjpegUrl = `${buildPrinterWebcamMjpegUrl(printer)}?t=${snapshotNonce}`;
   const webcamPlayerUrl = buildPrinterWebcamPlayerUrl(printer);
   const taskConfigSlots: FilamentSlot[] =
     taskConfig?.filament_type?.map((type, index) => ({
@@ -727,6 +804,16 @@ export function PrinterDetail() {
     } finally {
       setTempInFlight(null);
     }
+  };
+
+  // Queue the next Bambu snapshot once the current frame settles. A short delay
+  // after a successful load keeps it near real-time; a longer one after an error
+  // (camera rejecting / printer busy) avoids hammering a failing camera.
+  const scheduleSnapshotRefresh = (delayMs: number) => {
+    window.clearTimeout(snapshotTimerRef.current);
+    snapshotTimerRef.current = window.setTimeout(() => {
+      setSnapshotNonce(Date.now());
+    }, delayMs);
   };
 
   const handleSetFan = async (fan: FanDescriptor, percent: number) => {
@@ -975,13 +1062,55 @@ export function PrinterDetail() {
                     className="h-80 w-full border-0 bg-black"
                     allow="autoplay"
                   />
+                ) : supportsLiveMjpeg ? (
+                  // H2 series: live MJPEG stream (ffmpeg transcodes the RTSP feed
+                  // server-side). The <img> holds one long-lived connection; on a
+                  // drop, onError schedules a reconnect by bumping the src nonce.
+                  <div className="relative h-80 w-full">
+                    <img
+                      key={`webcam-mjpeg-${printer.id}`}
+                      src={webcamMjpegUrl}
+                      alt={`${printer.name} live view`}
+                      className={`h-80 w-full object-cover ${snapshotErrored ? 'opacity-0' : ''}`}
+                      onLoad={() => setSnapshotErrored(false)}
+                      onError={() => {
+                        setSnapshotErrored(true);
+                        scheduleSnapshotRefresh(3000);
+                      }}
+                    />
+                    <CameraHealthBadge health={cameraHealth} imageErrored={snapshotErrored} />
+                    {snapshotErrored && (
+                      <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                        Reconnecting…
+                      </div>
+                    )}
+                  </div>
                 ) : (
-                  <img
-                    src={webcamSnapshotUrl}
-                    alt={`${printer.name} preview`}
-                    className="h-80 w-full object-cover"
-                    loading="lazy"
-                  />
+                  // A1 Mini: still-snapshot polling, refreshed load-driven (the img
+                  // stays mounted to keep the loop alive even while erroring). On a
+                  // rejected camera the server 502s, so onError shows a placeholder
+                  // instead of a broken image.
+                  <div className="relative h-80 w-full">
+                    <img
+                      key={`webcam-${printer.id}`}
+                      src={webcamSnapshotUrl}
+                      alt={`${printer.name} preview`}
+                      className={`h-80 w-full object-cover ${snapshotErrored ? 'opacity-0' : ''}`}
+                      onLoad={() => {
+                        setSnapshotErrored(false);
+                        scheduleSnapshotRefresh(500);
+                      }}
+                      onError={() => {
+                        setSnapshotErrored(true);
+                        scheduleSnapshotRefresh(3000);
+                      }}
+                    />
+                    {snapshotErrored && (
+                      <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                        Webcam unavailable
+                      </div>
+                    )}
+                  </div>
                 )
               ) : (
                 <div className="flex h-80 w-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">

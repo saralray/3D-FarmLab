@@ -1,5 +1,10 @@
 export type PrinterStatus = 'printing' | 'idle' | 'error' | 'offline' | 'paused';
-export type PrinterProfile = 'generic' | 'snapmaker_u1' | 'bambulab_a1_mini' | 'bambulab_h2s';
+export type PrinterProfile =
+  | 'generic'
+  | 'snapmaker_u1'
+  | 'bambulab_a1_mini'
+  | 'bambulab_h2s'
+  | 'bambulab_h2d';
 
 export interface Spool {
   id: string;
