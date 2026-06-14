@@ -17,6 +17,7 @@ import {
   ensureSchema,
   getAppSetting,
   getPrinterById,
+  getPrinterByIdOrName,
   getPublicPrinterById,
   listDailyAnalytics,
   listDiscordWebhooks,
@@ -138,14 +139,6 @@ function setSecurityHeaders(res) {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-}
-
-function escapeHtml(value) {
-  return String(value).replace(
-    /[&<>"']/g,
-    (char) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char],
-  );
 }
 
 function sendJson(res, statusCode, payload, cacheControl = 'no-store') {
@@ -772,73 +765,41 @@ async function handleBambuWebcam(req, res, printer, pathParts) {
   }
 }
 
-// Self-contained webcam player page, embeddable in an <iframe src="/webcam/:id">
-// on any site (e.g. a signage screen or a wiki). The page itself is profile-aware
-// and pulls frames from the existing same-origin /__printer_webcam/:id endpoints:
-// printers with a live MJPEG stream (Snapmaker U1, Bambu H2 series) render it in
-// an <img>; everything else falls back to an auto-refreshing snapshot.
+// Friendly webcam stream URL — GET /webcam/<printerId-or-name> serves the camera
+// feed directly so it drops straight into an <img src> (e.g. a Grafana HTML/text
+// panel) with no iframe. Live-MJPEG printers (Snapmaker U1, Bambu H2 series)
+// stream multipart/x-mixed-replace; everything else returns a single JPEG
+// snapshot. It just resolves the printer and delegates to the existing webcam
+// proxy, so the cross-origin / no-store / Bambu handling is shared.
 const LIVE_MJPEG_PROFILES = new Set(['snapmaker_u1', 'bambulab_h2s', 'bambulab_h2d']);
 
-async function handleWebcamPage(req, res, requestUrl) {
+async function handleWebcamStream(req, res, requestUrl) {
   const match = requestUrl.pathname.match(/^\/webcam\/([^/]+)\/?$/);
   if (!match) {
     return false;
   }
 
-  const printerId = decodeURIComponent(match[1]);
-  const printer = await getPrinterById(printerId);
+  const printer = await getPrinterByIdOrName(decodeURIComponent(match[1]));
   if (!printer) {
     sendJson(res, 404, { error: 'Printer not found' });
     return true;
   }
 
-  const live = LIVE_MJPEG_PROFILES.has(printer.profile);
-  const base = `/__printer_webcam/${encodeURIComponent(printer.id)}`;
-  const streamUrl = live ? `${base}/stream.mjpg` : `${base}/snapshot.jpg`;
-  const title = `${printer.name} webcam`;
-  const html = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(title)}</title>
-<style>
-  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-  #cam { width: 100%; height: 100%; object-fit: contain; display: block; }
-</style>
-</head>
-<body>
-<img id="cam" alt="${escapeHtml(title)}" src="${escapeHtml(streamUrl)}" />
-<script>
-  (function () {
-    var img = document.getElementById('cam');
-    var live = ${live ? 'true' : 'false'};
-    var src = ${JSON.stringify(streamUrl)};
-    if (live) {
-      // The MJPEG stream can drop if the printer/camera hiccups; reconnect on error.
-      img.addEventListener('error', function () {
-        setTimeout(function () { img.src = src + '?t=' + Date.now(); }, 2000);
-      });
-    } else {
-      // Snapshot-only camera: poll a fresh frame on a timer (cache-busted).
-      setInterval(function () { img.src = src + '?t=' + Date.now(); }, 1000);
-    }
-  })();
-</script>
-</body>
-</html>`;
-
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-store');
-  // This page is meant to be embedded cross-origin in an <iframe> (e.g. a Grafana
-  // text panel), so relax the global X-Frame-Options: DENY and the same-origin
-  // Cross-Origin-Resource-Policy. The frames themselves come from the
-  // /__printer_webcam endpoints, so no printer secrets are exposed to the embedder.
-  res.removeHeader('X-Frame-Options');
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.end(html);
-  return true;
+  // Reuse the /__printer_webcam proxy by rewriting to the resolved printer id and
+  // the right camera path for its profile (stream vs. snapshot).
+  const camPath = LIVE_MJPEG_PROFILES.has(printer.profile) ? 'stream.mjpg' : 'snapshot.jpg';
+  const proxyUrl = new URL(
+    `/__printer_webcam/${encodeURIComponent(printer.id)}/${camPath}`,
+    requestUrl,
+  );
+  return handlePrinterProxy(
+    req,
+    res,
+    proxyUrl,
+    '/__printer_webcam/',
+    (p, proxyPath) => `${p.url}/webcam${proxyPath}`,
+    {},
+  );
 }
 
 async function handleApi(req, res, requestUrl) {
@@ -1398,7 +1359,7 @@ async function handleRequest(req, res) {
       return;
     }
 
-    if (await handleWebcamPage(req, res, requestUrl)) {
+    if (await handleWebcamStream(req, res, requestUrl)) {
       return;
     }
 

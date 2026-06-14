@@ -45,24 +45,20 @@ server {
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
   }
 
-  # Embeddable webcam player page (`/webcam/<printerId>`), meant to be dropped
-  # into an <iframe> on other sites (signage, wikis). Unlike the rest of the app
-  # it must be framable cross-origin, so don't re-add the server-level
-  # X-Frame-Options: DENY here (any add_header in this block suppresses the
-  # inherited ones, so the other security headers are re-declared). The page only
-  # pulls frames from the same-origin /__printer_webcam endpoints — no secrets.
+  # Friendly webcam stream URL (`/webcam/<printerId-or-name>`) — serves the camera
+  # feed directly so it can be dropped into an <img src> on another site (e.g. a
+  # Grafana HTML panel). Like the live stream below it's MJPEG, so disable
+  # buffering or frames arrive in batches. The web server emits
+  # Cross-Origin-Resource-Policy: cross-origin for these so a cross-origin <img>
+  # can load them; that header is passed through untouched here.
   location /webcam/ {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
     proxy_read_timeout 3600s;
-
-    proxy_hide_header X-Frame-Options;
-    add_header X-Content-Type-Options nosniff always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
-    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
   }
 
   # Slicer-upload proxy, served on the same origin as the dashboard. Slicers

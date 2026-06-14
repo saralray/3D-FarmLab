@@ -284,6 +284,27 @@ export async function getPrinterById(id) {
   return result.rows[0]?.printer ?? null;
 }
 
+// Resolve a printer by its id or, failing that, its (case-insensitive) name —
+// used by the friendly /webcam/<name> stream URL. Returns the same full record
+// as getPrinterById (connection details included) so the proxy can reach the
+// camera. An exact id match wins over a name match.
+export async function getPrinterByIdOrName(identifier) {
+  await ensureSchema();
+
+  const result = await query(
+    `
+    SELECT id FROM printers
+    WHERE id = $1 OR lower(name) = lower($1)
+    ORDER BY (id = $1) DESC
+    LIMIT 1;
+  `,
+    [identifier],
+  );
+
+  const id = result.rows[0]?.id;
+  return id ? getPrinterById(id) : null;
+}
+
 // Public-facing single-printer read for the API. Unlike getPrinterById (which
 // always returns the connection secrets the proxy/command paths need), this
 // redacts sensitive fields in public viewer mode, matching listPrinters.
