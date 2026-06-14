@@ -50,6 +50,7 @@ export interface Printer {
   successRate: number; // percentage
   spools?: Spool[]; // Optional multi-spool support
   lightOn?: boolean; // Last-known chamber/cavity light state (Bambu reports it over MQTT)
+  airFilterOn?: boolean; // Last-known H2 air-filter state (from the airduct filtration submode)
 }
 
 export interface PrintJob {
@@ -64,6 +65,9 @@ export interface PrintJob {
   timeRemaining: number; // minutes
   printingTime: number; // minutes
   filamentUsed: number; // grams
+  // Slicer's total filament estimate for the job (grams), when a print was
+  // started through the slicer-proxy. Used to show "used / total".
+  estimatedFilament?: number;
   startTime?: string;
   endTime?: string;
   priority: 'low' | 'medium' | 'high';

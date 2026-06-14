@@ -219,6 +219,7 @@ export function normalizePrinter(printer: Partial<Printer>, index: number): Prin
     successRate: normalizeMaxTwoDecimals(printer.successRate),
     spools,
     lightOn: printer.lightOn,
+    airFilterOn: printer.airFilterOn,
   };
 }
 

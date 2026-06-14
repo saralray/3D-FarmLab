@@ -70,6 +70,10 @@ services:
       PRINTER_POLL_INTERVAL_MS: ${PRINTER_POLL_INTERVAL_MS:-2000}
       PRINTER_REQUEST_TIMEOUT_MS: ${PRINTER_REQUEST_TIMEOUT_MS:-3000}
       PRINTER_OFFLINE_GRACE_SECONDS: ${PRINTER_OFFLINE_GRACE_SECONDS:-30}
+      # Bambu cameras aren't plain HTTP, so the poller grabs their Discord-snapshot
+      # frames from the web service's /__printer_webcam/<id>/snapshot.jpg endpoint
+      # over the internal network (it speaks the port-6000 / RTSP camera protocols).
+      WEB_SNAPSHOT_BASE_URL: ${WEB_SNAPSHOT_BASE_URL:-http://web:5173}
 
   # Slicer-upload proxy: an OctoPrint-compatible endpoint a slicer (Orca etc.)
   # can push sliced files to. Authenticated with named API keys (managed in

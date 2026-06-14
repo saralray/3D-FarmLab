@@ -111,6 +111,10 @@ interface FilamentSlot {
   // Bambu global tray id (AMS unit * 4 + tray, or 254 for the external spool)
   // used to target load/unload commands; undefined for Snapmaker tool slots.
   trayId?: number;
+  // Remaining filament reported by the poller from the AMS (Bambu RFID spools):
+  // percentage and grams left. Undefined when the printer doesn't report it.
+  remaining?: number;
+  weight?: number;
 }
 
 // Derive a Bambu global tray id from a poller spool id (e.g. "ams0-2" → 2,
@@ -327,10 +331,14 @@ export function PrinterDetail() {
   // Per-fan timestamps; while set in the future the hardware sync won't overwrite
   // that slider, covering a just-sent speed plus the printer's report lag.
   const fanSyncBlockedUntil = useRef<Record<string, number>>({});
-  // H2-series air filter on/off. The printer doesn't report filter state back, so
-  // this is an optimistic local toggle (reset when switching printers).
+  // H2-series air filter on/off. Synced from the poller's reported state
+  // (printer.airFilterOn, from the airduct filtration submode); an optimistic
+  // toggle holds the sync off briefly via the grace window below.
   const [airFilterOn, setAirFilterOn] = useState(false);
   const [airFilterInFlight, setAirFilterInFlight] = useState(false);
+  // While set in the future the hardware sync won't overwrite the just-sent
+  // filter state — covers the command plus the printer's report lag.
+  const airFilterSyncBlockedUntil = useRef(0);
   const [snapshotNonce, setSnapshotNonce] = useState(() => Date.now());
   // Bambu snapshots are refreshed load-driven (see the webcam effect): the next
   // frame is requested only after the current <img> finishes, via this timer.
@@ -625,6 +633,20 @@ export function PrinterDetail() {
     }
   }, [printer?.profile, printer?.lightOn]);
 
+  // The H2 air-filter state is reported by the poller (airduct submode) into the
+  // printer record — reflect that persisted state (unless a toggle just ran).
+  useEffect(() => {
+    if (!printer || !isBambuProfile(printer.profile)) {
+      return;
+    }
+    if (
+      typeof printer.airFilterOn === 'boolean' &&
+      Date.now() >= airFilterSyncBlockedUntil.current
+    ) {
+      setAirFilterOn(printer.airFilterOn);
+    }
+  }, [printer?.profile, printer?.airFilterOn]);
+
   if (!printer) {
     return (
       <div className="p-6">
@@ -708,6 +730,8 @@ export function PrinterDetail() {
     isLoaded: true,
     isInUse: printer.status === 'printing',
     trayId: bambuTrayId(spool.id),
+    remaining: spool.remaining,
+    weight: spool.weight,
   }));
   const filamentSlots: FilamentSlot[] =
     taskConfigSlots.length > 0 ? taskConfigSlots : spoolSlots;
@@ -865,11 +889,13 @@ export function PrinterDetail() {
     const previous = airFilterOn;
     setAirFilterOn(next); // optimistic
     setAirFilterInFlight(true);
+    airFilterSyncBlockedUntil.current = Date.now() + 12000;
 
     try {
       await setPrinterAirFilter(printer, next);
     } catch (error) {
       setAirFilterOn(previous);
+      airFilterSyncBlockedUntil.current = 0; // failed — let the real state resync
       toast.error(error instanceof Error ? error.message : 'Unable to toggle the air filter');
     } finally {
       setAirFilterInFlight(false);
@@ -1187,6 +1213,13 @@ export function PrinterDetail() {
                     <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Filament Used</div>
                     <div className="font-medium dark:text-white">
                       {formatMaxTwoDecimals(printer.currentJob.filamentUsed)}g
+                      {typeof printer.currentJob.estimatedFilament === 'number' &&
+                        printer.currentJob.estimatedFilament > 0 && (
+                          <span className="text-gray-500 dark:text-gray-400">
+                            {' / '}
+                            {formatMaxTwoDecimals(printer.currentJob.estimatedFilament)}g
+                          </span>
+                        )}
                     </div>
                   </div>
                 </div>
@@ -1377,6 +1410,17 @@ export function PrinterDetail() {
                             </div>
                           </div>
                         </div>
+                        {typeof slot.weight === 'number' && slot.weight > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                              <span>Remaining</span>
+                              <span className="font-medium">
+                                {formatMaxTwoDecimals(slot.remaining ?? 0)}% · {formatMaxTwoDecimals(slot.weight)}g
+                              </span>
+                            </div>
+                            <Progress value={slot.remaining ?? 0} className="h-2" />
+                          </div>
+                        )}
                         <div className="mt-auto flex flex-wrap items-center gap-2">
                           <Badge variant={slot.isLoaded ? 'outline' : 'secondary'}>
                             {slot.isLoaded ? 'Loaded' : 'Empty'}

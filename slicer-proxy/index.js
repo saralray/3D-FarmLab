@@ -31,9 +31,11 @@ import {
   findSlicerApiKeyByHash,
   getPrinterById,
   recordAuditLog,
+  recordSlicerPrintEstimate,
   touchSlicerApiKey,
 } from '../server/postgres.js';
 import { mintSlicerGrant } from '../server/slicerGrant.js';
+import { extractFilamentGramsFrom3mf } from './parse3mf.js';
 
 const port = Number.parseInt(process.env.SLICER_PROXY_PORT || '8091', 10);
 const host = process.env.HOST || '0.0.0.0';
@@ -246,6 +248,29 @@ async function uploadToBambu(printer, file) {
   }
 
   await publishBambuPrint(printer, serial, remoteName);
+
+  // Record the slicer's filament estimate so the poller can show real per-job
+  // usage. Bambu's MQTT report has no filament figure and H2 firmware blocks FTP
+  // file access, so the .3mf we hold here is the only place this number exists.
+  // Best-effort: a parse/DB failure must never fail an already-started print.
+  try {
+    const grams = extractFilamentGramsFrom3mf(file.buffer);
+    if (grams && grams > 0) {
+      await recordSlicerPrintEstimate({
+        printerId: printer.id,
+        jobName: bambuSubtaskName(remoteName),
+        filamentGrams: grams,
+      });
+    }
+  } catch (error) {
+    console.error('Failed to record slicer filament estimate', error);
+  }
+}
+
+// The job identity the printer reports back (and the poller keys on) is the file
+// name with the slicer's .gcode.3mf / .3mf suffix stripped — see publishBambuPrint.
+function bambuSubtaskName(remoteName) {
+  return remoteName.replace(/\.gcode\.3mf$/i, '').replace(/\.3mf$/i, '');
 }
 
 function publishBambuPrint(printer, serial, remoteName) {
@@ -264,7 +289,7 @@ function publishBambuPrint(printer, serial, remoteName) {
   //                        mapping fails with "Failed to get AMS mapping table"
   //   bed_leveling       — American spelling is what firmware reads (not "levelling")
   //   extrude_cali_flag 2 / nozzle_offset_cali 2 — "skip"; we don't drive calibration
-  const subtaskName = remoteName.replace(/\.gcode\.3mf$/i, '').replace(/\.3mf$/i, '');
+  const subtaskName = bambuSubtaskName(remoteName);
   const payload = {
     print: {
       sequence_id: '20000',

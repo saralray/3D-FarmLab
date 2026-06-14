@@ -39,6 +39,7 @@ ALTER TABLE printers ADD COLUMN IF NOT EXISTS bed_target DOUBLE PRECISION;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS fan_speeds JSONB;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS temperature_chamber DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS chamber_target DOUBLE PRECISION;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS air_filter_on BOOLEAN;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -98,6 +99,19 @@ CREATE TABLE IF NOT EXISTS slicer_api_keys (
   key_prefix TEXT NOT NULL,
   last_used_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- Slicer-derived filament estimate per print. When a .3mf is uploaded through
+-- the slicer-proxy we parse its Metadata/slice_info.config (plate weight =
+-- grams) and store the job total here, keyed by printer + the subtask name the
+-- print is started with. The poller reads it to show a real per-job filament
+-- figure, since Bambu's MQTT report carries no filament weight and the H2-series
+-- firmware blocks FTP file access (so the 3MF can't be fetched back off the printer).
+CREATE TABLE IF NOT EXISTS slicer_print_estimates (
+  printer_id TEXT NOT NULL,
+  job_name TEXT NOT NULL,
+  filament_grams DOUBLE PRECISION NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (printer_id, job_name)
 );
 -- Audit trail: one row per staff/operator action (printer control, queue,
 -- user/key/webhook management, logins) and per slicer-proxy API key use. The
@@ -189,7 +203,8 @@ function buildPrinterListSelect(includeSensitive = true) {
       'chamberTarget', ROUND(chamber_target::numeric, 2),
       'spools', spools,
       'fanSpeeds', fan_speeds,
-      'lightOn', light_on
+      'lightOn', light_on,
+      'airFilterOn', air_filter_on
     )
   `;
 }
@@ -257,7 +272,8 @@ export async function getPrinterById(id) {
       'chamberTarget', ROUND(chamber_target::numeric, 2),
       'spools', spools,
       'fanSpeeds', fan_speeds,
-      'lightOn', light_on
+      'lightOn', light_on,
+      'airFilterOn', air_filter_on
     ) AS printer
     FROM printers
     WHERE id = $1;
@@ -738,6 +754,22 @@ export async function findSlicerApiKeyByHash(keyHash) {
 export async function touchSlicerApiKey(id) {
   await ensureSchema();
   await query('UPDATE slicer_api_keys SET last_used_at = NOW() WHERE id = $1;', [id]);
+}
+
+// Store the slicer's filament estimate (grams) for a print, keyed by printer +
+// the subtask name the print is started with. The poller correlates this with
+// the printer's reported job name to show real per-job filament usage. Called
+// best-effort from the slicer-proxy after a successful Bambu upload.
+export async function recordSlicerPrintEstimate({ printerId, jobName, filamentGrams }) {
+  await ensureSchema();
+  await query(
+    `INSERT INTO slicer_print_estimates (printer_id, job_name, filament_grams, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (printer_id, job_name) DO UPDATE
+       SET filament_grams = EXCLUDED.filament_grams,
+           updated_at = NOW();`,
+    [printerId, jobName, filamentGrams],
+  );
 }
 
 // Generic key/value store for app-wide preferences (e.g. the shared printer

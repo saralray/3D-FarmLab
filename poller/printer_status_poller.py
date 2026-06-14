@@ -1,12 +1,14 @@
 import calendar
 import json
 import os
+import re
 import ssl
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import Any
+from urllib.parse import quote
 
 import paho.mqtt.client as mqtt
 import psycopg
@@ -15,6 +17,25 @@ import requests
 POLL_INTERVAL_SECONDS = max(int(os.getenv("PRINTER_POLL_INTERVAL_MS", "5000")) / 1000, 1)
 REQUEST_TIMEOUT_SECONDS = max(int(os.getenv("PRINTER_REQUEST_TIMEOUT_MS", "3000")) / 1000, 1)
 OFFLINE_GRACE_SECONDS = max(int(os.getenv("PRINTER_OFFLINE_GRACE_SECONDS", "30")), 0)
+# Bambu cameras aren't plain HTTP (port-6000 JPEG socket on the A1, RTSP-over-TLS
+# on the H2), so the poller can't fetch their snapshots directly the way it does
+# the Snapmaker's /webcam/snapshot.jpg. The web service already implements both
+# protocols at /__printer_webcam/<id>/snapshot.jpg, so for Bambu profiles the
+# poller grabs the snapshot from there over the internal compose network.
+WEB_SNAPSHOT_BASE_URL = os.getenv("WEB_SNAPSHOT_BASE_URL", "http://web:5173").rstrip("/")
+# Bambu snapshots can take a few seconds (RTSP frame grab / ffmpeg warm-up), so
+# allow more headroom than the per-poll printer request timeout.
+BAMBU_SNAPSHOT_TIMEOUT_SECONDS = max(REQUEST_TIMEOUT_SECONDS, 10)
+BAMBU_PROFILES = frozenset(
+    {"bambulab_a1_mini", "bambulab_h2s", "bambulab_h2d"}
+)
+# H2/X1-class printers expose an RTSP live view that the web camera hub transcodes
+# to a live MJPEG stream; for the Discord snapshot we grab a frame straight from
+# that live stream. The A1 Mini has no live view (port-6000 snapshot only).
+BAMBU_RTSP_PROFILES = frozenset({"bambulab_h2s", "bambulab_h2d"})
+# Sanity cap when parsing a JPEG frame out of the MJPEG stream.
+MAX_FRAME_BYTES = 25 * 1024 * 1024
+_MJPEG_CONTENT_LENGTH_RE = re.compile(rb"content-length:\s*(\d+)", re.IGNORECASE)
 # Largest gap (seconds) ever credited to the lifetime print-hours counter in a
 # single poll. Bounds the damage from a backward/forward clock jump or a long
 # poller stall, so a printer seen "printing" on both sides of a big gap can't
@@ -58,6 +79,7 @@ ALTER TABLE printers ADD COLUMN IF NOT EXISTS bed_target DOUBLE PRECISION;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS fan_speeds JSONB;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS temperature_chamber DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS chamber_target DOUBLE PRECISION;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS air_filter_on BOOLEAN;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -79,6 +101,17 @@ ALTER TABLE discord_webhooks ADD COLUMN IF NOT EXISTS events JSONB;
 -- Master on/off switch per webhook. TRUE means notifications are sent (the
 -- historical default); FALSE mutes the webhook entirely.
 ALTER TABLE discord_webhooks ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
+-- Slicer-derived filament estimate per print (grams), written by the slicer-proxy
+-- when a .3mf is uploaded and read here to populate per-job filament usage. Keyed
+-- by printer + the subtask name the print is started with. Owned by the web schema
+-- too; created here so the poller's read never races ahead of it.
+CREATE TABLE IF NOT EXISTS slicer_print_estimates (
+  printer_id TEXT NOT NULL,
+  job_name TEXT NOT NULL,
+  filament_grams DOUBLE PRECISION NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (printer_id, job_name)
+);
 SELECT pg_advisory_unlock(90210);
 """
 
@@ -149,6 +182,7 @@ def list_printers(conn: psycopg.Connection) -> list[dict[str, Any]]:
               spools,
               fan_speeds AS "fanSpeeds",
               light_on AS "lightOn",
+              air_filter_on AS "airFilterOn",
               offline_since AS "offlineSince"
             FROM printers
             ORDER BY sort_order ASC, created_at DESC
@@ -187,6 +221,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               spools,
               fan_speeds,
               light_on,
+              air_filter_on,
               offline_since
             ) VALUES (
               %(id)s,
@@ -214,6 +249,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               %(spools)s::jsonb,
               %(fanSpeeds)s::jsonb,
               %(lightOn)s,
+              %(airFilterOn)s,
               %(offlineSince)s
             )
             ON CONFLICT (id) DO UPDATE SET
@@ -241,6 +277,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
               spools = EXCLUDED.spools,
               fan_speeds = EXCLUDED.fan_speeds,
               light_on = EXCLUDED.light_on,
+              air_filter_on = EXCLUDED.air_filter_on,
               offline_since = EXCLUDED.offline_since
             """,
             {
@@ -269,6 +306,7 @@ def upsert_printer(conn: psycopg.Connection, printer: dict[str, Any]) -> None:
                 "spools": json.dumps(printer.get("spools")),
                 "fanSpeeds": json.dumps(printer.get("fanSpeeds")),
                 "lightOn": printer.get("lightOn"),
+                "airFilterOn": printer.get("airFilterOn"),
                 "offlineSince": printer.get("offlineSince"),
             },
         )
@@ -289,6 +327,37 @@ def list_discord_webhooks(conn: psycopg.Connection) -> list[dict[str, Any]]:
             """
         )
         return list(cur.fetchall())
+
+
+def list_slicer_estimates(conn: psycopg.Connection) -> dict[tuple[str, str], float]:
+    """Slicer-derived filament totals keyed by (printer_id, job_name)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT printer_id, job_name, filament_grams FROM slicer_print_estimates"
+        )
+        return {(row[0], row[1]): float(row[2]) for row in cur.fetchall()}
+
+
+def apply_slicer_filament_estimate(
+    printer: dict[str, Any], estimates: dict[tuple[str, str], float]
+) -> None:
+    """Override a job's filament usage with the slicer's 3MF estimate when known.
+
+    The slicer-proxy stores the print's total filament grams; here we scale it by
+    progress for a live "used so far" figure. This is exact (unlike the AMS
+    remain%-delta fallback computed during status refresh), so it takes precedence
+    when an estimate exists; otherwise the AMS-delta value is left untouched.
+    """
+    job = printer.get("currentJob")
+    if not job:
+        return
+    grams = estimates.get((printer.get("id"), job.get("filename")))
+    if grams is None or grams <= 0:
+        return
+    progress = job.get("progress")
+    progress = progress if isinstance(progress, (int, float)) else 0
+    job["estimatedFilament"] = round(grams, 1)
+    job["filamentUsed"] = round(grams * max(0, min(100, progress)) / 100, 1)
 
 
 def parse_header_string(header_value: str) -> dict[str, str]:
@@ -720,15 +789,22 @@ def build_bambu_spools(print_data: dict[str, Any]) -> list[dict[str, Any]] | Non
             return
         color = str(tray.get("tray_color") or "808080FF")[:6]
         remain = tray.get("remain")
-        remaining = (
-            max(0, min(100, round(remain)))
-            if isinstance(remain, (int, float)) and remain >= 0
+        remain_valid = isinstance(remain, (int, float)) and remain >= 0
+        remaining = max(0, min(100, round(remain))) if remain_valid else 0
+        # Bambu's `tray_weight` is the spool's nominal *full* weight in grams, not
+        # the grams left; the AMS `remain` is the remaining percentage (reported
+        # only for Bambu RFID spools, -1 otherwise). Real grams remaining =
+        # full weight × remain% / 100 (mirrors bambuddy's weight-sync formula).
+        # Without a usable remain% we can't derive grams, so report 0 (unknown).
+        try:
+            full_weight = float(tray.get("tray_weight") or 0)
+        except (TypeError, ValueError):
+            full_weight = 0
+        weight = (
+            round(full_weight * remaining / 100, 1)
+            if remain_valid and full_weight > 0
             else 0
         )
-        try:
-            weight = float(tray.get("tray_weight") or 0)
-        except (TypeError, ValueError):
-            weight = 0
         spools.append(
             {
                 "id": slot_id,
@@ -753,6 +829,117 @@ def build_bambu_spools(print_data: dict[str, Any]) -> list[dict[str, Any]] | Non
     add_tray(print_data.get("vt_tray"), "external")
 
     return spools or None
+
+
+# Bambu reports faults via two channels in the print report: the `hms` list
+# (each `{attr, code}`) and a single `print_error` 32-bit int. Both encode a
+# short code "MMMM_EEEE" (module_error). The low 16-bit error word 0x8011 is the
+# universal AMS/external filament run-out code across modules, and 0300_8015 is
+# the A1/external-spool run-out. Mirrors bambuddy's HMS/print_error parsing
+# (bambu_mqtt.py) and the run-out descriptions in its hms_errors table.
+_BAMBU_RUNOUT_SHORT_CODES = {"0300_8015"}
+
+
+def _coerce_hms_int(value: Any) -> int:
+    """Bambu sends HMS attr/code as either an int or a hex string ("0x...")."""
+    if isinstance(value, str):
+        cleaned = value.strip().lower().replace("0x", "")
+        if not cleaned:
+            return 0
+        try:
+            return int(cleaned, 16)
+        except ValueError:
+            return 0
+    if isinstance(value, (int, float)):
+        return int(value)
+    return 0
+
+
+def _is_bambu_runout_code(short_code: str) -> bool:
+    # 0x8011 in the low word means "filament run out" on every module.
+    return short_code.endswith("_8011") or short_code in _BAMBU_RUNOUT_SHORT_CODES
+
+
+def bambu_filament_runout(print_data: dict[str, Any]) -> bool:
+    """True when the Bambu report carries an active filament-run-out fault."""
+    short_codes: set[str] = set()
+
+    hms_list = print_data.get("hms")
+    if isinstance(hms_list, list):
+        for hms in hms_list:
+            if not isinstance(hms, dict):
+                continue
+            attr = _coerce_hms_int(hms.get("attr"))
+            code = _coerce_hms_int(hms.get("code"))
+            # Codes below 0x4000 are status/phase indicators, not real faults.
+            if code < 0x4000:
+                continue
+            short_codes.add(f"{(attr >> 16) & 0xFFFF:04X}_{code & 0xFFFF:04X}")
+
+    print_error = print_data.get("print_error")
+    if isinstance(print_error, (int, float)) and print_error:
+        pe = int(print_error)
+        error = pe & 0xFFFF
+        if error >= 0x4000:
+            short_codes.add(f"{(pe >> 16) & 0xFFFF:04X}_{error:04X}")
+
+    return any(_is_bambu_runout_code(code) for code in short_codes)
+
+
+# Bambu's MQTT report has no live "grams used" field, so per-job filament usage is
+# derived from the drop in AMS remaining grams since the print began — the AMS
+# remain%-delta fallback bambuddy's usage tracker uses when no 3MF slicer estimate
+# is available. Per printer we keep the print's filename and a baseline of each
+# loaded spool's remaining grams captured when printing started. Low-resolution
+# (remain% moves in ~10 g steps) and only works for RFID spools that report remain%.
+_BAMBU_PRINT_BASELINE: dict[str, dict[str, Any]] = {}
+
+
+def _spool_grams(spools: list[dict[str, Any]] | None) -> dict[str, float]:
+    """Remaining grams per spool id, for spools that actually report it (>0)."""
+    return {
+        spool["id"]: float(spool.get("weight") or 0)
+        for spool in (spools or [])
+        if isinstance(spool, dict) and spool.get("id") and (spool.get("weight") or 0) > 0
+    }
+
+
+def update_bambu_filament_used(
+    printer_id: str | None,
+    job: dict[str, Any] | None,
+    spools: list[dict[str, Any]] | None,
+) -> None:
+    """Set job["filamentUsed"] from the AMS remaining-grams delta since print start.
+
+    Mutates `job` in place; clears the per-printer baseline once the print ends so
+    the next print re-anchors from scratch.
+    """
+    if printer_id is None:
+        return
+    if not job:
+        _BAMBU_PRINT_BASELINE.pop(printer_id, None)
+        return
+
+    current = _spool_grams(spools)
+    filename = job.get("filename")
+    state = _BAMBU_PRINT_BASELINE.get(printer_id)
+
+    if state is None or state.get("filename") != filename:
+        # New print: anchor the baseline to the current remaining grams.
+        state = {"filename": filename, "grams": dict(current)}
+        _BAMBU_PRINT_BASELINE[printer_id] = state
+    else:
+        # A spool that appears mid-print (e.g. an AMS slot loaded after start) is
+        # anchored at its first-seen weight so its full reel isn't counted as used.
+        baseline = state["grams"]
+        for spool_id, grams in current.items():
+            baseline.setdefault(spool_id, grams)
+
+    baseline = state["grams"]
+    used = 0.0
+    for spool_id, grams in current.items():
+        used += max(0.0, baseline.get(spool_id, grams) - grams)
+    job["filamentUsed"] = round(used, 1)
 
 
 # Bambu reports each fan speed as a string on a 0–15 scale (the gear shown on the
@@ -910,11 +1097,27 @@ def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
                 light_on = entry.get("mode") == "on"
                 break
 
+    # The H2 air-filter state is the airduct's filtration submode (verified live:
+    # device.airduct.subMode flips 0→1 with BambuStudio's "Filter" switch / the
+    # set_airduct toggle, see setPrinterAirFilter). It only appears in the full
+    # (pushall) report; the cached report drops it, so fall back to last-known.
+    air_filter_on = printer.get("airFilterOn")
+    airduct = (print_data.get("device") or {}).get("airduct")
+    if isinstance(airduct, dict):
+        submode = airduct.get("subMode")
+        if isinstance(submode, (int, float)):
+            air_filter_on = int(submode) == 1
+
+    spools = build_bambu_spools(print_data) or printer.get("spools")
+    current_job = build_bambu_current_job(
+        print_data, printer.get("currentJob"), progress, status, remaining_minutes
+    )
+    # Bambu reports no live grams-used; derive it from the AMS remaining delta.
+    update_bambu_filament_used(printer.get("id"), current_job, spools)
+
     return {
         "status": status,
-        "currentJob": build_bambu_current_job(
-            print_data, printer.get("currentJob"), progress, status, remaining_minutes
-        ),
+        "currentJob": current_job,
         "progress": progress,
         "rawPrintState": gcode_state.lower() if isinstance(gcode_state, str) else None,
         "temperature": {
@@ -926,10 +1129,14 @@ def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
         "nozzleTargets": [nozzle_target],
         "bedTarget": bed_target,
         "chamberTarget": chamber_target,
-        "spools": build_bambu_spools(print_data) or printer.get("spools"),
+        "spools": spools,
         "fanSpeeds": build_bambu_fan_speeds(print_data, printer.get("profile"))
         or printer.get("fanSpeeds"),
         "lightOn": light_on,
+        "airFilterOn": air_filter_on,
+        # HMS/print_error run-out signal, edge-detected in check_filament_runout.
+        # Transient (notification-only); not persisted by upsert_printer.
+        "filamentRunout": bambu_filament_runout(print_data),
     }
 
 
@@ -941,7 +1148,7 @@ def refresh_status(printer: dict[str, Any]) -> dict[str, Any]:
             live_status["spools"] = fetch_snapmaker_task_config(printer)
         except Exception:
             live_status["spools"] = printer.get("spools")
-    elif profile in ("bambulab_a1_mini", "bambulab_h2s", "bambulab_h2d"):
+    elif profile in BAMBU_PROFILES:
         live_status = fetch_bambu_status(printer)
     else:
         live_status = fetch_generic_status(printer)
@@ -1019,7 +1226,63 @@ def iso_timestamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def grab_mjpeg_frame(url: str) -> bytes | None:
+    """Pull the first complete JPEG frame out of a multipart/x-mixed-replace MJPEG
+    stream, then drop the connection. The web camera hub paints the latest frame to
+    a new viewer immediately, so this returns a live-view frame within a frame or
+    two rather than waiting on a full GOP."""
+    with requests.get(url, stream=True, timeout=BAMBU_SNAPSHOT_TIMEOUT_SECONDS) as response:
+        response.raise_for_status()
+        buffer = bytearray()
+        for chunk in response.iter_content(chunk_size=16384):
+            if chunk:
+                buffer += chunk
+            header_end = buffer.find(b"\r\n\r\n")
+            if header_end == -1:
+                # Bound the buffer so a malformed stream can't grow without limit.
+                if len(buffer) > 65536:
+                    return None
+                continue
+            match = _MJPEG_CONTENT_LENGTH_RE.search(buffer[:header_end])
+            if not match:
+                return None
+            length = int(match.group(1))
+            if length <= 0 or length > MAX_FRAME_BYTES:
+                return None
+            body_start = header_end + 4
+            if len(buffer) - body_start < length:
+                continue
+            return bytes(buffer[body_start : body_start + length])
+    return None
+
+
+def fetch_bambu_snapshot(printer: dict[str, Any]) -> bytes | None:
+    """Grab a Bambu camera frame via the web service, which already speaks both
+    Bambu camera protocols. For H2/X1-class printers the frame is pulled from the
+    live MJPEG stream (the same feed shown on the detail page); the A1 Mini has no
+    live view, so it falls back to the port-6000 snapshot. The poller can't reach
+    the camera directly, so it reuses the web endpoints over the compose network."""
+    printer_id = printer.get("id")
+    if not printer_id:
+        return None
+    encoded_id = quote(str(printer_id), safe="")
+    webcam_base = f"{WEB_SNAPSHOT_BASE_URL}/__printer_webcam/{encoded_id}"
+    try:
+        if printer.get("profile") in BAMBU_RTSP_PROFILES:
+            return grab_mjpeg_frame(f"{webcam_base}/stream.mjpg")
+        response = requests.get(
+            f"{webcam_base}/snapshot.jpg",
+            timeout=BAMBU_SNAPSHOT_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return response.content
+    except Exception:
+        return None
+
+
 def fetch_printer_snapshot(printer: dict[str, Any]) -> bytes | None:
+    if printer.get("profile") in BAMBU_PROFILES:
+        return fetch_bambu_snapshot(printer)
     try:
         response = requests.get(
             f"{printer['url']}/webcam/snapshot.jpg",
@@ -1264,10 +1527,15 @@ TEMP_REACHED_TOLERANCE = 2
 # Spool ids seen while each printer was last printing. A loaded spool that vanishes
 # between two printing cycles means filament ran out (or was removed). This is the
 # clean signal for Snapmaker U1 (its spool list is built straight from
-# print_task_config.filament_exist). For Bambu the list falls back to the last-known
-# spools when a report is momentarily empty (see build_bambu_spools), so Bambu
-# runout is not reliably detected here yet — it would need the HMS/print_error codes.
+# print_task_config.filament_exist). For Bambu the spool list falls back to the
+# last-known spools when a report is momentarily empty (see build_bambu_spools),
+# so the disappearance heuristic is unreliable there; Bambu run-out is instead
+# detected precisely from the HMS/print_error codes (next_printer["filamentRunout"],
+# built by bambu_filament_runout) and edge-detected via _RUNOUT_REPORTED below.
 _PRINTING_SPOOLS: dict[str, set[str]] = {}
+# Last-reported HMS run-out flag per printer, so we alert once per run-out rather
+# than every poll while the fault (and its paused print) persist.
+_RUNOUT_REPORTED: dict[str, bool] = {}
 
 
 def spool_ids(printer: dict[str, Any]) -> set[str]:
@@ -1279,22 +1547,32 @@ def spool_ids(printer: dict[str, Any]) -> set[str]:
 
 
 def check_filament_runout(next_printer: dict[str, Any]) -> bool:
-    """Edge-detect a loaded spool disappearing while a printer is printing."""
+    """Fire once when filament runs out, from either signal:
+
+    - Bambu: the HMS/print_error run-out flag (`filamentRunout`), edge-detected
+      so the alert fires on the false→true transition. This works regardless of
+      print state because a run-out typically pauses the print.
+    - Snapmaker/generic: a loaded spool disappearing mid-print.
+    """
     printer_id = next_printer.get("id")
     if printer_id is None:
         return False
 
+    runout_active = bool(next_printer.get("filamentRunout"))
+    previously_reported = _RUNOUT_REPORTED.get(printer_id, False)
+    _RUNOUT_REPORTED[printer_id] = runout_active
+    hms_edge = runout_active and not previously_reported
+
     if next_printer.get("status") != "printing":
         _PRINTING_SPOOLS.pop(printer_id, None)
-        return False
+        return hms_edge
 
     current_ids = spool_ids(next_printer)
     previous_ids = _PRINTING_SPOOLS.get(printer_id)
     _PRINTING_SPOOLS[printer_id] = current_ids
 
-    if previous_ids is None:
-        return False
-    return bool(previous_ids - current_ids)
+    spool_edge = previous_ids is not None and bool(previous_ids - current_ids)
+    return hms_edge or spool_edge
 
 
 def build_filament_runout_embed(printer: dict[str, Any]) -> dict[str, Any]:
@@ -1430,6 +1708,12 @@ def prune_print_time_tracking(active_ids: set[str]) -> None:
     for printer_id in list(_PRINTING_SPOOLS.keys()):
         if printer_id not in active_ids:
             _PRINTING_SPOOLS.pop(printer_id, None)
+    for printer_id in list(_RUNOUT_REPORTED.keys()):
+        if printer_id not in active_ids:
+            _RUNOUT_REPORTED.pop(printer_id, None)
+    for printer_id in list(_BAMBU_PRINT_BASELINE.keys()):
+        if printer_id not in active_ids:
+            _BAMBU_PRINT_BASELINE.pop(printer_id, None)
 
 
 def compute_next_printer(printer: dict[str, Any]) -> dict[str, Any]:
@@ -1462,6 +1746,7 @@ def run() -> None:
                 prune_bambu_clients(active_ids)
                 prune_print_time_tracking(active_ids)
                 webhooks = list_discord_webhooks(conn)
+                slicer_estimates = list_slicer_estimates(conn)
 
                 # Concurrent, side-effect-free refresh; DB writes and the
                 # _PRINTING_SINCE tracker run sequentially on this thread below
@@ -1471,6 +1756,9 @@ def run() -> None:
                 )
 
                 for printer, next_printer in zip(printers, next_printers):
+                    # Prefer the slicer's exact 3MF estimate over the AMS-delta
+                    # fallback before analytics/persistence read filamentUsed.
+                    apply_slicer_filament_estimate(next_printer, slicer_estimates)
                     next_printer["totalPrintTime"] = accumulate_total_print_time(next_printer)
                     collect_analytics_for_transition(conn, printer, next_printer)
                     notify_for_transition(webhooks, printer, next_printer)
