@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Printer } from '../types';
 import { PrinterCard } from '../components/PrinterCard';
-import { Activity, AlertCircle, CheckCircle, Pause, WifiOff } from 'lucide-react';
+import { Activity, AlertCircle, CheckCircle, Lightbulb, Pause, WifiOff } from 'lucide-react';
 import { Card } from '../components/ui/card';
+import { Button } from '../components/ui/button';
 import { useAuth } from '../contexts/AuthContext';
 import { savePrinter } from '../lib/printersApi';
+import { printerSupportsLight, setPrinterLight } from '../lib/printerProfiles';
 import { logAuditEvent } from '../lib/auditApi';
 import { usePrinters } from '../contexts/PrintersContext';
 import { toast } from 'sonner';
@@ -13,6 +15,7 @@ export function Dashboard() {
   const { printers: livePrinters, error: loadError, refresh } = usePrinters();
   const [printers, setPrinters] = useState<Printer[]>(livePrinters);
   const [draggedPrinterId, setDraggedPrinterId] = useState<string | null>(null);
+  const [lightsInFlight, setLightsInFlight] = useState(false);
   const { user } = useAuth();
   const loadErrorToastShownRef = useRef(false);
 
@@ -66,6 +69,42 @@ export function Dashboard() {
     { label: 'Error', value: stats.error, icon: AlertCircle, color: 'text-red-500', bgColor: 'bg-red-50 dark:bg-red-900/30' },
     { label: 'Offline', value: stats.offline, icon: WifiOff, color: 'text-gray-500', bgColor: 'bg-gray-50 dark:bg-gray-800' },
   ];
+
+  // Printers that expose a chamber/cavity light and are currently reachable.
+  const lightCapablePrinters = printers.filter(
+    (printer) => printerSupportsLight(printer) && printer.status !== 'offline',
+  );
+  // If any light is on, the toggle turns them all off; otherwise it turns them on.
+  const anyLightOn = lightCapablePrinters.some((printer) => printer.lightOn === true);
+
+  const handleToggleAllLights = async () => {
+    if (user?.role !== 'admin' || lightsInFlight || lightCapablePrinters.length === 0) {
+      return;
+    }
+
+    const next = !anyLightOn;
+    setLightsInFlight(true);
+
+    const results = await Promise.allSettled(
+      lightCapablePrinters.map((printer) => setPrinterLight(printer, next)),
+    );
+    const failed = results.filter((result) => result.status === 'rejected').length;
+
+    setLightsInFlight(false);
+
+    const succeeded = lightCapablePrinters.length - failed;
+    logAuditEvent('printer.lights.toggleAll', undefined, { on: next, succeeded, failed });
+
+    if (failed === 0) {
+      toast.success(`Turned all lights ${next ? 'on' : 'off'} (${succeeded} printers).`);
+    } else if (succeeded === 0) {
+      toast.error('Unable to toggle any printer lights.');
+    } else {
+      toast.warning(`Lights ${next ? 'on' : 'off'} for ${succeeded} printers; ${failed} failed.`);
+    }
+
+    await refresh();
+  };
 
   const handlePrinterDragStart = (printerId: string) => {
     if (user?.role !== 'admin') {
@@ -158,6 +197,21 @@ export function Dashboard() {
           ))}
         </div>
       </div>
+
+      {user?.role === 'admin' && lightCapablePrinters.length > 0 && (
+        <Button
+          size="icon"
+          onClick={handleToggleAllLights}
+          disabled={lightsInFlight}
+          aria-pressed={anyLightOn}
+          title={anyLightOn ? 'Turn all printer lights off' : 'Turn all printer lights on'}
+          className={`fixed bottom-6 right-6 z-50 size-14 rounded-full shadow-lg ${
+            anyLightOn ? 'bg-amber-400 text-amber-950 hover:bg-amber-300' : ''
+          }`}
+        >
+          <Lightbulb className={`size-6 ${anyLightOn ? 'fill-current' : ''}`} />
+        </Button>
+      )}
     </div>
   );
 }
