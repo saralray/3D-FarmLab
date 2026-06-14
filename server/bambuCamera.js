@@ -255,6 +255,9 @@ class CameraStream {
     res.setHeader('Content-Type', `multipart/x-mixed-replace; boundary=${VIEWER_BOUNDARY}`);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Connection', 'close');
+    // Allow the stream to load inside a cross-origin (e.g. sandboxed Grafana)
+    // <iframe>; the global Cross-Origin-Resource-Policy: same-origin would block it.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
     const viewer = { res, busy: false };
     this.viewers.add(viewer);

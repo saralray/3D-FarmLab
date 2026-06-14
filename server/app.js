@@ -756,6 +756,9 @@ async function handleBambuWebcam(req, res, printer, pathParts) {
     res.statusCode = 200;
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('Cache-Control', 'no-store');
+    // Allow the snapshot to load inside a cross-origin (e.g. sandboxed Grafana)
+    // <iframe> — see the note in the /__printer_webcam stream branch.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.end(jpeg);
   } catch (error) {
     // A failed capture is non-fatal for the UI (it just shows "Webcam offline"),
@@ -828,10 +831,12 @@ async function handleWebcamPage(req, res, requestUrl) {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
-  // This page is meant to be embedded cross-origin in an <iframe>, so relax the
-  // global X-Frame-Options: DENY. The frames themselves come from the same-origin
+  // This page is meant to be embedded cross-origin in an <iframe> (e.g. a Grafana
+  // text panel), so relax the global X-Frame-Options: DENY and the same-origin
+  // Cross-Origin-Resource-Policy. The frames themselves come from the
   // /__printer_webcam endpoints, so no printer secrets are exposed to the embedder.
   res.removeHeader('X-Frame-Options');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.end(html);
   return true;
 }
@@ -1304,6 +1309,11 @@ async function handlePrinterProxy(req, res, requestUrl, prefix, makeTargetUrl, e
     // The webcam player is embedded in an <iframe> on the detail page; relax the
     // global X-Frame-Options: DENY to allow same-origin framing of camera assets.
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    // The embeddable /webcam/:id page may be framed cross-origin (e.g. a Grafana
+    // text panel, which sandboxes the iframe to an opaque origin). The global
+    // Cross-Origin-Resource-Policy: same-origin would then block these frames, so
+    // relax it for camera assets — they carry no printer secrets.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     if (!response.body) {
       res.end();
       return true;
