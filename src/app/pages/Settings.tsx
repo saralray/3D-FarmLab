@@ -507,10 +507,6 @@ export function Settings() {
             <Plus className="size-4" />
             Add User
           </TabsTrigger>
-          <TabsTrigger value="user-list" className="min-w-max">
-            <Users className="size-4" />
-            User List
-          </TabsTrigger>
           <TabsTrigger value="notifications" className="min-w-max">
             <Bell className="size-4" />
             Notifications
@@ -564,7 +560,7 @@ export function Settings() {
                     id="printer-name"
                     value={printerName}
                     onChange={(event) => setPrinterName(event.target.value)}
-                    placeholder="Bambu Lab A1 Mini"
+                    placeholder="your printer's name"
                     required
                   />
                 </div>
@@ -620,11 +616,6 @@ export function Settings() {
                   </p>
                 </div>
               )}
-
-              <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
-                <div>Model: {PRINTER_PROFILES[printerProfile].defaultModel}</div>
-                <div>Live status: {PRINTER_PROFILES[printerProfile].pollingDescription}</div>
-              </div>
 
               <Button type="submit">Add Printer</Button>
             </form>
@@ -706,11 +697,6 @@ export function Settings() {
                 {isCreatingUser ? 'Adding user...' : 'Add User'}
               </Button>
             </form>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="user-list">
-          <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
             <div className="mb-5">
               <div className="flex items-center gap-2">
                 <Users className="size-5 text-blue-500" />
@@ -1037,7 +1023,7 @@ export function Settings() {
                 add a <span className="font-medium">Physical Printer</span> with host type{' '}
                 <span className="font-medium">OctoPrint</span>, host{' '}
                 <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
-                  http://{typeof window !== 'undefined' ? window.location.hostname : 'host'}:8091/printers/&lt;printerId&gt;
+                  https://{typeof window !== 'undefined' ? window.location.hostname : 'host'}/printers/&lt;printerId&gt;
                 </code>
                 , and paste a key below as the API key. One key works for every printer.
               </p>

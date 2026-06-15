@@ -142,7 +142,7 @@ export function Queue() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold mb-2 dark:text-white">Print Queue</h1>
-          <p className="text-gray-600 dark:text-gray-400">Only สั่งพิมพ์งาน 3D Print submissions are shown</p>
+          <p className="text-gray-600 dark:text-gray-400">Only 3D Print submissions are shown</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {user?.role === 'admin' && (
@@ -187,11 +187,6 @@ export function Queue() {
         <div className="flex items-center gap-2 mb-4">
           <List className="size-5 dark:text-white" />
           <h2 className="text-xl font-semibold dark:text-white">Submission Queue ({queue.length})</h2>
-        </div>
-
-        <div className="text-sm text-gray-600 dark:text-gray-400 mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-          <strong>Note:</strong> New 3D Print jobs sync from the Google Sheet into Postgres.
-          Marking a job as printed moves it into the history list below.
         </div>
 
         {queue.length > 0 ? (
