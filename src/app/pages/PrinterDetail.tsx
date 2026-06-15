@@ -111,6 +111,9 @@ interface FilamentSlot {
   // Bambu global tray id (AMS unit * 4 + tray, or 254 for the external spool)
   // used to target load/unload commands; undefined for Snapmaker tool slots.
   trayId?: number;
+  // Friendly slot name (e.g. "AMS HT", "External") overriding the default
+  // "Slot N"/"Tool N" label. Undefined falls back to the numbered label.
+  label?: string;
   // Remaining filament reported by the poller from the AMS (Bambu RFID spools):
   // percentage and grams left. Undefined when the printer doesn't report it.
   remaining?: number;
@@ -125,6 +128,21 @@ function bambuTrayId(spoolId: string): number | undefined {
   }
   const match = /^ams(\d+)-(\d+)$/.exec(spoolId);
   return match ? Number(match[1]) * 4 + Number(match[2]) : undefined;
+}
+
+// Friendly label for a Bambu spool slot. Bambu assigns AMS HT units ids >= 128
+// (global tray id >= 512), so the bare "Slot 513" reads wrong — those are
+// single-slot high-temp units and should show "AMS HT". Returns undefined for
+// regular AMS trays so they keep the numbered "Slot N" label.
+function bambuSlotLabel(trayId: number | undefined): string | undefined {
+  if (trayId === undefined) return undefined;
+  if (trayId === 254) return 'External';
+  const unit = Math.floor(trayId / 4);
+  if (unit >= 128) {
+    const index = unit - 128;
+    return index > 0 ? `AMS HT ${index + 1}` : 'AMS HT';
+  }
+  return undefined;
 }
 
 function FilamentSpoolIcon({ color }: { color: string }) {
@@ -735,6 +753,7 @@ export function PrinterDetail() {
       isLoaded: true,
       isInUse: printer.status === 'printing',
       trayId,
+      label: bambuSlotLabel(trayId),
       remaining: spool.remaining,
       weight: spool.weight,
     };
@@ -1433,7 +1452,7 @@ export function PrinterDetail() {
                           </div>
                           <div>
                             <div className="font-medium dark:text-white">
-                              {isBambuProfile(printer.profile) ? 'Slot' : 'Tool'} {slot.slot}
+                              {slot.label ?? `${isBambuProfile(printer.profile) ? 'Slot' : 'Tool'} ${slot.slot}`}
                             </div>
                             <div className="text-sm text-gray-600 dark:text-gray-400">
                               {`${slot.vendor} ${slot.type}`.trim()}{slot.subType ? ` / ${slot.subType}` : ''}
