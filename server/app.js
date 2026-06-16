@@ -305,6 +305,17 @@ function sanitizeStaffUser(record) {
   };
 }
 
+// Like sanitizeStaffUser but keeps the stored sha256 password hash. Only for the
+// key-gated /api/v1 surface, where the key is the guard and secrets are not
+// redacted (mirroring admin-credential). Never use on the cookieless frontend
+// /api/users path, which must stay sanitized.
+function staffUserWithHash(record) {
+  return {
+    ...sanitizeStaffUser(record),
+    passwordHash: record.passwordHash || null,
+  };
+}
+
 // Best-effort client IP for the audit trail: prefer the first hop in
 // X-Forwarded-For (nginx sets it) and fall back to the socket address.
 function getClientIp(req) {
@@ -1557,7 +1568,9 @@ async function handleDataApiSettings(req, res, { apiKey, method, id }) {
 }
 
 // users: staff account management, mirroring the frontend /api/users surface.
-//   GET    /users               → sanitized list (never exposes password hashes)
+//   GET    /users               → list including each account's sha256 passwordHash
+//                                 (the key is the guard here, like admin-credential —
+//                                 unlike the cookieless frontend /api/users which redacts)
 //   POST   /users               → create { name, username, role, passwordHash }
 //   POST   /users/verify        → validate a login { username, passwordHash }
 //   DELETE /users/:id           → remove an account
@@ -1568,7 +1581,7 @@ async function handleDataApiUsers(req, res, { apiKey, method, id, sub }) {
   if (!id) {
     if (method === 'GET') {
       const usersList = await readStaffUsers();
-      sendJson(res, 200, usersList.map(sanitizeStaffUser));
+      sendJson(res, 200, usersList.map(staffUserWithHash));
       return true;
     }
     if (method === 'POST') {
@@ -1602,7 +1615,7 @@ async function handleDataApiUsers(req, res, { apiKey, method, id, sub }) {
       const newUser = { id: randomUUID(), name, username, role, passwordHash: passwordHash.toLowerCase() };
       await setAppSetting(STAFF_USERS_KEY, [...usersList, newUser]);
       auditDataApi(req, apiKey, 'user.create', newUser.id, { username, role });
-      sendJson(res, 201, sanitizeStaffUser(newUser));
+      sendJson(res, 201, staffUserWithHash(newUser));
       return true;
     }
     return dataApiMethodNotAllowed(res);
