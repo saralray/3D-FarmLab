@@ -2109,6 +2109,22 @@ async function handlePrinterProxy(req, res, requestUrl, prefix, makeTargetUrl, e
       res.end();
       return true;
     }
+    // The embeddable player (e.g. Snapmaker's /webcam/player) is an HTML page whose
+    // inner <video>/<canvas> letterboxes with black bars at the iframe's 16:9 box.
+    // Buffer just the HTML (streams like MJPEG/JPEG stay piped) and inject a style
+    // override so the media fills and covers the frame — no black bars.
+    if (contentType && contentType.includes('text/html')) {
+      const html = Buffer.from(await response.arrayBuffer()).toString('utf8');
+      const styleTag =
+        '<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}' +
+        'video,canvas,img{position:fixed!important;inset:0!important;width:100%!important;' +
+        'height:100%!important;object-fit:cover!important}</style>';
+      const patched = html.includes('</head>')
+        ? html.replace('</head>', `${styleTag}</head>`)
+        : html + styleTag;
+      res.end(patched);
+      return true;
+    }
     const upstream = Readable.fromWeb(response.body);
     upstream.on('error', () => {
       abortController.abort();

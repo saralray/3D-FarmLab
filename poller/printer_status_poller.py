@@ -33,6 +33,9 @@ BAMBU_PROFILES = frozenset(
 # to a live MJPEG stream; for the Discord snapshot we grab a frame straight from
 # that live stream. The A1 Mini has no live view (port-6000 snapshot only).
 BAMBU_RTSP_PROFILES = frozenset({"bambulab_h2s", "bambulab_h2d"})
+# The H2D is the one dual-nozzle Bambu — it has a left and a right toolhead, so its
+# status carries two nozzle readings instead of the single flat nozzle_temper field.
+BAMBU_DUAL_NOZZLE_PROFILES = frozenset({"bambulab_h2d"})
 # Sanity cap when parsing a JPEG frame out of the MJPEG stream.
 MAX_FRAME_BYTES = 25 * 1024 * 1024
 _MJPEG_CONTENT_LENGTH_RE = re.compile(rb"content-length:\s*(\d+)", re.IGNORECASE)
@@ -1066,6 +1069,78 @@ def decode_bambu_chamber_target(print_data: dict[str, Any]) -> float | None:
     return None
 
 
+# A nozzle reading in the device.extruder.info[] structure is either a plain
+# Celsius value or packed `target * 65536 + current` (the low 16 bits are the
+# current temp), the same encoding the chamber uses. Returns (current, target) in
+# °C, with either element None when that part can't be decoded.
+def _decode_nozzle_value(value: Any) -> tuple[float | None, float | None]:
+    if not isinstance(value, (int, float)):
+        return None, None
+    if value > 500:
+        current = int(value) % 65536
+        target = int(value) // 65536
+        return (
+            float(current) if -50 < current < 500 else None,
+            float(target) if 0 <= target < 500 else None,
+        )
+    if -50 < value < 500:
+        return float(value), None
+    return None, None
+
+
+# Pull the two H2D nozzles out of the report. The per-nozzle temps live in
+# device.extruder.info[], each entry tagged with an `id` (0 = right, 1 = left,
+# matching the tool index the temperature command sends as T0/T1) plus current and
+# target readings. We return temps/targets in tool-index order [right, left] and
+# fall back to the last-known values (and the flat nozzle_temper field) when the
+# cached report omits the structure. The field names and packing are device-specific
+# and may need further tuning on a real H2D.
+def build_bambu_dual_nozzles(
+    print_data: dict[str, Any],
+    fallback_nozzle: float,
+    fallback_temps: list[Any],
+    fallback_targets: list[Any],
+) -> tuple[list[int], list[int]]:
+    info = ((print_data.get("device") or {}).get("extruder") or {}).get("info")
+    by_id: dict[int, dict[str, Any]] = {}
+    if isinstance(info, list):
+        for entry in info:
+            if isinstance(entry, dict) and isinstance(entry.get("id"), (int, float)):
+                by_id[int(entry["id"])] = entry
+
+    temps: list[int] = []
+    targets: list[int] = []
+    for index in (0, 1):
+        entry = by_id.get(index) or {}
+        current, packed_target = _decode_nozzle_value(entry.get("temp"))
+        explicit_target = entry.get("target")
+        target = (
+            float(explicit_target)
+            if isinstance(explicit_target, (int, float)) and 0 <= explicit_target < 500
+            else packed_target
+        )
+
+        if current is None:
+            current = fallback_temps[index] if index < len(fallback_temps) else fallback_nozzle
+        if target is None:
+            target = fallback_targets[index] if index < len(fallback_targets) else 0
+
+        temps.append(round(current or 0))
+        targets.append(round(target or 0))
+
+    # No per-nozzle structure (e.g. a cached report) — surface the flat field on the
+    # right/primary nozzle (T0) so the reading isn't stuck at the fallback for both.
+    if not by_id:
+        legacy = print_data.get("nozzle_temper")
+        if isinstance(legacy, (int, float)):
+            temps[0] = round(legacy)
+        legacy_target = print_data.get("nozzle_target_temper")
+        if isinstance(legacy_target, (int, float)):
+            targets[0] = round(legacy_target)
+
+    return temps, targets
+
+
 def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
     if not (printer.get("serial") or "").strip():
         raise RuntimeError("Bambu printer is missing its serial number")
@@ -1143,6 +1218,18 @@ def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
         if isinstance(submode, (int, float)):
             air_filter_on = int(submode) == 1
 
+    # The H2D is dual-nozzle (left + right); everything else reports a single nozzle.
+    if printer.get("profile") in BAMBU_DUAL_NOZZLE_PROFILES:
+        nozzle_temperatures, nozzle_targets = build_bambu_dual_nozzles(
+            print_data,
+            nozzle_temperature,
+            printer.get("nozzleTemperatures") or [],
+            printer.get("nozzleTargets") or [],
+        )
+    else:
+        nozzle_temperatures = [nozzle_temperature]
+        nozzle_targets = [nozzle_target]
+
     spools = build_bambu_spools(print_data) or printer.get("spools")
     current_job = build_bambu_current_job(
         print_data, printer.get("currentJob"), progress, status, remaining_minutes
@@ -1160,8 +1247,8 @@ def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
             "bed": bed_temperature,
             "chamber": chamber_temperature,
         },
-        "nozzleTemperatures": [nozzle_temperature],
-        "nozzleTargets": [nozzle_target],
+        "nozzleTemperatures": nozzle_temperatures,
+        "nozzleTargets": nozzle_targets,
         "bedTarget": bed_target,
         "chamberTarget": chamber_target,
         "spools": spools,

@@ -121,6 +121,46 @@ export function profileHasChamberTemp(profile: PrinterProfile): boolean {
   return PROFILES_WITH_CHAMBER_TEMP.includes(profile);
 }
 
+// Per-nozzle display labels for multi-nozzle profiles, in tool-index order (the
+// same order the poller reports nozzleTemperatures and the index sent as the
+// temperature command's T-number). On the H2D tool 0 (T0) is the right nozzle and
+// tool 1 (T1) the left — verified live; every other profile is single-nozzle and
+// uses "Nozzle".
+const PROFILE_NOZZLE_LABELS: Partial<Record<PrinterProfile, string[]>> = {
+  bambulab_h2d: ['Right Nozzle', 'Left Nozzle'],
+};
+
+export function getNozzleLabel(
+  profile: PrinterProfile,
+  index: number,
+  count: number
+): string {
+  const labels = PROFILE_NOZZLE_LABELS[profile];
+  if (labels && labels[index]) {
+    return labels[index];
+  }
+  return count > 1 ? `Nozzle ${index + 1}` : 'Nozzle';
+}
+
+// Visual column order for multi-nozzle profiles, as tool indices. Tool index order
+// drives the data and the temperature command's T-number, but the UI can present
+// the nozzles in a different order. The H2D reports [right (T0), left (T1)]; we show
+// the left nozzle first so the layout reads left-to-right like the physical printer.
+const PROFILE_NOZZLE_DISPLAY_ORDER: Partial<Record<PrinterProfile, number[]>> = {
+  bambulab_h2d: [1, 0],
+};
+
+export function getNozzleDisplayOrder(
+  profile: PrinterProfile,
+  count: number
+): number[] {
+  const order = PROFILE_NOZZLE_DISPLAY_ORDER[profile];
+  if (order) {
+    return order.filter((index) => index < count);
+  }
+  return Array.from({ length: count }, (_, index) => index);
+}
+
 function inferProfileFromDescriptor(descriptor: string): PrinterProfile | null {
   if (descriptor.includes('snapmaker u1')) {
     return 'snapmaker_u1';

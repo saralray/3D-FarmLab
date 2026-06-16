@@ -46,6 +46,8 @@ import {
   PRINTER_PROFILES,
   PRINTER_FANS,
   profileHasChamberTemp,
+  getNozzleLabel,
+  getNozzleDisplayOrder,
   isBambuProfile,
   printerSupportsAirFilter,
   printerSupportsCoolingControl,
@@ -1186,8 +1188,10 @@ export function PrinterDetail() {
           </h2>
 
           <div className="space-y-4">
-            {/* Camera is always shown so staff can watch the printer regardless of job state. */}
-            <div className="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-900">
+            {/* Camera is always shown so staff can watch the printer regardless of job state.
+                A fixed 16:9 box (aspect-video) is shared by every profile so the live feed
+                fills the card edge-to-edge (object-cover) with no black letterbox bars. */}
+            <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-900">
               {isOnline ? (
                 supportsWebcamStream ? (
                   // Snapmaker's own real-time H264 player (jmuxer → <video>), which
@@ -1196,19 +1200,19 @@ export function PrinterDetail() {
                     key={`webcam-${printer.id}`}
                     src={webcamPlayerUrl}
                     title={`${printer.name} live view`}
-                    className="h-80 w-full border-0 bg-black"
+                    className="absolute inset-0 h-full w-full border-0"
                     allow="autoplay"
                   />
                 ) : supportsLiveMjpeg ? (
                   // H2 series: live MJPEG stream (ffmpeg transcodes the RTSP feed
                   // server-side). The <img> holds one long-lived connection; on a
                   // drop, onError schedules a reconnect by bumping the src nonce.
-                  <div className="relative min-h-[20rem] w-full">
+                  <div className="absolute inset-0">
                     <img
                       key={`webcam-mjpeg-${printer.id}`}
                       src={webcamMjpegUrl}
                       alt={`${printer.name} live view`}
-                      className={`block h-auto w-full ${snapshotErrored ? 'opacity-0' : ''}`}
+                      className={`h-full w-full object-cover ${snapshotErrored ? 'opacity-0' : ''}`}
                       onLoad={() => setSnapshotErrored(false)}
                       onError={() => {
                         setSnapshotErrored(true);
@@ -1227,12 +1231,12 @@ export function PrinterDetail() {
                   // stays mounted to keep the loop alive even while erroring). On a
                   // rejected camera the server 502s, so onError shows a placeholder
                   // instead of a broken image.
-                  <div className="relative min-h-[20rem] w-full">
+                  <div className="absolute inset-0">
                     <img
                       key={`webcam-${printer.id}`}
                       src={webcamSnapshotUrl}
                       alt={`${printer.name} preview`}
-                      className={`block h-auto w-full ${snapshotErrored ? 'opacity-0' : ''}`}
+                      className={`h-full w-full object-cover ${snapshotErrored ? 'opacity-0' : ''}`}
                       onLoad={() => {
                         setSnapshotErrored(false);
                         scheduleSnapshotRefresh(500);
@@ -1250,7 +1254,7 @@ export function PrinterDetail() {
                   </div>
                 )
               ) : (
-                <div className="flex h-80 w-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
                   Webcam offline
                 </div>
               )}
@@ -1392,37 +1396,46 @@ export function PrinterDetail() {
               Temperature
             </h2>
             <div className="space-y-4">
-              {nozzleTemperatures.map((temperature, index) => {
-                const key = `nozzle-${index}`;
-                const label = nozzleTemperatures.length > 1 ? `Nozzle ${index + 1}` : 'Nozzle';
-                return (
-                  <div key={`${printer.id}-detail-${key}`}>
-                    <div className="flex justify-between items-center gap-2 mb-2">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">{label}</span>
-                      <div className="flex items-center gap-2">
-                        <span className={`font-bold text-lg ${getStatusColor()}`}>
-                          {formatMaxTwoDecimals(temperature)}°C
-                        </span>
-                        {canControlTemp && (
-                          <TemperatureTargetControl
-                            label={label}
-                            value={tempInputs[key] ?? ''}
-                            inFlight={tempInFlight === key}
-                            disabled={tempInFlight !== null}
-                            onChange={(next) =>
-                              setTempInputs((prev) => ({ ...prev, [key]: next }))
-                            }
-                            onSubmit={() => handleSetTemperature('nozzle', index)}
-                            onFocus={() => setTempEditingKey(key)}
-                            onBlur={() => setTempEditingKey((current) => (current === key ? null : current))}
-                          />
-                        )}
+              {/* Dual-nozzle printers (H2D) lay the two nozzles out side by side, in
+                  the profile's display order (left nozzle first → left column). */}
+              <div
+                className={
+                  nozzleTemperatures.length > 1 ? 'grid grid-cols-2 gap-4' : undefined
+                }
+              >
+                {getNozzleDisplayOrder(printer.profile, nozzleTemperatures.length).map((index) => {
+                  const temperature = nozzleTemperatures[index];
+                  const key = `nozzle-${index}`;
+                  const label = getNozzleLabel(printer.profile, index, nozzleTemperatures.length);
+                  return (
+                    <div key={`${printer.id}-detail-${key}`}>
+                      <div className="flex justify-between items-center gap-2 mb-2">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">{label}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-bold text-lg ${getStatusColor()}`}>
+                            {formatMaxTwoDecimals(temperature)}°C
+                          </span>
+                          {canControlTemp && (
+                            <TemperatureTargetControl
+                              label={label}
+                              value={tempInputs[key] ?? ''}
+                              inFlight={tempInFlight === key}
+                              disabled={tempInFlight !== null}
+                              onChange={(next) =>
+                                setTempInputs((prev) => ({ ...prev, [key]: next }))
+                              }
+                              onSubmit={() => handleSetTemperature('nozzle', index)}
+                              onFocus={() => setTempEditingKey(key)}
+                              onBlur={() => setTempEditingKey((current) => (current === key ? null : current))}
+                            />
+                          )}
+                        </div>
                       </div>
+                      <Progress value={(temperature / 250) * 100} className="h-2" />
                     </div>
-                    <Progress value={(temperature / 250) * 100} className="h-2" />
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
               <div>
                 <div className="flex justify-between items-center gap-2 mb-2">
                   <span className="text-sm text-gray-600 dark:text-gray-400">Bed</span>
