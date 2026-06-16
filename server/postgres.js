@@ -810,8 +810,14 @@ export async function exportQueueJobs(includePrinted = false, ids = null) {
     FROM queue_jobs
     WHERE form_type = $1
       AND deleted_at IS NULL
-      AND ($2::boolean OR printed_status = 0)
-      AND ($3::text[] IS NULL OR id = ANY($3::text[]));
+      AND (
+        CASE
+          -- An explicit selection wins: export exactly those jobs regardless of
+          -- printed status, so migrating a selection that includes history works.
+          WHEN $3::text[] IS NOT NULL THEN id = ANY($3::text[])
+          ELSE ($2::boolean OR printed_status = 0)
+        END
+      );
   `,
     [QUEUE_FORM_TYPE, Boolean(includePrinted), idFilter],
   );
