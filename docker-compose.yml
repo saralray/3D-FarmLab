@@ -30,9 +30,9 @@ services:
       MAX_BODY_BYTES: ${MAX_BODY_BYTES:-1048576}
       # Shared with slicer-proxy: verifies the signed slicer operator-grant token.
       SLICER_GRANT_SECRET: ${SLICER_GRANT_SECRET:-}
-      # Background Google Sheet → queue sync cadence + per-pull fetch timeout.
-      QUEUE_SYNC_INTERVAL_MS: ${QUEUE_SYNC_INTERVAL_MS:-60000}
-      QUEUE_SYNC_FETCH_TIMEOUT_MS: ${QUEUE_SYNC_FETCH_TIMEOUT_MS:-15000}
+      # Max size of a model file uploaded through the in-app print-request form
+      # (stored in Postgres). The nginx /api/queue/submit body cap should match.
+      QUEUE_UPLOAD_MAX_BYTES: ${QUEUE_UPLOAD_MAX_BYTES:-52428800}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5173/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 30s

@@ -33,10 +33,11 @@ RUN groupadd --system printfarm \
 
 COPY package.json ./
 
-# The server's runtime dependencies are the pg client and the mqtt client (used
-# for Bambu printer commands). Keep these versions in sync with package.json.
+# The server's runtime dependencies are the pg client, the mqtt client (used for
+# Bambu printer commands), and busboy (multipart parsing for the in-app
+# print-request form upload). Keep these versions in sync with package.json.
 # The build stage (npm ci) covers the rest.
-RUN npm install pg@8.21.0 mqtt@5.15.1 --no-save --no-audit --no-fund \
+RUN npm install pg@8.21.0 mqtt@5.15.1 busboy@1.6.0 --no-save --no-audit --no-fund \
   && npm cache clean --force
 
 COPY --from=build /app/dist ./dist

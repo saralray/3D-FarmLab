@@ -70,6 +70,11 @@ ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS file_count INTEGER NOT NULL DEFA
 ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS form_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS printed_status INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+-- In-app print-request form: the uploaded model file is stored directly in the
+-- DB (bytea) rather than as a Google Drive link, so the queue is self-contained.
+ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS file_content BYTEA;
+ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS file_mime TEXT;
+ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS file_size_bytes INTEGER NOT NULL DEFAULT 0;
 -- Supports the queue/history reads, which filter on (form_type, printed_status)
 -- among non-deleted rows. Partial index keeps it small and skips soft-deleted jobs.
 CREATE INDEX IF NOT EXISTS queue_jobs_active_idx
@@ -593,7 +598,11 @@ async function listQueueJobsByPrintedStatus(printedStatus) {
           'timeRemaining', estimated_time,
           'filamentUsed', 0,
           'priority', priority,
-          'stlFileUrl', stl_file_url,
+          'stlFileUrl', CASE
+            WHEN COALESCE(file_size_bytes, 0) > 0 THEN '/api/queue/' || id || '/file'
+            ELSE stl_file_url
+          END,
+          'hasFile', COALESCE(file_size_bytes, 0) > 0,
           'submitterName', submitter_name,
           'submitterEmail', submitter_email,
           'notes', notes,
@@ -662,6 +671,215 @@ export async function deleteQueueJob(id) {
   `,
     [id],
   );
+}
+
+// Insert (or replace) a job submitted through the in-app print-request form. The
+// uploaded file lives in queue_jobs.file_content (bytea) so the queue carries the
+// model itself instead of an external link. form_type is forced to the queue's
+// canonical type so the submission shows up in the queue read path.
+export async function insertQueueSubmission(job) {
+  await ensureSchema();
+  await query(
+    `
+    INSERT INTO queue_jobs (
+      id, filename, file_count, submitter_name, submitter_email, notes,
+      submitted_at, priority, estimated_time, form_type, printed_status,
+      file_content, file_mime, file_size_bytes
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13)
+    ON CONFLICT (id) DO UPDATE SET
+      filename = EXCLUDED.filename,
+      file_count = EXCLUDED.file_count,
+      submitter_name = EXCLUDED.submitter_name,
+      submitter_email = EXCLUDED.submitter_email,
+      notes = EXCLUDED.notes,
+      submitted_at = EXCLUDED.submitted_at,
+      priority = EXCLUDED.priority,
+      estimated_time = EXCLUDED.estimated_time,
+      file_content = EXCLUDED.file_content,
+      file_mime = EXCLUDED.file_mime,
+      file_size_bytes = EXCLUDED.file_size_bytes,
+      deleted_at = NULL,
+      updated_at = NOW();
+  `,
+    [
+      job.id,
+      job.filename,
+      job.fileCount,
+      job.submitterName,
+      job.submitterEmail ?? null,
+      job.notes ?? null,
+      job.submittedAt,
+      job.priority,
+      job.estimatedTime,
+      QUEUE_FORM_TYPE,
+      job.fileContent,
+      job.fileMime,
+      job.fileSize,
+    ],
+  );
+}
+
+// Fetch a stored submission's file for download. Returns null when the job is
+// missing, soft-deleted, or has no stored file.
+export async function getQueueJobFile(id) {
+  await ensureSchema();
+  const result = await query(
+    `
+    SELECT filename, file_mime, file_content
+    FROM queue_jobs
+    WHERE id = $1
+      AND deleted_at IS NULL
+      AND file_content IS NOT NULL;
+  `,
+    [id],
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  const row = result.rows[0];
+  return {
+    filename: row.filename,
+    mime: row.file_mime || 'application/octet-stream',
+    content: row.file_content,
+  };
+}
+
+// ── Queue migration (host → host) ──────────────────────────────────────────
+// A remote print-farm manager migrates the queue between hosts by pulling a
+// manifest from the source (exportQueueJobs), recreating the rows on the
+// destination (importQueueJobs), then streaming each model file across with
+// GET/PUT .../file (getQueueJobFile / setQueueJobFile). The manifest carries
+// metadata only — file bytes move per-job so a 50 MB model never has to be
+// buffered as base64 inside one JSON document.
+
+// Manifest of stored queue jobs for migration. Pending jobs only by default;
+// pass includePrinted to also carry the printed history. Soft-deleted rows are
+// always skipped. No file bytes — each job advertises hasFile/fileMime/fileSize
+// and the caller fetches the bytes from .../file.
+export async function exportQueueJobs(includePrinted = false) {
+  await ensureSchema();
+  const result = await query(
+    `
+    SELECT COALESCE(
+      json_agg(
+        json_build_object(
+          'id', id,
+          'filename', filename,
+          'fileCount', file_count,
+          'printedStatus', printed_status,
+          'estimatedTime', estimated_time,
+          'priority', priority,
+          'stlFileUrl', stl_file_url,
+          'submitterName', submitter_name,
+          'submitterEmail', submitter_email,
+          'notes', notes,
+          'submittedAt', CASE WHEN submitted_at IS NULL THEN NULL ELSE to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END,
+          'hasFile', COALESCE(file_size_bytes, 0) > 0,
+          'fileMime', file_mime,
+          'fileSize', COALESCE(file_size_bytes, 0)
+        )
+        ORDER BY submitted_at ASC NULLS LAST, created_at ASC
+      ),
+      '[]'::json
+    ) AS data
+    FROM queue_jobs
+    WHERE form_type = $1
+      AND deleted_at IS NULL
+      AND ($2::boolean OR printed_status = 0);
+  `,
+    [QUEUE_FORM_TYPE, Boolean(includePrinted)],
+  );
+
+  return result.rows[0].data;
+}
+
+// Recreate jobs from a migration manifest, preserving their ids, printed status
+// and submission timestamps. File bytes are attached separately via
+// setQueueJobFile. Returns the number of rows written.
+export async function importQueueJobs(jobs) {
+  await ensureSchema();
+
+  if (!Array.isArray(jobs) || jobs.length === 0) {
+    return 0;
+  }
+
+  const result = await query(
+    `
+    WITH input AS (
+      SELECT jsonb_array_elements($1::jsonb) AS data
+    ),
+    normalized AS (
+      SELECT
+        data->>'id' AS id,
+        COALESCE(data->>'filename', '') AS filename,
+        COALESCE((data->>'fileCount')::integer, 1) AS file_count,
+        NULLIF(data->>'stlFileUrl', '') AS stl_file_url,
+        NULLIF(data->>'submitterName', '') AS submitter_name,
+        NULLIF(data->>'submitterEmail', '') AS submitter_email,
+        NULLIF(data->>'notes', '') AS notes,
+        CASE
+          WHEN COALESCE(data->>'submittedAt', '') = '' THEN NULL
+          ELSE (data->>'submittedAt')::timestamptz
+        END AS submitted_at,
+        COALESCE(data->>'priority', 'low') AS priority,
+        COALESCE((data->>'estimatedTime')::integer, 0) AS estimated_time,
+        COALESCE((data->>'printedStatus')::integer, 0) AS printed_status
+      FROM input
+      WHERE COALESCE(data->>'id', '') <> ''
+    ),
+    upserted AS (
+      INSERT INTO queue_jobs (
+        id, filename, file_count, stl_file_url, submitter_name, submitter_email,
+        notes, submitted_at, priority, estimated_time, form_type, printed_status
+      )
+      SELECT
+        id, filename, file_count, stl_file_url, submitter_name, submitter_email,
+        notes, submitted_at, priority, estimated_time, $2, printed_status
+      FROM normalized
+      ON CONFLICT (id) DO UPDATE SET
+        filename = EXCLUDED.filename,
+        file_count = EXCLUDED.file_count,
+        stl_file_url = EXCLUDED.stl_file_url,
+        submitter_name = EXCLUDED.submitter_name,
+        submitter_email = EXCLUDED.submitter_email,
+        notes = EXCLUDED.notes,
+        submitted_at = EXCLUDED.submitted_at,
+        priority = EXCLUDED.priority,
+        estimated_time = EXCLUDED.estimated_time,
+        printed_status = EXCLUDED.printed_status,
+        form_type = EXCLUDED.form_type,
+        deleted_at = NULL,
+        updated_at = NOW()
+      RETURNING id
+    )
+    SELECT COUNT(*)::int AS count FROM upserted;
+  `,
+    [JSON.stringify(jobs), QUEUE_FORM_TYPE],
+  );
+
+  return result.rows[0].count;
+}
+
+// Attach a migrated model file to an existing (non-deleted) queue job. Returns
+// true when a row was updated, false when the target job does not exist.
+export async function setQueueJobFile(id, content, mime) {
+  await ensureSchema();
+  const result = await query(
+    `
+    UPDATE queue_jobs
+    SET file_content = $2,
+        file_mime = $3,
+        file_size_bytes = $4,
+        updated_at = NOW()
+    WHERE id = $1
+      AND deleted_at IS NULL;
+  `,
+    [id, content, mime || 'application/octet-stream', content.length],
+  );
+
+  return result.rowCount > 0;
 }
 
 export async function listDiscordWebhooks() {

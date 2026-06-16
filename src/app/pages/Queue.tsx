@@ -3,16 +3,15 @@ import { PrintJob } from '../types';
 import { QueueItem } from '../components/QueueItem';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { List, ExternalLink } from 'lucide-react';
+import { List, ClipboardList } from 'lucide-react';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
-import { deleteQueueJob, fetchQueueJobs, markQueueJobAsPrinted, resetQueueJobStatuses, syncQueueJobs } from '../lib/queueApi';
+import { deleteQueueJob, fetchQueueJobs, markQueueJobAsPrinted, resetQueueJobStatuses } from '../lib/queueApi';
 import { useAuth } from '../contexts/AuthContext';
 import { usePrinters } from '../contexts/PrintersContext';
-import { useIntegrationSettings } from '../lib/settingsApi';
 
 export function Queue() {
   const { user } = useAuth();
-  const { googleSheetQueueUrl } = useIntegrationSettings();
   const { printers } = usePrinters();
   const [queue, setQueue] = useState<PrintJob[]>([]);
   const [history, setHistory] = useState<PrintJob[]>([]);
@@ -21,23 +20,22 @@ export function Queue() {
   useEffect(() => {
     let active = true;
 
-    // On mount, request a fresh Sheet sync; routine polling then uses the cheap
-    // read endpoint (the server keeps the stored queue in sync in the
-    // background, so we don't pull the Sheet on every interval).
-    const loadQueue = async (sync: boolean) => {
+    // Submissions come from the in-app /request form and are stored directly in
+    // the database, so the queue is just a cheap DB read polled on an interval.
+    const loadQueue = async () => {
       try {
-        const jobs = sync ? await syncQueueJobs() : await fetchQueueJobs();
+        const jobs = await fetchQueueJobs();
         if (active) {
           setQueue(jobs.queue);
           setHistory(jobs.history);
         }
       } catch (error) {
-        console.error('Failed to load queue from Google Sheet / Postgres sync', error);
+        console.error('Failed to load queue', error);
       }
     };
 
-    loadQueue(true);
-    const queueInterval = window.setInterval(() => loadQueue(false), 30000);
+    loadQueue();
+    const queueInterval = window.setInterval(loadQueue, 30000);
 
     return () => {
       active = false;
@@ -138,7 +136,6 @@ export function Queue() {
   const canManageQueue = user?.role === 'admin' || user?.role === 'operator';
   const canDeleteQueueJobs = user?.role === 'admin';
   const canDownloadQueueFiles = user?.role !== 'viewer';
-  const canOpenGoogleSheet = user?.role !== 'viewer';
 
   return (
     <div className="p-6 space-y-6">
@@ -158,16 +155,12 @@ export function Queue() {
               {resetInFlight ? 'Resetting...' : 'Reset Queue'}
             </Button>
           )}
-          {canOpenGoogleSheet && (
-            <Button
-              onClick={() => window.open(googleSheetQueueUrl, '_blank', 'noopener,noreferrer')}
-              variant="outline"
-              disabled={!googleSheetQueueUrl}
-            >
-              <ExternalLink className="size-4 mr-2" />
-              Open Google Sheet
-            </Button>
-          )}
+          <Button asChild variant="outline">
+            <Link to="/request">
+              <ClipboardList className="size-4 mr-2" />
+              New Print Request
+            </Link>
+          </Button>
         </div>
       </div>
 

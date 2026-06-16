@@ -53,11 +53,10 @@ spec:
                   name: printfarm-secret
                   key: SLICER_GRANT_SECRET
 
-            # Background Google Sheet → queue sync cadence + per-pull timeout.
-            - name: QUEUE_SYNC_INTERVAL_MS
-              value: "60000"
-            - name: QUEUE_SYNC_FETCH_TIMEOUT_MS
-              value: "15000"
+            # Max size of a model file uploaded through the in-app print-request
+            # form (stored in Postgres). Keep the nginx body cap in sync.
+            - name: QUEUE_UPLOAD_MAX_BYTES
+              value: "52428800"
 
           readinessProbe:
             httpGet:

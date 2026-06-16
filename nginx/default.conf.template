@@ -101,6 +101,36 @@ server {
     proxy_read_timeout 3600s;
   }
 
+  # In-app print-request form uploads the model file straight into the database.
+  # Lift the global 2m body cap so students can submit normal-sized models, and
+  # stream the upload through instead of buffering it to disk first.
+  location = /api/queue/submit {
+    proxy_pass http://web:5173;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 60m;
+    proxy_request_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+  }
+
+  # Queue migration (host → host): a remote print-farm manager streams each
+  # job's model file across with PUT/GET /api/v1/queue/<id>/file. Lift the
+  # global 2m body cap and stream the upload through, matching the submit route.
+  location ~ ^/api/v1/queue/[^/]+/file$ {
+    proxy_pass http://web:5173;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 60m;
+    proxy_request_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+  }
+
   location / {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;

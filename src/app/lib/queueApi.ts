@@ -36,17 +36,38 @@ export async function fetchQueueJobs(): Promise<QueueData> {
   return readJsonResponse<QueueData>(response);
 }
 
-// Trigger a Google Sheet pull server-side, then return the refreshed queue.
-// Use this for on-demand refresh (e.g. opening the Queue page); routine polling
-// should use the cheap read-only fetchQueueJobs() above, since a background loop
-// keeps the stored queue in sync with the Sheet.
-export async function syncQueueJobs(): Promise<QueueData> {
-  const response = await fetch('/api/queue/sync', {
+export interface PrintRequestPayload {
+  firstName: string;
+  lastName: string;
+  studentId: string;
+  course: string;
+  email: string;
+  quantity: number;
+  notes: string;
+  file: File;
+}
+
+// Submit the in-app print-request form. The model file is uploaded as
+// multipart/form-data and stored in the database server-side.
+export async function submitPrintRequest(
+  payload: PrintRequestPayload,
+): Promise<{ id: string }> {
+  const formData = new FormData();
+  formData.append('firstName', payload.firstName);
+  formData.append('lastName', payload.lastName);
+  formData.append('studentId', payload.studentId);
+  formData.append('course', payload.course);
+  formData.append('email', payload.email);
+  formData.append('quantity', String(payload.quantity));
+  formData.append('notes', payload.notes);
+  formData.append('file', payload.file);
+
+  const response = await fetch('/api/queue/submit', {
     method: 'POST',
-    cache: 'no-store',
+    body: formData,
   });
 
-  return readJsonResponse<QueueData>(response);
+  return readJsonResponse<{ id: string }>(response);
 }
 
 export async function markQueueJobAsPrinted(jobId: string) {

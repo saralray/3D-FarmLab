@@ -8,7 +8,6 @@ import {
   LogOut,
   Settings,
   ClipboardList,
-  ExternalLink,
   ScrollText,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
@@ -16,7 +15,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { PUBLIC_VIEWER_MODE } from '../lib/runtimeConfig';
-import { useIntegrationSettings } from '../lib/settingsApi';
 
 interface TabConfig {
   path: string;
@@ -38,7 +36,6 @@ export function BottomTabBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { googleFormUrl } = useIntegrationSettings();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const isActive = (path: string) =>
@@ -131,21 +128,14 @@ export function BottomTabBar() {
                   <span className="ml-3 whitespace-nowrap">{item.label}</span>
                 </Link>
               ))}
-              <button
-                type="button"
-                disabled={!googleFormUrl}
-                onClick={() => {
-                  window.open(googleFormUrl, '_blank', 'noopener,noreferrer');
-                  setMoreOpen(false);
-                }}
-                className="flex w-full items-center rounded-lg px-4 py-3 text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:text-gray-300 dark:hover:bg-gray-800"
+              <Link
+                to="/request"
+                onClick={() => setMoreOpen(false)}
+                className="flex w-full items-center rounded-lg px-4 py-3 text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 <ClipboardList className="size-5" />
-                <div className="ml-3 flex min-w-0 flex-1 items-center justify-between gap-2">
-                  <span className="whitespace-nowrap">ฟอร์มขอพิมพ์งาน</span>
-                  <ExternalLink className="size-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                </div>
-              </button>
+                <span className="ml-3 whitespace-nowrap">ฟอร์มขอพิมพ์งาน</span>
+              </Link>
             </div>
 
             <div className="flex items-center justify-between border-t border-gray-200 pt-4 dark:border-gray-700">

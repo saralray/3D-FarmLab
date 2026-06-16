@@ -24,6 +24,9 @@ const Logs = lazy(() =>
 const Login = lazy(() =>
   import('./pages/Login').then((module) => ({ default: module.Login }))
 );
+const PrintRequest = lazy(() =>
+  import('./pages/PrintRequest').then((module) => ({ default: module.PrintRequest }))
+);
 const NotFound = lazy(() =>
   import('./pages/NotFound').then((module) => ({ default: module.NotFound }))
 );
@@ -48,6 +51,10 @@ export const router = createBrowserRouter([
   {
     path: '/admin',
     element: withSuspense(<Login />),
+  },
+  {
+    path: '/request',
+    element: withSuspense(<PrintRequest />),
   },
   {
     path: '/',

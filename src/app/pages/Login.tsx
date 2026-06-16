@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useLocation, Navigate } from 'react-router';
+import { useNavigate, useLocation, Navigate, Link } from 'react-router';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { Card } from '../components/ui/card';
@@ -10,7 +10,6 @@ import { Checkbox } from '../components/ui/checkbox';
 import { Eye, EyeOff, ClipboardList } from 'lucide-react';
 import { PUBLIC_VIEWER_MODE } from '../lib/runtimeConfig';
 import { fetchAdminConfigured } from '../lib/adminCredentialApi';
-import { useIntegrationSettings } from '../lib/settingsApi';
 import { Logo } from '../components/Logo';
 
 export function Login() {
@@ -21,7 +20,6 @@ export function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isLoading: isAuthLoading, login, loginAsViewer, setupAdminPassword } = useAuth();
-  const { googleFormUrl } = useIntegrationSettings();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -262,14 +260,14 @@ export function Login() {
             )}
 
             <Button
-              type="button"
+              asChild
               variant="outline"
               className="h-14 w-full border-sky-200 bg-sky-100 text-base text-sky-800 hover:bg-sky-200 hover:text-sky-900 dark:border-sky-800 dark:bg-sky-900/80 dark:text-sky-100 dark:hover:bg-sky-900"
-              disabled={!googleFormUrl}
-              onClick={() => window.open(googleFormUrl, '_blank', 'noopener,noreferrer')}
             >
-              <ClipboardList className="mr-2 size-5" />
-              ฟอร์มขอพิมพ์งาน
+              <Link to="/request">
+                <ClipboardList className="mr-2 size-5" />
+                ฟอร์มขอพิมพ์งาน
+              </Link>
             </Button>
           </div>
         </Card>

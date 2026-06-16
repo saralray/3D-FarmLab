@@ -71,11 +71,12 @@ export interface PrintJob {
   startTime?: string;
   endTime?: string;
   priority: 'low' | 'medium' | 'high';
-  stlFileUrl?: string; // URL or path to STL file
-  submitterName?: string; // From Google Form
-  submitterEmail?: string; // From Google Form
-  notes?: string; // From Google Form
-  submittedAt?: string; // Timestamp from Google Form
+  stlFileUrl?: string; // Download URL for the stored model file (or external link)
+  hasFile?: boolean; // True when the model file is stored in the database
+  submitterName?: string; // From the print-request form
+  submitterEmail?: string; // From the print-request form
+  notes?: string; // From the print-request form
+  submittedAt?: string; // Submission timestamp
 }
 
 export interface AnalyticsData {

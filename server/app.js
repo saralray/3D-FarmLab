@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import mqtt from 'mqtt';
+import busboy from 'busboy';
 import {
   createDiscordWebhook,
   createSlicerApiKey,
@@ -15,11 +16,16 @@ import {
   deleteQueueJob,
   deleteSlicerApiKey,
   ensureSchema,
+  exportQueueJobs,
   findSlicerApiKeyByHash,
   getAppSetting,
   getPrinterById,
   getPrinterByIdOrName,
   getPublicPrinterById,
+  getQueueJobFile,
+  importQueueJobs,
+  insertQueueSubmission,
+  setQueueJobFile,
   listDailyAnalytics,
   listDiscordWebhooks,
   listPrinters,
@@ -66,19 +72,28 @@ const PRINTER_CARD_LAYOUT_PROFILES = new Set([
 // the cards) stored in app_settings, like the printer-detail card layout above.
 const ANALYTICS_LAYOUT_KEY = 'analytics_layout';
 
-// Queue sync cadence. The Sheet is pulled once per interval server-side (not per
-// client request), and each pull is bounded by a fetch timeout so a slow Sheet
-// can't hang the loop. 0 disables the background loop (sync then runs only on
-// explicit POST /api/queue/sync).
-const QUEUE_SYNC_INTERVAL_MS = Number.parseInt(process.env.QUEUE_SYNC_INTERVAL_MS ?? '60000', 10);
-const QUEUE_SYNC_FETCH_TIMEOUT_MS = Number.parseInt(
-  process.env.QUEUE_SYNC_FETCH_TIMEOUT_MS ?? '15000',
+// In-app print-request form: the uploaded model file is read into memory and
+// stored in Postgres (bytea). Cap the upload so a single submission can't exhaust
+// memory; the matching nginx location lifts its body cap to the same ceiling.
+const QUEUE_UPLOAD_MAX_BYTES = Number.parseInt(
+  process.env.QUEUE_UPLOAD_MAX_BYTES ?? String(50 * 1024 * 1024),
   10,
 );
+const QUEUE_ALLOWED_FILE_EXT = new Set([
+  '.stl',
+  '.3mf',
+  '.obj',
+  '.step',
+  '.stp',
+  '.gcode',
+  '.gco',
+  '.g',
+  '.zip',
+]);
 
-// Google Sheet (queue feed) and Google Form (print-request) URLs. Configured by
-// admins in Settings → Integrations and persisted in app_settings; they are
-// empty until an admin sets them (no build-time/env defaults).
+// Google Form (print-request) URL — retained for the Settings → Integrations
+// override, though the in-app form at /request is now the primary intake path.
+// Configured by admins and persisted in app_settings; empty until set.
 const INTEGRATION_URLS_KEY = 'integration_urls';
 
 async function getIntegrationUrls() {
@@ -344,17 +359,27 @@ async function readJsonBody(req) {
   return body.length > 0 ? JSON.parse(body.toString('utf8')) : {};
 }
 
-function getGoogleSheetId(sheetUrl) {
-  const match = sheetUrl.match(/\/spreadsheets\/d\/([^/]+)/);
-  if (!match) {
-    throw new Error('Invalid Google Sheet URL');
-  }
+// Buffer a raw binary request body up to an explicit cap. Used by the queue
+// migration file-upload route, which carries model files far larger than the
+// 1 MB global readBody limit.
+function readBodyBounded(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
 
-  return match[1];
-}
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error('Request body is too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
 
-function toGoogleSheetCsvUrl(sheetUrl) {
-  return `https://docs.google.com/spreadsheets/d/${getGoogleSheetId(sheetUrl)}/gviz/tq?tqx=out:csv`;
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
 }
 
 function parseHeaderString(headerValue = '') {
@@ -368,83 +393,6 @@ function parseHeaderString(headerValue = '') {
   const value = headerValue.slice(separatorIndex + 1).trim();
 
   return name && value ? { [name]: value } : {};
-}
-
-function parseCsv(csvText) {
-  const rows = [];
-  let currentRow = [];
-  let currentValue = '';
-  let insideQuotes = false;
-
-  for (let index = 0; index < csvText.length; index += 1) {
-    const character = csvText[index];
-    const nextCharacter = csvText[index + 1];
-
-    if (character === '"') {
-      if (insideQuotes && nextCharacter === '"') {
-        currentValue += '"';
-        index += 1;
-      } else {
-        insideQuotes = !insideQuotes;
-      }
-      continue;
-    }
-
-    if (character === ',' && !insideQuotes) {
-      currentRow.push(currentValue);
-      currentValue = '';
-      continue;
-    }
-
-    if ((character === '\n' || character === '\r') && !insideQuotes) {
-      if (character === '\r' && nextCharacter === '\n') {
-        index += 1;
-      }
-
-      currentRow.push(currentValue);
-      currentValue = '';
-
-      if (currentRow.some((cell) => cell.trim() !== '')) {
-        rows.push(currentRow);
-      }
-
-      currentRow = [];
-      continue;
-    }
-
-    currentValue += character;
-  }
-
-  if (currentValue.length > 0 || currentRow.length > 0) {
-    currentRow.push(currentValue);
-    if (currentRow.some((cell) => cell.trim() !== '')) {
-      rows.push(currentRow);
-    }
-  }
-
-  return rows;
-}
-
-function normalizeSubmittedAt(value) {
-  if (!value) return undefined;
-
-  const match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/);
-  if (!match) {
-    const fallback = new Date(value);
-    return Number.isNaN(fallback.getTime()) ? undefined : fallback.toISOString();
-  }
-
-  const [, month, day, year, hour, minute, second] = match;
-  const parsed = new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second),
-  );
-
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 }
 
 function buildQueueAddedEmbed(job) {
@@ -516,106 +464,59 @@ async function sendQueueAddedNotifications(jobs) {
   }
 }
 
-// Pull the Google Sheet, upsert new/changed rows, and fire add notifications.
-// This is the only place that touches the Sheet, shared by the periodic
-// background sync and the explicit POST /api/queue/sync endpoint so that the
-// read path (GET /api/queue) can stay a cheap DB read. The fetch is bounded by
-// QUEUE_SYNC_FETCH_TIMEOUT_MS so a slow/unreachable Sheet can never hang a
-// request or stall the background loop.
-async function syncQueueFromSheet() {
-  const { googleSheetQueueUrl } = await getIntegrationUrls();
-  if (!googleSheetQueueUrl) {
-    throw new Error('Google Sheet queue URL is not configured (set it in Settings → Integrations)');
-  }
+// Parse a multipart/form-data print-request submission from the in-app form.
+// Buffers the single uploaded file in memory (bounded by QUEUE_UPLOAD_MAX_BYTES)
+// alongside the text fields so the caller can store the file straight into the DB.
+function parsePrintRequest(req) {
+  return new Promise((resolve, reject) => {
+    let bb;
+    try {
+      bb = busboy({
+        headers: req.headers,
+        limits: { fileSize: QUEUE_UPLOAD_MAX_BYTES, files: 1, fields: 20 },
+      });
+    } catch (error) {
+      reject(error);
+      return;
+    }
 
-  const response = await fetch(toGoogleSheetCsvUrl(googleSheetQueueUrl), {
-    headers: { Accept: 'text/csv,text/plain;q=0.9,*/*;q=0.8' },
-    signal: AbortSignal.timeout(QUEUE_SYNC_FETCH_TIMEOUT_MS),
-  });
+    const fields = {};
+    let file = null;
+    let fileTooLarge = false;
 
-  if (!response.ok) {
-    throw new Error(`Google Sheet request failed with ${response.status}`);
-  }
+    bb.on('field', (name, value) => {
+      fields[name] = value;
+    });
 
-  const jobs = mapSheetRowsToQueue(parseCsv(await response.text()));
-  const addedJobs = await upsertQueueJobs(jobs);
-  sendQueueAddedNotifications(addedJobs).catch((error) => {
-    console.error('Failed to send queue add notification', error);
-  });
-  return addedJobs;
-}
+    bb.on('file', (_name, stream, info) => {
+      const chunks = [];
+      stream.on('data', (chunk) => chunks.push(chunk));
+      stream.on('limit', () => {
+        fileTooLarge = true;
+        stream.resume();
+      });
+      stream.on('end', () => {
+        if (!fileTooLarge && chunks.length > 0) {
+          file = {
+            filename: info.filename,
+            mimeType: info.mimeType,
+            content: Buffer.concat(chunks),
+          };
+        }
+      });
+    });
 
-// Periodic background sync: keeps queue_jobs fresh from the Sheet without any
-// client driving it, so every tab can poll the cheap read endpoint instead of
-// each one triggering its own Sheet fetch + full upsert. Runs are serialized
-// (no overlap) and failures are logged but never throw out of the interval.
-let queueSyncInFlight = false;
-async function runBackgroundQueueSync() {
-  if (queueSyncInFlight) {
-    return;
-  }
-  queueSyncInFlight = true;
-  try {
-    await syncQueueFromSheet();
-  } catch (error) {
-    console.error('Background queue sync failed', error);
-  } finally {
-    queueSyncInFlight = false;
-  }
-}
-
-function mapSheetRowsToQueue(rows) {
-  return rows
-    .slice(1)
-    .map((row, index) => {
-      const formType = row[4]?.trim();
-      if (formType !== 'สั่งพิมพ์งาน 3D Print') {
-        return null;
+    bb.on('error', reject);
+    bb.on('close', () => {
+      if (fileTooLarge) {
+        reject(new Error('FILE_TOO_LARGE'));
+        return;
       }
+      resolve({ fields, file });
+    });
 
-      const submittedAt = normalizeSubmittedAt(row[0]?.trim());
-      const studentId = row[1]?.trim();
-      const firstName = row[2]?.trim();
-      const lastName = row[3]?.trim();
-      const course = row[5]?.trim();
-      const notes = row[6]?.trim();
-      const quantity = Number.parseInt(row[7]?.trim() || '1', 10);
-      const fileUrl = row[8]?.trim();
-      const submitterName = [firstName, lastName].filter(Boolean).join(' ').trim();
-      const fileLabel = fileUrl ? `Google Drive File ${index + 1}` : `Sheet Submission ${index + 1}`;
-      const noteParts = [studentId ? `Student ID: ${studentId}` : '', course ? `Course: ${course}` : '', notes || '']
-        .filter(Boolean);
-      const estimatedTime = Math.max(30, Number.isFinite(quantity) ? quantity * 60 : 60);
-      // Stable identity: a submission is uniquely keyed by its form timestamp and
-      // student id. Editable fields (notes, quantity, file, name) are deliberately
-      // excluded so editing a row in the sheet updates the existing job instead of
-      // creating a duplicate — and never resurrects a soft-deleted one. Fall back
-      // to the full-row hash only when both identity fields are missing.
-      const idSource =
-        submittedAt || studentId
-          ? `${submittedAt ?? ''}|${studentId ?? ''}`
-          : row.map((value) => value ?? '').join('|');
-      const id = `queue-${createHash('sha1').update(idSource).digest('hex').slice(0, 16)}`;
-
-      return {
-        id,
-        filename: fileLabel,
-        fileCount: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
-        status: 'queued',
-        progress: 0,
-        estimatedTime,
-        timeRemaining: estimatedTime,
-        filamentUsed: 0,
-        priority: quantity >= 3 ? 'high' : quantity >= 2 ? 'medium' : 'low',
-        stlFileUrl: fileUrl || undefined,
-        submitterName: submitterName || studentId || `Submission ${index + 1}`,
-        notes: noteParts.join(' | ') || undefined,
-        submittedAt,
-        formType,
-        printedStatus: 0,
-      };
-    })
-    .filter((job) => job && (job.stlFileUrl || job.submitterName));
+    req.pipe(bb);
+  });
 }
 
 // Bambu printers have no HTTP control API; pause/resume/cancel and the chamber
@@ -1101,6 +1002,8 @@ const DATA_API_RESOURCES = [
   'slicer-keys',
   'audit-logs',
   'settings',
+  'users',
+  'admin-credential',
 ];
 
 function extractApiKey(req) {
@@ -1185,7 +1088,7 @@ async function handleDataApi(req, res, requestUrl) {
     case 'printers':
       return handleDataApiPrinters(req, res, { apiKey, method, id, sub, action: segments[3], requestUrl });
     case 'queue':
-      return handleDataApiQueue(req, res, { apiKey, method, id, sub });
+      return handleDataApiQueue(req, res, { apiKey, method, id, sub, requestUrl });
     case 'analytics':
       return handleDataApiAnalytics(req, res, { apiKey, method, id, requestUrl });
     case 'notifications':
@@ -1196,6 +1099,10 @@ async function handleDataApi(req, res, requestUrl) {
       return handleDataApiAuditLogs(req, res, { apiKey, method, requestUrl });
     case 'settings':
       return handleDataApiSettings(req, res, { apiKey, method, id });
+    case 'users':
+      return handleDataApiUsers(req, res, { apiKey, method, id, sub });
+    case 'admin-credential':
+      return handleDataApiAdminCredential(req, res, { apiKey, method, id });
     default:
       sendJson(res, 404, { error: `Unknown resource '${entity}'.`, resources: DATA_API_RESOURCES });
       return true;
@@ -1246,6 +1153,46 @@ async function handleDataApiPrinters(req, res, { apiKey, method, id, sub, action
     auditDataApi(req, apiKey, 'printer.command', id, { command });
     sendEmpty(res);
     return true;
+  }
+
+  // ALL /printers/:id/proxy/<path...> — raw HTTP passthrough to the printer's
+  // hardware API (e.g. Moonraker on Snapmaker U1). This is how the web UI drives
+  // every non-Bambu control — pause/resume/cancel (printer/print/<cmd>), gcode
+  // scripts, LED, temps, fans, filament macros — so exposing it here gives the
+  // manager full parity with the dashboard for those profiles. Reuses the same
+  // handlePrinterProxy that backs /__printer_proxy/; the segments after /proxy/
+  // are decoded so handlePrinterProxy re-encodes them exactly once.
+  if (sub === 'proxy') {
+    const printer = await getPrinterById(id);
+    if (!printer) {
+      sendJson(res, 404, { error: 'Printer not found' });
+      return true;
+    }
+    const marker = '/proxy/';
+    const rawRest = requestUrl.pathname.slice(requestUrl.pathname.indexOf(marker) + marker.length);
+    const restSegments = rawRest.split('/').filter(Boolean).map((part) => decodeURIComponent(part));
+    // handlePrinterProxy only reads .pathname and .search; hand it decoded path
+    // segments (it encodes them) and pass the query string through verbatim.
+    const proxyUrl = {
+      pathname: `/__printer_proxy/${printer.id}/${restSegments.join('/')}`,
+      search: requestUrl.search,
+    };
+    // We've already authenticated; don't forward our own API credentials on to
+    // the printer hardware (handlePrinterProxy relays the remaining headers).
+    delete req.headers['x-api-key'];
+    delete req.headers['authorization'];
+    // Audit control actions, not read-only status polls (which can be frequent).
+    if (method !== 'GET' && method !== 'HEAD') {
+      auditDataApi(req, apiKey, 'printer.proxy', id, { method, path: `/${restSegments.join('/')}` });
+    }
+    return handlePrinterProxy(
+      req,
+      res,
+      proxyUrl,
+      '/__printer_proxy/',
+      (p, proxyPath) => `${p.url}${proxyPath}`,
+      {},
+    );
   }
 
   // GET /printers/:id/camera/{snapshot,stream,health} — webcam access. Snapshot
@@ -1305,10 +1252,90 @@ async function handleDataApiPrinters(req, res, { apiKey, method, id, sub, action
   return dataApiMethodNotAllowed(res);
 }
 
-// queue: list stored jobs / upsert / reset / mark printed / delete.
+// queue: list stored jobs / upsert / reset / mark printed / delete, plus the
+// host→host migration routes (export / import / per-job file transfer).
 // GET returns the stored queue (it does NOT trigger a Google Sheet sync — that
 // stays on the frontend /api/queue path).
-async function handleDataApiQueue(req, res, { apiKey, method, id, sub }) {
+async function handleDataApiQueue(req, res, { apiKey, method, id, sub, requestUrl }) {
+  // ── Migration: export manifest ────────────────────────────────────────────
+  // GET /api/v1/queue/export[?includePrinted=true] — metadata-only manifest for
+  // a remote manager to recreate this host's queue elsewhere. Each job carries
+  // hasFile/fileMime/fileSize; the bytes are pulled separately from .../file.
+  if (id === 'export') {
+    if (method !== 'GET') {
+      return dataApiMethodNotAllowed(res);
+    }
+    const includePrinted = requestUrl.searchParams.get('includePrinted') === 'true';
+    const jobs = await exportQueueJobs(includePrinted);
+    sendJson(res, 200, { jobs }, 'no-store');
+    return true;
+  }
+
+  // ── Migration: import manifest ────────────────────────────────────────────
+  // POST /api/v1/queue/import { jobs: [...] } — recreate rows from an export
+  // manifest, preserving ids/printedStatus/submittedAt. File bytes are attached
+  // afterwards with PUT .../file.
+  if (id === 'import') {
+    if (method !== 'POST') {
+      return dataApiMethodNotAllowed(res);
+    }
+    const body = await readJsonBody(req);
+    const jobs = Array.isArray(body) ? body : Array.isArray(body?.jobs) ? body.jobs : null;
+    if (!jobs) {
+      sendJson(res, 400, { error: 'expected an array of jobs or { jobs: [...] }' });
+      return true;
+    }
+    const imported = await importQueueJobs(jobs);
+    auditDataApi(req, apiKey, 'queue.import', null, { count: imported });
+    sendJson(res, 200, { imported });
+    return true;
+  }
+
+  // ── Migration: per-job file transfer ──────────────────────────────────────
+  // GET  /api/v1/queue/:id/file — stream the stored model bytes (source side).
+  // PUT  /api/v1/queue/:id/file — attach model bytes to an imported job (dest).
+  if (id && sub === 'file') {
+    if (method === 'GET') {
+      const fileRecord = await getQueueJobFile(id);
+      if (!fileRecord) {
+        sendJson(res, 404, { error: 'File not found' });
+        return true;
+      }
+      const safeName = (fileRecord.filename || 'model').replace(/[^\w.\- ]+/g, '_');
+      res.statusCode = 200;
+      res.setHeader('Content-Type', fileRecord.mime);
+      res.setHeader('Content-Length', fileRecord.content.length);
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(fileRecord.content);
+      return true;
+    }
+    if (method === 'PUT') {
+      let content;
+      try {
+        content = await readBodyBounded(req, QUEUE_UPLOAD_MAX_BYTES);
+      } catch {
+        const limitMb = Math.round(QUEUE_UPLOAD_MAX_BYTES / (1024 * 1024));
+        sendJson(res, 413, { error: `File exceeds the ${limitMb} MB upload limit.` });
+        return true;
+      }
+      if (content.length === 0) {
+        sendJson(res, 400, { error: 'Empty request body; send the model file as the raw body.' });
+        return true;
+      }
+      const mime = req.headers['content-type'] || 'application/octet-stream';
+      const updated = await setQueueJobFile(id, content, mime);
+      if (!updated) {
+        sendJson(res, 404, { error: 'Queue job not found; import it before uploading its file.' });
+        return true;
+      }
+      auditDataApi(req, apiKey, 'queue.file', id, { bytes: content.length });
+      sendJson(res, 200, { id, fileSize: content.length });
+      return true;
+    }
+    return dataApiMethodNotAllowed(res);
+  }
+
   if (!id) {
     if (method === 'GET') {
       sendJson(res, 200, await listQueueData());
@@ -1482,6 +1509,157 @@ async function handleDataApiSettings(req, res, { apiKey, method, id }) {
   return dataApiMethodNotAllowed(res);
 }
 
+// users: staff account management, mirroring the frontend /api/users surface.
+//   GET    /users               → sanitized list (never exposes password hashes)
+//   POST   /users               → create { name, username, role, passwordHash }
+//   POST   /users/verify        → validate a login { username, passwordHash }
+//   DELETE /users/:id           → remove an account
+//   PUT    /users/:id/password  → set a new password { passwordHash }
+// The primary `admin` account is the separate admin-credential resource and is
+// never part of this list.
+async function handleDataApiUsers(req, res, { apiKey, method, id, sub }) {
+  if (!id) {
+    if (method === 'GET') {
+      const usersList = await readStaffUsers();
+      sendJson(res, 200, usersList.map(sanitizeStaffUser));
+      return true;
+    }
+    if (method === 'POST') {
+      const body = await readJsonBody(req);
+      const name = typeof body?.name === 'string' ? body.name.trim() : '';
+      const username =
+        typeof body?.username === 'string' ? body.username.trim().toLowerCase() : '';
+      const role = typeof body?.role === 'string' ? body.role : '';
+      const { passwordHash } = body || {};
+      if (!name || !username) {
+        sendJson(res, 400, { error: 'Name and username are required.' });
+        return true;
+      }
+      if (!USER_ROLES.has(role)) {
+        sendJson(res, 400, { error: 'role must be admin, operator, or viewer' });
+        return true;
+      }
+      if (!isSha256Hex(passwordHash)) {
+        sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
+        return true;
+      }
+      if (username === RESERVED_USERNAME) {
+        sendJson(res, 409, { error: 'That username is reserved.' });
+        return true;
+      }
+      const usersList = await readStaffUsers();
+      if (usersList.some((candidate) => candidate.username === username)) {
+        sendJson(res, 409, { error: 'That username is already in use.' });
+        return true;
+      }
+      const newUser = { id: randomUUID(), name, username, role, passwordHash: passwordHash.toLowerCase() };
+      await setAppSetting(STAFF_USERS_KEY, [...usersList, newUser]);
+      auditDataApi(req, apiKey, 'user.create', newUser.id, { username, role });
+      sendJson(res, 201, sanitizeStaffUser(newUser));
+      return true;
+    }
+    return dataApiMethodNotAllowed(res);
+  }
+
+  if (id === 'verify' && method === 'POST') {
+    const body = await readJsonBody(req);
+    const username =
+      typeof body?.username === 'string' ? body.username.trim().toLowerCase() : '';
+    const { passwordHash } = body || {};
+    const usersList = await readStaffUsers();
+    const found = isSha256Hex(passwordHash)
+      ? usersList.find(
+          (candidate) =>
+            candidate.username === username &&
+            timingSafeEqualString(String(candidate.passwordHash || ''), passwordHash.toLowerCase()),
+        )
+      : undefined;
+    if (!found) {
+      sendJson(res, 401, { valid: false });
+      return true;
+    }
+    sendJson(res, 200, { valid: true, user: sanitizeStaffUser(found) });
+    return true;
+  }
+
+  if (sub === 'password' && method === 'PUT') {
+    const { passwordHash } = await readJsonBody(req);
+    if (!isSha256Hex(passwordHash)) {
+      sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
+      return true;
+    }
+    const usersList = await readStaffUsers();
+    const index = usersList.findIndex((candidate) => candidate.id === id);
+    if (index === -1) {
+      sendJson(res, 404, { error: 'user not found' });
+      return true;
+    }
+    const nextUsers = [...usersList];
+    nextUsers[index] = { ...nextUsers[index], passwordHash: passwordHash.toLowerCase() };
+    await setAppSetting(STAFF_USERS_KEY, nextUsers);
+    auditDataApi(req, apiKey, 'user.password', id);
+    sendEmpty(res);
+    return true;
+  }
+
+  if (!sub && method === 'DELETE') {
+    const usersList = await readStaffUsers();
+    if (!usersList.some((candidate) => candidate.id === id)) {
+      sendJson(res, 404, { error: 'user not found' });
+      return true;
+    }
+    await setAppSetting(STAFF_USERS_KEY, usersList.filter((candidate) => candidate.id !== id));
+    auditDataApi(req, apiKey, 'user.delete', id);
+    sendEmpty(res);
+    return true;
+  }
+
+  return dataApiMethodNotAllowed(res);
+}
+
+// admin-credential: the primary admin password (sha256 hash stored in
+// app_settings). The key is the guard here, so — unlike the public frontend
+// endpoint, which is first-run-only and otherwise needs the current password —
+// a printfarm_manage key may set or reset it outright.
+//   GET  /admin-credential         → { configured }
+//   PUT  /admin-credential         → set/reset { passwordHash }
+//   POST /admin-credential/verify  → { passwordHash } → { valid }
+async function handleDataApiAdminCredential(req, res, { apiKey, method, id }) {
+  const stored = await getAppSetting(ADMIN_CREDENTIAL_KEY);
+  const storedHash = stored && typeof stored.passwordHash === 'string' ? stored.passwordHash : '';
+
+  if (id === 'verify' && method === 'POST') {
+    const { passwordHash } = await readJsonBody(req);
+    const valid =
+      storedHash.length > 0 &&
+      isSha256Hex(passwordHash) &&
+      timingSafeEqualString(storedHash, passwordHash.toLowerCase());
+    sendJson(res, valid ? 200 : 401, { valid });
+    return true;
+  }
+  if (id) {
+    sendJson(res, 404, { error: 'Use /admin-credential or /admin-credential/verify.' });
+    return true;
+  }
+
+  if (method === 'GET') {
+    sendJson(res, 200, { configured: storedHash.length > 0 });
+    return true;
+  }
+  if (method === 'PUT') {
+    const { passwordHash } = await readJsonBody(req);
+    if (!isSha256Hex(passwordHash)) {
+      sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
+      return true;
+    }
+    await setAppSetting(ADMIN_CREDENTIAL_KEY, { passwordHash: passwordHash.toLowerCase() });
+    auditDataApi(req, apiKey, 'admin-credential.set', null);
+    sendEmpty(res, storedHash.length > 0 ? 200 : 201);
+    return true;
+  }
+  return dataApiMethodNotAllowed(res);
+}
+
 async function handleApi(req, res, requestUrl) {
   if (requestUrl.pathname === '/healthz') {
     sendJson(res, 200, { ok: true }, 'no-store');
@@ -1586,9 +1764,7 @@ async function handleApi(req, res, requestUrl) {
     return true;
   }
 
-  // Read path: cheap DB read, no Sheet fetch. The Sheet is pulled by the
-  // background sync loop (and by the explicit POST below), so every polling tab
-  // hits this instead of triggering its own fetch + full upsert.
+  // Read path: cheap DB read of the stored queue.
   if (requestUrl.pathname === '/api/queue') {
     if (req.method === 'GET') {
       sendJson(res, 200, await listQueueData());
@@ -1596,12 +1772,108 @@ async function handleApi(req, res, requestUrl) {
     }
   }
 
-  // Explicit Sheet sync: pull + upsert + notify, then return the fresh queue.
-  // Used for on-demand refresh (e.g. opening the Queue page) on top of the
-  // periodic background sync.
-  if (requestUrl.pathname === '/api/queue/sync' && req.method === 'POST') {
-    await syncQueueFromSheet();
-    sendJson(res, 200, await listQueueData());
+  // In-app print-request form. Public (no auth, like the rest of the frontend
+  // /api/* surface): a student fills out /request and the model file is stored
+  // directly in Postgres. Replaces the old Google Form → Sheet → CSV sync.
+  if (requestUrl.pathname === '/api/queue/submit' && req.method === 'POST') {
+    let parsed;
+    try {
+      parsed = await parsePrintRequest(req);
+    } catch (error) {
+      if (error.message === 'FILE_TOO_LARGE') {
+        const limitMb = Math.round(QUEUE_UPLOAD_MAX_BYTES / (1024 * 1024));
+        sendJson(res, 413, { error: `File exceeds the ${limitMb} MB upload limit.` });
+      } else {
+        sendJson(res, 400, { error: 'Invalid form submission' });
+      }
+      return true;
+    }
+
+    const { fields, file } = parsed;
+    const firstName = (fields.firstName || '').trim();
+    const lastName = (fields.lastName || '').trim();
+    const studentId = (fields.studentId || '').trim();
+    const course = (fields.course || '').trim();
+    const email = (fields.email || '').trim();
+    const noteText = (fields.notes || '').trim();
+    const quantity = Math.max(1, Number.parseInt(fields.quantity || '1', 10) || 1);
+    const submitterName = [firstName, lastName].filter(Boolean).join(' ').trim() || studentId;
+
+    if (!submitterName) {
+      sendJson(res, 400, { error: 'Please provide your name or student ID.' });
+      return true;
+    }
+    if (!file || file.content.length === 0) {
+      sendJson(res, 400, { error: 'Please attach a model file to print.' });
+      return true;
+    }
+
+    const ext = path.extname(file.filename || '').toLowerCase();
+    if (ext && !QUEUE_ALLOWED_FILE_EXT.has(ext)) {
+      sendJson(res, 415, {
+        error: `Unsupported file type "${ext}". Allowed: STL, 3MF, OBJ, STEP, G-code, ZIP.`,
+      });
+      return true;
+    }
+
+    const submittedAt = new Date();
+    const noteParts = [
+      studentId ? `Student ID: ${studentId}` : '',
+      course ? `Course: ${course}` : '',
+      noteText,
+    ].filter(Boolean);
+    const estimatedTime = Math.max(30, quantity * 60);
+    const id = `queue-${createHash('sha1')
+      .update(`${submittedAt.toISOString()}|${studentId || submitterName}|${file.filename}`)
+      .digest('hex')
+      .slice(0, 16)}`;
+
+    const job = {
+      id,
+      filename: file.filename || `Submission ${id}`,
+      fileCount: quantity,
+      submitterName,
+      submitterEmail: email || null,
+      notes: noteParts.join(' | ') || null,
+      submittedAt,
+      priority: quantity >= 3 ? 'high' : quantity >= 2 ? 'medium' : 'low',
+      estimatedTime,
+      fileContent: file.content,
+      fileMime: file.mimeType || 'application/octet-stream',
+      fileSize: file.content.length,
+    };
+
+    await insertQueueSubmission(job);
+    sendQueueAddedNotifications([{ ...job, stlFileUrl: `/api/queue/${id}/file` }]).catch(
+      (error) => {
+        console.error('Failed to send queue add notification', error);
+      },
+    );
+    sendJson(res, 201, { ok: true, id });
+    return true;
+  }
+
+  // Download a stored submission's model file straight from the DB.
+  if (
+    requestUrl.pathname.startsWith('/api/queue/') &&
+    requestUrl.pathname.endsWith('/file') &&
+    req.method === 'GET'
+  ) {
+    const jobId = decodeURIComponent(
+      requestUrl.pathname.slice('/api/queue/'.length, -'/file'.length),
+    );
+    const fileRecord = await getQueueJobFile(jobId);
+    if (!fileRecord) {
+      sendJson(res, 404, { error: 'File not found' });
+      return true;
+    }
+    const safeName = (fileRecord.filename || 'model').replace(/[^\w.\- ]+/g, '_');
+    res.statusCode = 200;
+    res.setHeader('Content-Type', fileRecord.mime);
+    res.setHeader('Content-Length', fileRecord.content.length);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(fileRecord.content);
     return true;
   }
 
@@ -2275,16 +2547,6 @@ await assertProductionInputs();
 ensureSchema().catch((error) => {
   console.error('Initial schema setup failed; will retry on first database request', error);
 });
-
-// Periodic background queue sync: one Sheet pull per interval for the whole
-// server, regardless of how many tabs are polling. Kicks off shortly after
-// startup (lets the schema settle) and repeats on QUEUE_SYNC_INTERVAL_MS.
-if (Number.isFinite(QUEUE_SYNC_INTERVAL_MS) && QUEUE_SYNC_INTERVAL_MS > 0) {
-  setTimeout(() => {
-    runBackgroundQueueSync();
-    setInterval(runBackgroundQueueSync, QUEUE_SYNC_INTERVAL_MS).unref();
-  }, 2000).unref();
-}
 
 createServer(handleRequest).listen(port, host, () => {
   console.log(`Print Farm server listening on ${host}:${port}`);

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { LayoutDashboard, List, BarChart3, LogOut, Settings, ClipboardList, ExternalLink, ScrollText, Music } from 'lucide-react';
+import { LayoutDashboard, List, BarChart3, LogOut, Settings, ClipboardList, ScrollText, Music } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
 import { PUBLIC_VIEWER_MODE } from '../lib/runtimeConfig';
-import { useIntegrationSettings, useBrandingSettings } from '../lib/settingsApi';
+import { useBrandingSettings } from '../lib/settingsApi';
 import { Logo } from './Logo';
 import { useSidebar } from '../contexts/SidebarContext';
 import { startAudioRgbSync, stopAudioRgbSync, type AudioRgbSource } from '../lib/audioRgbSync';
@@ -51,7 +51,6 @@ export function Navigation() {
       // Capture refused or unavailable — the steady wave keeps running.
     }
   };
-  const { googleFormUrl } = useIntegrationSettings();
   const { logoDataUrl, logoScale } = useBrandingSettings();
   const logoBaseHeight = isCollapsed ? 36 : 56;
   // The RGB-wave effect masks an animated gradient with the logo shape, so it
@@ -166,20 +165,15 @@ export function Navigation() {
               {!isCollapsed && <span className="ml-3 whitespace-nowrap">{item.label}</span>}
             </Link>
           ))}
-          <button
-            type="button"
-            disabled={!googleFormUrl}
-            onClick={() => window.open(googleFormUrl, '_blank', 'noopener,noreferrer')}
-            className="flex w-full items-center rounded-lg px-4 py-3 text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:text-gray-300 dark:hover:bg-gray-800"
+          <Link
+            to="/request"
+            className="flex w-full items-center rounded-lg px-4 py-3 text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
           >
             <ClipboardList className="size-5" />
             {!isCollapsed && (
-              <div className="ml-3 flex min-w-0 flex-1 items-center justify-between gap-2">
-                <span className="whitespace-nowrap">ฟอร์มขอพิมพ์งาน</span>
-                <ExternalLink className="size-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              </div>
+              <span className="ml-3 whitespace-nowrap">ฟอร์มขอพิมพ์งาน</span>
             )}
-          </button>
+          </Link>
         </div>
       </div>
 
