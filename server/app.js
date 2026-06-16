@@ -1075,6 +1075,22 @@ async function handleWebcamStream(req, res, requestUrl) {
 // the key is the guard here, connection details are NOT redacted (unlike the
 // public-viewer listPrinters path). Mutations are stamped into the audit log
 // with source 'api' so key-driven changes are attributable.
+// Per-key permission scopes. 'slicer_upload' authorizes the slicer-proxy upload
+// path; 'printfarm_manage' authorizes the programmatic /api/v1 data API.
+const SLICER_KEY_PERMISSIONS = ['slicer_upload', 'printfarm_manage'];
+
+// Keep only recognized scopes, preserving a stable order.
+function normalizeKeyPermissions(input) {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  return SLICER_KEY_PERMISSIONS.filter((perm) => input.includes(perm));
+}
+
+function keyHasPermission(record, perm) {
+  return Array.isArray(record?.permissions) && record.permissions.includes(perm);
+}
+
 const DATA_API_PREFIX = '/api/v1/';
 
 const DATA_API_RESOURCES = [
@@ -1141,6 +1157,12 @@ async function handleDataApi(req, res, requestUrl) {
   if (!apiKey) {
     sendJson(res, 401, {
       error: 'A valid API key is required. Pass it as the X-Api-Key header or `Authorization: Bearer <key>`.',
+    });
+    return true;
+  }
+  if (!keyHasPermission(apiKey, 'printfarm_manage')) {
+    sendJson(res, 403, {
+      error: "This API key lacks the 'printfarm_manage' permission required for the /api/v1 data API.",
     });
     return true;
   }
@@ -1381,16 +1403,21 @@ async function handleDataApiSlicerKeys(req, res, { apiKey, method, id }) {
       return true;
     }
     if (method === 'POST') {
-      const { name } = await readJsonBody(req);
+      const { name, permissions } = await readJsonBody(req);
       if (typeof name !== 'string' || !name.trim()) {
         sendJson(res, 400, { error: 'name is required' });
         return true;
       }
+      const scopes = normalizeKeyPermissions(permissions);
+      if (scopes.length === 0) {
+        sendJson(res, 400, { error: `permissions must include at least one of: ${SLICER_KEY_PERMISSIONS.join(', ')}` });
+        return true;
+      }
       const key = randomBytes(24).toString('base64url');
       const newId = randomUUID();
-      await createSlicerApiKey({ id: newId, name: name.trim(), keyHash: hash(key), keyPrefix: key.slice(0, 8) });
-      auditDataApi(req, apiKey, 'slicer-key.create', newId, { name: name.trim() });
-      sendJson(res, 201, { id: newId, name: name.trim(), key });
+      await createSlicerApiKey({ id: newId, name: name.trim(), keyHash: hash(key), keyPrefix: key.slice(0, 8), permissions: scopes });
+      auditDataApi(req, apiKey, 'slicer-key.create', newId, { name: name.trim(), permissions: scopes });
+      sendJson(res, 201, { id: newId, name: name.trim(), key, permissions: scopes });
       return true;
     }
     return dataApiMethodNotAllowed(res);
@@ -1624,9 +1651,14 @@ async function handleApi(req, res, requestUrl) {
       return true;
     }
     if (req.method === 'POST') {
-      const { name } = await readJsonBody(req);
+      const { name, permissions } = await readJsonBody(req);
       if (typeof name !== 'string' || !name.trim()) {
         sendJson(res, 400, { error: 'name is required' });
+        return true;
+      }
+      const scopes = normalizeKeyPermissions(permissions);
+      if (scopes.length === 0) {
+        sendJson(res, 400, { error: `permissions must include at least one of: ${SLICER_KEY_PERMISSIONS.join(', ')}` });
         return true;
       }
       const key = randomBytes(24).toString('base64url');
@@ -1636,8 +1668,9 @@ async function handleApi(req, res, requestUrl) {
         name: name.trim(),
         keyHash: hash(key),
         keyPrefix: key.slice(0, 8),
+        permissions: scopes,
       });
-      sendJson(res, 201, { id, name: name.trim(), key });
+      sendJson(res, 201, { id, name: name.trim(), key, permissions: scopes });
       return true;
     }
   }

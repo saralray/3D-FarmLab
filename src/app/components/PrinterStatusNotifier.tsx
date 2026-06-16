@@ -8,12 +8,20 @@ type PrinterSnapshot = Pick<Printer, 'id' | 'name' | 'status' | 'currentJob' | '
 
 const QUEUE_POLL_INTERVAL_MS = 10000;
 const SEEN_QUEUE_JOB_IDS_KEY = 'printfarm_seen_queue_job_ids';
+// A printer can briefly read offline between polls (network flicker) without the
+// print actually stopping. Hold the "stopped because offline" toast until the
+// printer has stayed offline for this long, and cancel it silently if it recovers.
+const OFFLINE_CONFIRM_MS = 20000;
+
+// A detected transition into offline that still needs confirmation before we
+// surface the "job stopped" toast.
+type TransitionResult = { type: 'offline-stopped'; jobName: string } | null;
 
 function getJobName(printer: PrinterSnapshot) {
   return printer.currentJob?.filename || 'Print job';
 }
 
-function notifyPrinterTransition(previous: PrinterSnapshot, next: PrinterSnapshot) {
+function notifyPrinterTransition(previous: PrinterSnapshot, next: PrinterSnapshot): TransitionResult {
   const previousJob = previous.currentJob;
   const nextJob = next.currentJob;
   const previousFilename = previousJob?.filename;
@@ -23,7 +31,7 @@ function notifyPrinterTransition(previous: PrinterSnapshot, next: PrinterSnapsho
     toast.success(`${next.name} started`, {
       description: nextFilename,
     });
-    return;
+    return null;
   }
 
   if (previousFilename && !nextFilename) {
@@ -31,14 +39,12 @@ function notifyPrinterTransition(previous: PrinterSnapshot, next: PrinterSnapsho
       toast.error(`${next.name} error`, {
         description: previousFilename,
       });
-      return;
+      return null;
     }
 
     if (next.status === 'offline') {
-      toast.error(`${next.name} stopped`, {
-        description: `${previousFilename} stopped because the printer went offline.`,
-      });
-      return;
+      // Defer until the offline state is confirmed (see OFFLINE_CONFIRM_MS).
+      return { type: 'offline-stopped', jobName: previousFilename };
     }
 
     if (previous.progress >= 95) {
@@ -50,35 +56,36 @@ function notifyPrinterTransition(previous: PrinterSnapshot, next: PrinterSnapsho
         description: previousFilename,
       });
     }
-    return;
+    return null;
   }
 
   if (previousFilename && nextFilename && previousFilename !== nextFilename) {
     toast.success(`${next.name} started`, {
       description: nextFilename,
     });
-    return;
+    return null;
   }
 
   if (previousJob?.status !== 'paused' && nextJob?.status === 'paused') {
     toast.warning(`${next.name} paused`, {
       description: getJobName(next),
     });
-    return;
+    return null;
   }
 
   if (previous.status !== 'error' && next.status === 'error') {
     toast.error(`${next.name} error`, {
       description: getJobName(next),
     });
-    return;
+    return null;
   }
 
   if (previous.status !== 'offline' && next.status === 'offline') {
-    toast.error(`${next.name} stopped`, {
-      description: getJobName(previous),
-    });
+    // Defer until the offline state is confirmed (see OFFLINE_CONFIRM_MS).
+    return { type: 'offline-stopped', jobName: getJobName(previous) };
   }
+
+  return null;
 }
 
 function toPrinterMap(printers: Printer[]) {
@@ -131,6 +138,8 @@ export function PrinterStatusNotifier() {
   const { printers, loaded } = usePrinters();
   const previousPrintersRef = useRef<Map<string, PrinterSnapshot> | null>(null);
   const previousQueueJobIdsRef = useRef<Set<string> | null>(null);
+  // printerId -> the job + first time we saw it offline, awaiting confirmation.
+  const pendingOfflineRef = useRef<Map<string, { jobName: string; since: number }>>(new Map());
 
   // Diff each shared-poll snapshot against the previous one to surface status/job
   // transition toasts. Driven by the central PrintersContext, so this no longer
@@ -142,13 +151,35 @@ export function PrinterStatusNotifier() {
 
     const nextPrinters = toPrinterMap(printers);
     const previousPrinters = previousPrintersRef.current;
+    const pendingOffline = pendingOfflineRef.current;
+    const now = Date.now();
 
     if (previousPrinters) {
       for (const [printerId, nextPrinter] of nextPrinters) {
         const previousPrinter = previousPrinters.get(printerId);
         if (previousPrinter) {
-          notifyPrinterTransition(previousPrinter, nextPrinter);
+          const result = notifyPrinterTransition(previousPrinter, nextPrinter);
+          if (result?.type === 'offline-stopped' && !pendingOffline.has(printerId)) {
+            // Record the offline transition; don't toast yet (avoids flicker alarms).
+            pendingOffline.set(printerId, { jobName: result.jobName, since: now });
+          }
         }
+      }
+    }
+
+    // Confirm or cancel pending offline notifications against the latest snapshot.
+    for (const [printerId, info] of [...pendingOffline]) {
+      const current = nextPrinters.get(printerId);
+      if (!current || current.status !== 'offline') {
+        // Recovered (or removed) before confirmation — false alarm, stay quiet.
+        pendingOffline.delete(printerId);
+        continue;
+      }
+      if (now - info.since >= OFFLINE_CONFIRM_MS) {
+        toast.error(`${current.name} stopped`, {
+          description: `${info.jobName} stopped because the printer went offline.`,
+        });
+        pendingOffline.delete(printerId);
       }
     }
 

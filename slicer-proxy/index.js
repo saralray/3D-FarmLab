@@ -367,6 +367,21 @@ async function handleUpload(req, res, printerId) {
     return;
   }
 
+  // The key must carry the 'slicer_upload' scope to push prints. Legacy keys
+  // (created before scopes existed) backfill to all scopes, so they keep working.
+  const permissions = Array.isArray(key.permissions) ? key.permissions : [];
+  if (!permissions.includes('slicer_upload')) {
+    audit({
+      action: 'slicer.upload_rejected',
+      target: printerId,
+      details: { reason: "API key lacks the 'slicer_upload' permission", keyId: key.id },
+      source: 'slicer',
+      ip,
+    });
+    sendJson(res, 403, { error: "This API key lacks the 'slicer_upload' permission." });
+    return;
+  }
+
   const printer = await getPrinterById(printerId);
   if (!printer) {
     sendJson(res, 404, { error: 'Printer not found' });

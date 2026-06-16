@@ -1282,109 +1282,115 @@ export function PrinterDetail() {
               )}
             </div>
 
-            {printer.currentJob ? (
-              <>
-                <div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">File</div>
-                  <div className="font-medium text-lg dark:text-white">{printer.currentJob.filename}</div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-600 dark:text-gray-400">Progress</span>
-                    <span className="font-medium dark:text-white">{formatMaxTwoDecimals(printer.progress)}%</span>
-                  </div>
-                  <Progress value={printer.progress} className="h-3" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+            {/* Job details reserve a fixed height so the progress bar that follows
+                always lands at the same vertical level, whether the printer is idle
+                ("No active job") or printing (file / time / filament). */}
+            <div className="min-h-[184px]">
+              {printer.currentJob ? (
+                <div className="space-y-4">
                   <div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Time Remaining</div>
-                    <div className="font-medium flex items-center gap-1 dark:text-white">
-                      <Clock className="size-4" />
-                      {formattedTimeRemaining} h.
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">File</div>
+                    <div className="font-medium text-lg dark:text-white truncate">{printer.currentJob.filename}</div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Time Remaining</div>
+                      <div className="font-medium flex items-center gap-1 dark:text-white">
+                        <Clock className="size-4" />
+                        {formattedTimeRemaining} h.
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Printing Time</div>
-                    <div className="font-medium dark:text-white">{formattedPrintingTime} h.</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Filament Used</div>
-                    <div className="font-medium dark:text-white">
-                      {formatMaxTwoDecimals(printer.currentJob.filamentUsed)}g
-                      {typeof printer.currentJob.estimatedFilament === 'number' &&
-                        printer.currentJob.estimatedFilament > 0 && (
-                          <span className="text-gray-500 dark:text-gray-400">
-                            {' / '}
-                            {formatMaxTwoDecimals(printer.currentJob.estimatedFilament)}g
-                          </span>
-                        )}
+                    <div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Printing Time</div>
+                      <div className="font-medium dark:text-white">{formattedPrintingTime} h.</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Filament Used</div>
+                      <div className="font-medium dark:text-white">
+                        {formatMaxTwoDecimals(printer.currentJob.filamentUsed)}g
+                        {typeof printer.currentJob.estimatedFilament === 'number' &&
+                          printer.currentJob.estimatedFilament > 0 && (
+                            <span className="text-gray-500 dark:text-gray-400">
+                              {' / '}
+                              {formatMaxTwoDecimals(printer.currentJob.estimatedFilament)}g
+                            </span>
+                          )}
+                      </div>
                     </div>
                   </div>
                 </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  <CheckCircle className="size-12 mx-auto mb-3 opacity-50" />
+                  <p>No active job</p>
+                  <p className="text-sm mt-1">This printer is ready for new tasks</p>
+                </div>
+              )}
+            </div>
 
-                {canControlPrinter && (
-                  <div className="flex gap-2 pt-4">
-                    {printer.status === 'printing' && (
-                      <>
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          disabled={commandInFlight !== null}
-                          onClick={() => handlePrinterCommand('pause')}
-                        >
-                          <Pause className="size-4 mr-2" />
-                          {commandInFlight === 'pause' ? 'Pausing...' : 'Pause'}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          disabled={commandInFlight !== null}
-                          onClick={() => handlePrinterCommand('cancel')}
-                        >
-                          <Square className="size-4 mr-2" />
-                          {commandInFlight === 'cancel' ? 'Cancelling...' : 'Cancel'}
-                        </Button>
-                      </>
-                    )}
-                    {printer.status === 'paused' && (
-                      <>
-                        <Button
-                          className="flex-1"
-                          disabled={commandInFlight !== null}
-                          onClick={() => handlePrinterCommand('resume')}
-                        >
-                          <Play className="size-4 mr-2" />
-                          {commandInFlight === 'resume' ? 'Resuming...' : 'Resume'}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          disabled={commandInFlight !== null}
-                          onClick={() => handlePrinterCommand('cancel')}
-                        >
-                          <Square className="size-4 mr-2" />
-                          {commandInFlight === 'cancel' ? 'Cancelling...' : 'Cancel'}
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {!canControlPrinter && (
-                  <p className="pt-4 text-sm text-gray-500 dark:text-gray-400">
-                    Viewer accounts can monitor jobs but cannot pause, resume, or cancel them.
-                  </p>
-                )}
-
-              </>
-            ) : (
-              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                <CheckCircle className="size-12 mx-auto mb-3 opacity-50" />
-                <p>No active job</p>
-                <p className="text-sm mt-1">This printer is ready for new tasks</p>
+            {/* Progress bar is always rendered, right after the fixed-height details
+                area, so it sits at the exact same level whether idle or printing. */}
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-gray-600 dark:text-gray-400">Progress</span>
+                <span className="font-medium dark:text-white">{formatMaxTwoDecimals(printer.progress)}%</span>
               </div>
+              <Progress value={printer.progress} className="h-3" />
+            </div>
+
+            {printer.currentJob && canControlPrinter && (
+              <div className="flex gap-2 pt-4">
+                {printer.status === 'printing' && (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      disabled={commandInFlight !== null}
+                      onClick={() => handlePrinterCommand('pause')}
+                    >
+                      <Pause className="size-4 mr-2" />
+                      {commandInFlight === 'pause' ? 'Pausing...' : 'Pause'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      disabled={commandInFlight !== null}
+                      onClick={() => handlePrinterCommand('cancel')}
+                    >
+                      <Square className="size-4 mr-2" />
+                      {commandInFlight === 'cancel' ? 'Cancelling...' : 'Cancel'}
+                    </Button>
+                  </>
+                )}
+                {printer.status === 'paused' && (
+                  <>
+                    <Button
+                      className="flex-1"
+                      disabled={commandInFlight !== null}
+                      onClick={() => handlePrinterCommand('resume')}
+                    >
+                      <Play className="size-4 mr-2" />
+                      {commandInFlight === 'resume' ? 'Resuming...' : 'Resume'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      disabled={commandInFlight !== null}
+                      onClick={() => handlePrinterCommand('cancel')}
+                    >
+                      <Square className="size-4 mr-2" />
+                      {commandInFlight === 'cancel' ? 'Cancelling...' : 'Cancel'}
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {printer.currentJob && !canControlPrinter && (
+              <p className="pt-4 text-sm text-gray-500 dark:text-gray-400">
+                Viewer accounts can monitor jobs but cannot pause, resume, or cancel them.
+              </p>
             )}
           </div>
         </Card>

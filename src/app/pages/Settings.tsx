@@ -25,7 +25,15 @@ import {
   removeDiscordWebhook,
   saveDiscordWebhook,
 } from '../lib/notificationsApi';
-import { CreatedSlicerKey, SlicerApiKey, createSlicerKey, fetchSlicerKeys, removeSlicerKey } from '../lib/slicerKeysApi';
+import {
+  CreatedSlicerKey,
+  SlicerApiKey,
+  SlicerKeyPermission,
+  SLICER_KEY_PERMISSION_OPTIONS,
+  createSlicerKey,
+  fetchSlicerKeys,
+  removeSlicerKey,
+} from '../lib/slicerKeysApi';
 import { fetchPrinters, savePrinter } from '../lib/printersApi';
 import { generateId, slugifyPrinterId } from '../lib/id';
 import { isBambuProfile, normalizePrinter, PRINTER_PROFILES } from '../lib/printerProfiles';
@@ -77,6 +85,7 @@ export function Settings() {
   const [savingBranding, setSavingBranding] = useState(false);
   const [slicerKeys, setSlicerKeys] = useState<SlicerApiKey[]>([]);
   const [slicerKeyName, setSlicerKeyName] = useState('');
+  const [slicerKeyPermissions, setSlicerKeyPermissions] = useState<SlicerKeyPermission[]>(['slicer_upload']);
   const [savingSlicerKey, setSavingSlicerKey] = useState(false);
   const [removingSlicerKeyId, setRemovingSlicerKeyId] = useState<string | null>(null);
   const [createdSlicerKey, setCreatedSlicerKey] = useState<CreatedSlicerKey | null>(null);
@@ -317,6 +326,12 @@ export function Settings() {
     setSlicerKeys(await fetchSlicerKeys());
   };
 
+  const toggleSlicerKeyPermission = (permission: SlicerKeyPermission, checked: boolean) => {
+    setSlicerKeyPermissions((current) =>
+      checked ? Array.from(new Set([...current, permission])) : current.filter((p) => p !== permission),
+    );
+  };
+
   const handleCreateSlicerKey = async (event: React.FormEvent) => {
     event.preventDefault();
     setCreatedSlicerKey(null);
@@ -333,12 +348,18 @@ export function Settings() {
       return;
     }
 
+    if (slicerKeyPermissions.length === 0) {
+      toast.error('Select at least one permission for the key.');
+      return;
+    }
+
     setSavingSlicerKey(true);
 
     try {
-      const created = await createSlicerKey(normalizedName);
+      const created = await createSlicerKey(normalizedName, slicerKeyPermissions);
       await refreshSlicerKeys();
       setSlicerKeyName('');
+      setSlicerKeyPermissions(['slicer_upload']);
       setCreatedSlicerKey(created);
       toast.success('Key created', { description: 'Copy it now — it will not be shown again.' });
     } catch (error) {
@@ -624,7 +645,7 @@ export function Settings() {
           </TabsTrigger>
           <TabsTrigger value="slicer-upload" className="min-w-max">
             <KeyRound className="size-4" />
-            Slicer Upload
+            API Keys
           </TabsTrigger>
         </TabsList>
 
@@ -1230,11 +1251,11 @@ export function Settings() {
             <div className="mb-5">
               <div className="flex items-center gap-2">
                 <KeyRound className="size-5 text-blue-500" />
-                <h2 className="text-xl font-semibold dark:text-white">Slicer Upload</h2>
+                <h2 className="text-xl font-semibold dark:text-white">API Keys</h2>
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                Generate named API keys for the slicer-upload proxy. In your slicer (Orca / PrusaSlicer / Cura),
-                add a <span className="font-medium">Physical Printer</span> with host type{' '}
+                Generate named API keys and scope each to what it may do. For slicer upload, in your slicer
+                (Orca / PrusaSlicer / Cura) add a <span className="font-medium">Physical Printer</span> with host type{' '}
                 <span className="font-medium">OctoPrint</span>, host{' '}
                 <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
                   https://{typeof window !== 'undefined' ? window.location.hostname : 'host'}/printers/&lt;printerId&gt;
@@ -1257,6 +1278,30 @@ export function Settings() {
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <Label>Permissions</Label>
+                <div className="space-y-2">
+                  {SLICER_KEY_PERMISSION_OPTIONS.map((option) => (
+                    <label
+                      key={option.value}
+                      htmlFor={`slicer-key-perm-${option.value}`}
+                      className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200"
+                    >
+                      <Checkbox
+                        id={`slicer-key-perm-${option.value}`}
+                        className="mt-0.5"
+                        checked={slicerKeyPermissions.includes(option.value)}
+                        onCheckedChange={(checked) => toggleSlicerKeyPermission(option.value, checked === true)}
+                      />
+                      <span>
+                        <span className="font-medium">{option.label}</span>
+                        <span className="block text-xs text-gray-500 dark:text-gray-400">{option.description}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               {createdSlicerKey && (
                 <div className="rounded-md border border-amber-300 bg-amber-50 p-4 dark:border-amber-700/60 dark:bg-amber-950/40">
                   <div className="text-sm font-medium text-amber-800 dark:text-amber-300">
@@ -1274,7 +1319,7 @@ export function Settings() {
                 </div>
               )}
 
-              <Button type="submit" disabled={savingSlicerKey}>
+              <Button type="submit" disabled={savingSlicerKey || slicerKeyPermissions.length === 0}>
                 {savingSlicerKey ? 'Generating...' : 'Generate API Key'}
               </Button>
             </form>
@@ -1290,6 +1335,16 @@ export function Settings() {
                       <div className="font-semibold text-gray-900 dark:text-white">{key.name}</div>
                       <div className="mt-1 font-mono text-sm text-gray-500 dark:text-gray-400">
                         {key.keyPrefix}…
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {(key.permissions ?? []).map((permission) => (
+                          <span
+                            key={permission}
+                            className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
+                          >
+                            {SLICER_KEY_PERMISSION_OPTIONS.find((o) => o.value === permission)?.label ?? permission}
+                          </span>
+                        ))}
                       </div>
                       <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                         {key.createdAt ? `Created ${new Date(key.createdAt).toLocaleDateString()}` : 'Created —'}

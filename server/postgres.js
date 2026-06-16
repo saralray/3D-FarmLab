@@ -100,6 +100,13 @@ CREATE TABLE IF NOT EXISTS slicer_api_keys (
   last_used_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Per-key permission scopes (array of scope strings). 'slicer_upload' lets the
+-- key push prints through the slicer-proxy; 'printfarm_manage' grants the key
+-- the programmatic /api/v1 data API. Legacy keys (created before scopes
+-- existed) backfill to both so existing integrations keep working.
+ALTER TABLE slicer_api_keys
+  ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL
+  DEFAULT '["slicer_upload","printfarm_manage"]'::jsonb;
 -- Slicer-derived filament estimate per print. When a .3mf is uploaded through
 -- the slicer-proxy we parse its Metadata/slice_info.config (plate weight =
 -- grams) and store the job total here, keyed by printer + the subtask name the
@@ -734,6 +741,7 @@ export async function listSlicerApiKeys() {
           'id', id,
           'name', name,
           'keyPrefix', key_prefix,
+          'permissions', permissions,
           'lastUsedAt', to_char(last_used_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
           'createdAt', to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
         )
@@ -747,12 +755,12 @@ export async function listSlicerApiKeys() {
   return result.rows[0].data;
 }
 
-export async function createSlicerApiKey({ id, name, keyHash, keyPrefix }) {
+export async function createSlicerApiKey({ id, name, keyHash, keyPrefix, permissions }) {
   await ensureSchema();
   await query(
-    `INSERT INTO slicer_api_keys (id, name, key_hash, key_prefix)
-     VALUES ($1, $2, $3, $4);`,
-    [id, name, keyHash, keyPrefix],
+    `INSERT INTO slicer_api_keys (id, name, key_hash, key_prefix, permissions)
+     VALUES ($1, $2, $3, $4, $5::jsonb);`,
+    [id, name, keyHash, keyPrefix, JSON.stringify(permissions ?? [])],
   );
 }
 
@@ -766,7 +774,7 @@ export async function deleteSlicerApiKey(id) {
 export async function findSlicerApiKeyByHash(keyHash) {
   await ensureSchema();
   const result = await query(
-    'SELECT id, name FROM slicer_api_keys WHERE key_hash = $1;',
+    'SELECT id, name, permissions FROM slicer_api_keys WHERE key_hash = $1;',
     [keyHash],
   );
   return result.rows.length > 0 ? result.rows[0] : null;
