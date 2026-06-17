@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Bell, Check, Copy, Image as ImageIcon, KeyRound, Link2, Plus, Settings as SettingsIcon, Shield, Trash2, Users } from 'lucide-react';
+import { Bell, Check, Copy, Image as ImageIcon, KeyRound, Link2, MonitorCheck, Plus, Settings as SettingsIcon, Shield, Trash2, Users, X } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -34,6 +34,13 @@ import {
   fetchSlicerKeys,
   removeSlicerKey,
 } from '../lib/slicerKeysApi';
+import {
+  ManagerRequest,
+  approveManagerRequest,
+  denyManagerRequest,
+  fetchManagerRequests,
+  revokeManagerAccess,
+} from '../lib/managerRequestsApi';
 import { fetchPrinters, savePrinter } from '../lib/printersApi';
 import { generateId, slugifyPrinterId } from '../lib/id';
 import { isBambuProfile, normalizePrinter, PRINTER_PROFILES } from '../lib/printerProfiles';
@@ -90,6 +97,8 @@ export function Settings() {
   const [removingSlicerKeyId, setRemovingSlicerKeyId] = useState<string | null>(null);
   const [createdSlicerKey, setCreatedSlicerKey] = useState<CreatedSlicerKey | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
+  const [managerRequests, setManagerRequests] = useState<ManagerRequest[]>([]);
+  const [actioningManagerId, setActioningManagerId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPrinters()
@@ -128,6 +137,12 @@ export function Settings() {
       .then(setSlicerKeys)
       .catch(() => {
         toast.error('Unable to load slicer API keys.');
+      });
+
+    fetchManagerRequests()
+      .then(setManagerRequests)
+      .catch(() => {
+        toast.error('Unable to load manager requests.');
       });
   }, []);
 
@@ -324,6 +339,57 @@ export function Settings() {
 
   const refreshSlicerKeys = async () => {
     setSlicerKeys(await fetchSlicerKeys());
+  };
+
+  const refreshManagerRequests = async () => {
+    setManagerRequests(await fetchManagerRequests());
+  };
+
+  const handleApproveManager = async (id: string) => {
+    setActioningManagerId(id);
+    try {
+      await approveManagerRequest(id);
+      await refreshManagerRequests();
+      await refreshSlicerKeys();
+      toast.success('Manager access approved');
+    } catch (err) {
+      toast.error('Unable to approve', {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setActioningManagerId(null);
+    }
+  };
+
+  const handleDenyManager = async (id: string) => {
+    setActioningManagerId(id);
+    try {
+      await denyManagerRequest(id);
+      await refreshManagerRequests();
+      toast.success('Manager access denied');
+    } catch (err) {
+      toast.error('Unable to deny', {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setActioningManagerId(null);
+    }
+  };
+
+  const handleRevokeManager = async (id: string) => {
+    setActioningManagerId(id);
+    try {
+      await revokeManagerAccess(id);
+      await refreshManagerRequests();
+      await refreshSlicerKeys();
+      toast.success('Manager access revoked');
+    } catch (err) {
+      toast.error('Unable to revoke', {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setActioningManagerId(null);
+    }
   };
 
   const toggleSlicerKeyPermission = (permission: SlicerKeyPermission, checked: boolean) => {
@@ -1388,6 +1454,99 @@ export function Settings() {
                 </div>
               </div>
             )}
+
+            {/* Manager Access Requests */}
+            <div className="mt-8">
+              <div className="mb-4 flex items-center gap-2">
+                <MonitorCheck className="size-5 text-blue-500" />
+                <h2 className="text-xl font-semibold dark:text-white">Managers</h2>
+              </div>
+              <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+                External apps can request a <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">printfarm_manage</code> API key.
+                Approve pending requests to grant access. Revoking removes the key immediately.
+              </p>
+
+              <div className="space-y-3">
+                {managerRequests.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
+                    No manager connection requests yet.
+                  </div>
+                ) : (
+                  managerRequests.map((req) => {
+                    const STATUS_BADGE: Record<string, string> = {
+                      pending: 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300',
+                      approved: 'bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300',
+                      denied: 'bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300',
+                      revoked: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+                    };
+                    return (
+                      <div
+                        key={req.id}
+                        className="flex items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-900 dark:text-white">
+                              {req.name}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[req.status] ?? STATUS_BADGE.denied}`}
+                            >
+                              {req.status}
+                            </span>
+                          </div>
+                          {req.description && (
+                            <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                              {req.description}
+                            </p>
+                          )}
+                          <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                            Requested {new Date(req.createdAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          {req.status === 'pending' && (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={actioningManagerId !== null}
+                                onClick={() => handleApproveManager(req.id)}
+                              >
+                                <Check className="size-3.5 mr-1" />
+                                {actioningManagerId === req.id ? '…' : 'Approve'}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={actioningManagerId !== null}
+                                onClick={() => handleDenyManager(req.id)}
+                              >
+                                <X className="size-3.5 mr-1" />
+                                {actioningManagerId === req.id ? '…' : 'Deny'}
+                              </Button>
+                            </>
+                          )}
+                          {req.status === 'approved' && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={actioningManagerId !== null}
+                              onClick={() => handleRevokeManager(req.id)}
+                            >
+                              <Trash2 className="size-3.5 mr-1" />
+                              {actioningManagerId === req.id ? 'Revoking…' : 'Revoke'}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           </Card>
         </TabsContent>
       </Tabs>

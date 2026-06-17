@@ -9,17 +9,22 @@ import { fileURLToPath } from 'node:url';
 import mqtt from 'mqtt';
 import busboy from 'busboy';
 import {
+  approveManagerRequest,
+  clearManagerRequestKeySecret,
   createDiscordWebhook,
+  createManagerRequest,
   createSlicerApiKey,
   deleteDiscordWebhook,
   deletePrinter,
   deleteQueueJob,
   deleteQueueJobs,
   deleteSlicerApiKey,
+  denyManagerRequest,
   ensureSchema,
   exportQueueJobs,
   findSlicerApiKeyByHash,
   getAppSetting,
+  getManagerRequest,
   getPrinterById,
   getPrinterByIdOrName,
   getPublicPrinterById,
@@ -29,6 +34,7 @@ import {
   setQueueJobFile,
   listDailyAnalytics,
   listDiscordWebhooks,
+  listManagerRequests,
   listPrinters,
   listAuditLogs,
   listSlicerApiKeys,
@@ -37,6 +43,7 @@ import {
   recordAuditLog,
   resetDailyAnalytics,
   resetQueueJobs,
+  deleteManagerRequest,
   setAppSetting,
   touchSlicerApiKey,
   upsertPrinter,
@@ -1727,6 +1734,151 @@ async function handleApi(req, res, requestUrl) {
   }
 
   if (await handleDataApi(req, res, requestUrl)) {
+    return true;
+  }
+
+  // Manager access request endpoints ──────────────────────────────────────────
+  // POST /api/manager/request        — public; create a pending access request.
+  // GET  /api/manager/requests        — admin frontend; list all requests.
+  // GET  /api/manager/requests/:id/status — public; poll status, get key once.
+  // POST /api/manager/requests/:id/approve — admin; approve & issue API key.
+  // POST /api/manager/requests/:id/deny    — admin; deny request.
+  // DELETE /api/manager/requests/:id      — admin; revoke & remove API key.
+  // The two public endpoints carry CORS headers so a manager app on a different
+  // origin can submit and poll.
+
+  if (requestUrl.pathname === '/api/manager/request') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      res.end();
+      return true;
+    }
+    if (req.method === 'POST') {
+      const { name, description } = await readJsonBody(req);
+      if (typeof name !== 'string' || !name.trim()) {
+        sendJson(res, 400, { error: 'name is required' });
+        return true;
+      }
+      const id = randomUUID();
+      await createManagerRequest({
+        id,
+        name: name.trim(),
+        description: typeof description === 'string' ? description.trim() || null : null,
+      });
+      sendJson(res, 201, { id });
+      return true;
+    }
+  }
+
+  if (requestUrl.pathname === '/api/manager/requests' && req.method === 'GET') {
+    sendJson(res, 200, await listManagerRequests());
+    return true;
+  }
+
+  if (
+    requestUrl.pathname.startsWith('/api/manager/requests/') &&
+    requestUrl.pathname.endsWith('/status')
+  ) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      res.end();
+      return true;
+    }
+    if (req.method === 'GET') {
+      const id = decodeURIComponent(
+        requestUrl.pathname.slice('/api/manager/requests/'.length, -'/status'.length),
+      );
+      const mgr = await getManagerRequest(id);
+      if (!mgr) {
+        sendJson(res, 404, { error: 'Request not found' });
+        return true;
+      }
+      const payload = { id: mgr.id, status: mgr.status };
+      if (mgr.status === 'approved' && mgr.key_secret) {
+        payload.key = mgr.key_secret;
+        await clearManagerRequestKeySecret(id);
+      }
+      sendJson(res, 200, payload);
+      return true;
+    }
+  }
+
+  if (
+    requestUrl.pathname.startsWith('/api/manager/requests/') &&
+    requestUrl.pathname.endsWith('/approve') &&
+    req.method === 'POST'
+  ) {
+    const id = decodeURIComponent(
+      requestUrl.pathname.slice('/api/manager/requests/'.length, -'/approve'.length),
+    );
+    const mgr = await getManagerRequest(id);
+    if (!mgr) {
+      sendJson(res, 404, { error: 'Request not found' });
+      return true;
+    }
+    if (mgr.status !== 'pending') {
+      sendJson(res, 400, { error: 'Request is not pending' });
+      return true;
+    }
+    const key = randomBytes(24).toString('base64url');
+    const keyId = randomUUID();
+    await createSlicerApiKey({
+      id: keyId,
+      name: `Manager: ${mgr.name}`,
+      keyHash: hash(key),
+      keyPrefix: key.slice(0, 8),
+      permissions: ['printfarm_manage'],
+    });
+    await approveManagerRequest(id, { apiKeyId: keyId, keySecret: key });
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (
+    requestUrl.pathname.startsWith('/api/manager/requests/') &&
+    requestUrl.pathname.endsWith('/deny') &&
+    req.method === 'POST'
+  ) {
+    const id = decodeURIComponent(
+      requestUrl.pathname.slice('/api/manager/requests/'.length, -'/deny'.length),
+    );
+    const mgr = await getManagerRequest(id);
+    if (!mgr) {
+      sendJson(res, 404, { error: 'Request not found' });
+      return true;
+    }
+    if (mgr.status !== 'pending') {
+      sendJson(res, 400, { error: 'Request is not pending' });
+      return true;
+    }
+    await denyManagerRequest(id);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (
+    requestUrl.pathname.startsWith('/api/manager/requests/') &&
+    req.method === 'DELETE'
+  ) {
+    const id = decodeURIComponent(
+      requestUrl.pathname.slice('/api/manager/requests/'.length),
+    );
+    const mgr = await getManagerRequest(id);
+    if (!mgr) {
+      sendJson(res, 404, { error: 'Request not found' });
+      return true;
+    }
+    if (mgr.api_key_id) {
+      await deleteSlicerApiKey(mgr.api_key_id);
+    }
+    await deleteManagerRequest(id);
+    sendEmpty(res);
     return true;
   }
 

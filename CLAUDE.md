@@ -135,3 +135,4 @@ Browser → nginx:8080 → Node web:5173
 - Do not commit `.env`; document defaults in `.env.example`
 - Keep sensitive printer connection details out of public viewer flows
 - Prefer existing project patterns before introducing new abstractions; scope changes to the requested task
+- **Keep `API.md` in sync:** whenever you add, remove, or change any `/api/v1` endpoint or `/api/*` endpoint in `server/app.js` (route path, method, request/response shape, auth requirement, or query-param behavior), update `API.md` in the same task before reporting the work as done. If you only touch frontend files and no server routes change, skip this step.

@@ -143,6 +143,20 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   ip TEXT
 );
 CREATE INDEX IF NOT EXISTS audit_logs_created_idx ON audit_logs (created_at DESC, id DESC);
+-- Manager access requests: external tools/apps request a printfarm_manage API key.
+-- Admin approves or denies in the notification bell / Settings → API Keys.
+-- key_secret holds the plaintext key temporarily until the requester retrieves it
+-- (one-time delivery via the status endpoint), then is cleared.
+CREATE TABLE IF NOT EXISTS manager_requests (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  api_key_id TEXT,
+  key_secret TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 SELECT pg_advisory_unlock(90210);
 `;
 
@@ -1105,6 +1119,81 @@ export async function recordAuditLog(entry) {
       ip,
     ],
   );
+}
+
+export async function createManagerRequest({ id, name, description }) {
+  await ensureSchema();
+  await query(
+    `INSERT INTO manager_requests (id, name, description) VALUES ($1, $2, $3)`,
+    [id, name, description || null],
+  );
+}
+
+export async function getManagerRequest(id) {
+  await ensureSchema();
+  const result = await query(
+    `SELECT id, name, description, status, api_key_id, key_secret,
+            to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+            to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+     FROM manager_requests WHERE id = $1`,
+    [id],
+  );
+  return result.rows[0] || null;
+}
+
+export async function listManagerRequests() {
+  await ensureSchema();
+  const result = await query(`
+    SELECT COALESCE(
+      json_agg(
+        json_build_object(
+          'id', id,
+          'name', name,
+          'description', description,
+          'status', status,
+          'apiKeyId', api_key_id,
+          'createdAt', to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+          'updatedAt', to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        )
+        ORDER BY created_at DESC
+      ),
+      '[]'::json
+    ) AS data
+    FROM manager_requests
+    WHERE status != 'revoked';
+  `);
+  return result.rows[0].data;
+}
+
+export async function approveManagerRequest(id, { apiKeyId, keySecret }) {
+  await ensureSchema();
+  await query(
+    `UPDATE manager_requests
+     SET status = 'approved', api_key_id = $2, key_secret = $3, updated_at = NOW()
+     WHERE id = $1`,
+    [id, apiKeyId, keySecret],
+  );
+}
+
+export async function denyManagerRequest(id) {
+  await ensureSchema();
+  await query(
+    `UPDATE manager_requests SET status = 'denied', updated_at = NOW() WHERE id = $1`,
+    [id],
+  );
+}
+
+export async function clearManagerRequestKeySecret(id) {
+  await ensureSchema();
+  await query(
+    `UPDATE manager_requests SET key_secret = NULL, updated_at = NOW() WHERE id = $1`,
+    [id],
+  );
+}
+
+export async function deleteManagerRequest(id) {
+  await ensureSchema();
+  await query(`DELETE FROM manager_requests WHERE id = $1`, [id]);
 }
 
 // Most recent audit entries first. `limit` is clamped to a sane window so a

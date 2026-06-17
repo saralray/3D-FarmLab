@@ -1,4 +1,4 @@
-# STEM Lab Print Farm — Data API (`/api/v1`)
+# STEM Lab Print Farm — API Reference
 
 A versioned, API-key-gated HTTP API over the print farm's data. It is served by
 the `web` service (`handleDataApi` in `server/app.js`) and is **entirely
@@ -401,4 +401,178 @@ curl -H "X-Api-Key: $KEY" -X POST "$BASE/queue/import" \
 # staff users / admin password
 curl -H "X-Api-Key: $KEY" "$BASE/users"
 curl -H "X-Api-Key: $KEY" "$BASE/admin-credential"
+```
+
+---
+
+## Manager Access Request API (`/api/manager`)
+
+A separate, **public** endpoint group that lets an external manager app request a
+`printfarm_manage`-scoped API key without any prior credentials. The request
+appears in the admin's notification bell and **Settings → API Keys → Managers**
+for approval or denial.
+
+These endpoints live under `/api/manager/` — **not** under `/api/v1/` — and
+require **no API key**. Two of the endpoints (`POST /api/manager/request` and
+`GET /api/manager/requests/:id/status`) are **CORS-enabled** (`Access-Control-Allow-Origin: *`)
+so that a manager app hosted on a different origin can call them.
+
+### Request lifecycle
+
+```
+pending  →  approved  (key delivered once via status poll)
+         →  denied
+approved →  deleted   (admin revokes from Settings → API Keys → Managers; record removed)
+```
+
+### Endpoints
+
+#### `POST /api/manager/request`
+
+Submit a new manager access request. **Public. CORS-enabled.**
+
+**Request body:**
+
+```json
+{
+  "name": "My Dashboard",
+  "description": "Optional — what this manager is used for"
+}
+```
+
+**Response `201`:**
+
+```json
+{ "id": "01j..." }
+```
+
+The `id` is a UUIDv4 string. The caller stores it to poll the status endpoint.
+
+---
+
+#### `GET /api/manager/requests/:id/status`
+
+Poll the status of a request. **Public. CORS-enabled.**
+
+Returns the current status. When the request is approved and the key has not yet
+been retrieved, the response includes the plaintext `key`. The key is
+**immediately cleared** from the server after the first response that includes
+it — subsequent polls return `approved` status but no `key`.
+
+**Response `200`:**
+
+```json
+{ "id": "01j...", "status": "pending" }
+```
+
+```json
+{ "id": "01j...", "status": "approved", "key": "abc123..." }
+```
+
+```json
+{ "id": "01j...", "status": "approved" }
+```
+
+```json
+{ "id": "01j...", "status": "denied" }
+```
+
+```json
+{ "id": "01j...", "status": "revoked" }
+```
+
+**Response `404`** if the id is not found.
+
+---
+
+#### `GET /api/manager/requests`
+
+List all manager requests. **Admin only (frontend session guard).**
+
+**Response `200`:**
+
+```json
+[
+  {
+    "id": "01j...",
+    "name": "My Dashboard",
+    "description": "What it's for",
+    "status": "approved",
+    "apiKeyId": "uuid...",
+    "createdAt": "2026-06-17T12:00:00.000Z",
+    "updatedAt": "2026-06-17T12:05:00.000Z"
+  }
+]
+```
+
+Ordered by `created_at DESC`. The `key_secret` field (one-time plaintext) is
+**never** included in this list response.
+
+---
+
+#### `POST /api/manager/requests/:id/approve`
+
+Approve a pending request. **Admin only (frontend session guard).**
+
+Generates a new `printfarm_manage`-scoped API key, stores its sha256 hash in
+`slicer_api_keys` (visible in Settings → API Keys with the name `Manager: <name>`),
+and saves the plaintext temporarily for one-time delivery via the status endpoint.
+
+**Response `200`:**
+
+```json
+{ "ok": true }
+```
+
+**Response `404`** if the id is not found.
+
+---
+
+#### `POST /api/manager/requests/:id/deny`
+
+Deny a pending request. **Admin only (frontend session guard).**
+
+**Response `200`:**
+
+```json
+{ "ok": true }
+```
+
+---
+
+#### `DELETE /api/manager/requests/:id`
+
+Revoke an approved manager's access. **Admin only (frontend session guard).**
+
+Deletes the associated API key from `slicer_api_keys` and **permanently removes**
+the `manager_requests` row. The entry disappears from the Managers list immediately.
+Any subsequent calls using that key will receive `401`.
+
+**Response `200`:**
+
+```json
+{ "ok": true }
+```
+
+### End-to-end flow example
+
+```bash
+# 1. External manager app submits a request
+curl -X POST http://printfarm.local/api/manager/request \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Portainer","description":"Farm management"}'
+# → {"id":"01j..."}
+
+# 2. Poll until approved (do this every few seconds)
+curl http://printfarm.local/api/manager/requests/01j.../status
+# → {"id":"01j...","status":"pending"}
+
+# (admin approves in the notification bell or Settings → API Keys → Managers)
+
+# 3. Next poll returns the key — copy it immediately
+curl http://printfarm.local/api/manager/requests/01j.../status
+# → {"id":"01j...","status":"approved","key":"abc123..."}
+
+# 4. Use the key against /api/v1
+curl -H "X-Api-Key: abc123..." http://printfarm.local/api/v1/printers
 ```
