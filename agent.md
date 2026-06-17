@@ -4,7 +4,7 @@ Use this file to document project-specific instructions for coding agents workin
 
 ## Project
 
-STEM Lab Print Farm is a print-farm management dashboard built with React, Vite, PostgreSQL, and a Python printer poller.
+3D-FarmForge is a print-farm management dashboard built with React, Vite, PostgreSQL, and a Python printer poller.
 
 ## Project Idea
 

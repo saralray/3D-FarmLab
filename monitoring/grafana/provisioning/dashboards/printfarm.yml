@@ -1,4 +1,4 @@
-# Grafana dashboard provisioning for the STEM Lab Print Farm.
+# Grafana dashboard provisioning for 3D-FarmForge.
 #
 # Mount this file into Grafana at
 #   /etc/grafana/provisioning/dashboards/printfarm.yml

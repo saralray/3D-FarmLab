@@ -44,7 +44,7 @@
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "STEM Lab Print Farm",
+  "title": "3D-FarmForge",
   "uid": "printfarm-overview",
   "version": 1,
   "weekStart": "",

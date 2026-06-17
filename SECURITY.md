@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in STEM Lab Print Farm, please report
+If you discover a security vulnerability in 3D-FarmForge, please report
 it privately. **Do not open a public GitHub issue for security problems.**
 
 - Email: **saralray13@gmail.com**

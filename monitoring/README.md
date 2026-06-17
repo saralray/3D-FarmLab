@@ -1,7 +1,7 @@
 # Monitoring — Prometheus
 
 This directory holds the **Prometheus** scrape configuration and Grafana
-assets for the STEM Lab Print Farm. Prometheus scrapes the read-only
+assets for 3D-FarmForge. Prometheus scrapes the read-only
 [`exporter`](../exporter/) service, stores the time series, and serves them to a
 (separately run) Grafana.
 
@@ -22,7 +22,7 @@ through nginx, so metrics never reach the public `:8080` site.
 |------|---------|
 | `prometheus/prometheus.yml` | Prometheus scrape config. Mounted read-only by Docker Compose; mirrored by the ConfigMap in `k8s/prometheus.yaml`. |
 | `grafana/provisioning/datasources/prometheus.yml` | Grafana datasource definition (`Print Farm Prometheus`, uid `printfarm-prometheus`). Mount into Grafana to auto-create the datasource. |
-| `grafana-dashboard.json` | Importable Grafana dashboard (`STEM Lab Print Farm`, uid `printfarm-overview`). |
+| `grafana-dashboard.json` | Importable Grafana dashboard (`3D-FarmForge`, uid `printfarm-overview`). |
 
 ## How the scrape config works
 

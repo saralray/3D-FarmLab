@@ -1,4 +1,4 @@
-# STEM Lab Print Farm — API Reference
+# 3D-FarmForge — API Reference
 
 A versioned, API-key-gated HTTP API over the print farm's data. It is served by
 the `web` service (`handleDataApi` in `server/app.js`) and is **entirely

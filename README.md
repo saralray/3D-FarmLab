@@ -1,4 +1,4 @@
-# STEM Lab Print Farm System
+# 3D-FarmForge
 
 A print-farm management dashboard for monitoring 3D printers, queue requests, printer activity, and usage analytics from one local web app.
 

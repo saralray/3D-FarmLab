@@ -1,4 +1,4 @@
-# Prometheus scrape configuration for the STEM Lab Print Farm.
+# Prometheus scrape configuration for 3D-FarmForge.
 #
 # The print-farm metrics come from the `exporter` service (a read-only view of
 # the PostgreSQL data). `exporter` resolves on both the Docker Compose network
