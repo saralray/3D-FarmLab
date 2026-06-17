@@ -16,7 +16,7 @@ const DEFAULT_INTEGRATION_SETTINGS: IntegrationSettings = {
 
 // The site name shown when an admin hasn't set a custom one (browser tab,
 // dashboard heading, logo alt text).
-export const DEFAULT_SITE_NAME = 'PrintFarm';
+export const DEFAULT_SITE_NAME = '3D-FarmLab';
 
 async function parseError(response: Response) {
   try {

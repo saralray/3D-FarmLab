@@ -1,4 +1,4 @@
-# Grafana dashboard provisioning for 3D-FarmForge.
+# Grafana dashboard provisioning for 3D-FarmLab.
 #
 # Mount this file into Grafana at
 #   /etc/grafana/provisioning/dashboards/printfarm.yml

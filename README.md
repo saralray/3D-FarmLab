@@ -1,4 +1,4 @@
-# 3D-FarmForge
+# 3D-FarmLab
 
 A print-farm management dashboard for monitoring 3D printers, queue requests, printer activity, and usage analytics from one local web app.
 
