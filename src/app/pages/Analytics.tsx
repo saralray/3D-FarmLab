@@ -168,7 +168,7 @@ export function Analytics() {
 
   const cards: Record<AnalyticsCardId, ReactNode> = {
     totalJobs: (
-      <Card className="h-full p-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 border-0">
+      <Card className="h-full p-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/80 dark:to-blue-800/80 border-0">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Total Jobs</div>
@@ -180,7 +180,7 @@ export function Analytics() {
       </Card>
     ),
     successRate: (
-      <Card className="h-full p-4 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/30 dark:to-green-800/30 border-0">
+      <Card className="h-full p-4 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/80 dark:to-green-800/80 border-0">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Success Rate</div>
@@ -194,7 +194,7 @@ export function Analytics() {
       </Card>
     ),
     printTime: (
-      <Card className="h-full p-4 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/30 dark:to-purple-800/30 border-0">
+      <Card className="h-full p-4 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/80 dark:to-purple-800/80 border-0">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Print Time</div>
@@ -208,7 +208,7 @@ export function Analytics() {
       </Card>
     ),
     avgPrintTime: (
-      <Card className="h-full p-4 bg-gradient-to-br from-cyan-50 to-cyan-100 dark:from-cyan-900/30 dark:to-cyan-800/30 border-0">
+      <Card className="h-full p-4 bg-gradient-to-br from-cyan-50 to-cyan-100 dark:from-cyan-900/80 dark:to-cyan-800/80 border-0">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Avg Print Time</div>
@@ -222,7 +222,7 @@ export function Analytics() {
       </Card>
     ),
     filamentUsed: (
-      <Card className="h-full p-4 bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/30 dark:to-orange-800/30 border-0">
+      <Card className="h-full p-4 bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/80 dark:to-orange-800/80 border-0">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Filament Used</div>
