@@ -6,14 +6,25 @@ import { PrinterStatusNotifier } from '../components/PrinterStatusNotifier';
 import { useSidebar } from '../contexts/SidebarContext';
 import { PrintersProvider } from '../contexts/PrintersContext';
 import { PrinterEventsProvider } from '../contexts/PrinterEventsContext';
+import { useBrandingSettings } from '../lib/settingsApi';
 
 export function Root() {
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const { backgroundDataUrl } = useBrandingSettings();
 
   return (
     <PrintersProvider>
     <PrinterEventsProvider>
-    <div className="relative flex h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="relative isolate flex h-screen bg-gray-50 dark:bg-gray-950">
+      {backgroundDataUrl && (
+        // Faded layer behind the content (-z-10 under `isolate`) so the custom
+        // image shows through the theme background rather than at full strength.
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center opacity-40"
+          style={{ backgroundImage: `url(${backgroundDataUrl})` }}
+        />
+      )}
       <Navigation />
       <button
         type="button"

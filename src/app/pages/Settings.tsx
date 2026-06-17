@@ -89,7 +89,9 @@ export function Settings() {
   const [logoSvg, setLogoSvg] = useState('');
   const [logoAdaptive, setLogoAdaptive] = useState(false);
   const [logoScale, setLogoScale] = useState(1);
+  const [backgroundDataUrl, setBackgroundDataUrl] = useState('');
   const [savingBranding, setSavingBranding] = useState(false);
+  const [savingBackground, setSavingBackground] = useState(false);
   const [slicerKeys, setSlicerKeys] = useState<SlicerApiKey[]>([]);
   const [slicerKeyName, setSlicerKeyName] = useState('');
   const [slicerKeyPermissions, setSlicerKeyPermissions] = useState<SlicerKeyPermission[]>(['slicer_upload']);
@@ -128,6 +130,7 @@ export function Settings() {
         setLogoSvg(settings.logoSvg);
         setLogoAdaptive(settings.logoAdaptive);
         setLogoScale(settings.logoScale);
+        setBackgroundDataUrl(settings.backgroundDataUrl);
       })
       .catch(() => {
         toast.error('Unable to load branding settings.');
@@ -636,6 +639,7 @@ export function Settings() {
     setLogoSvg(saved.logoSvg);
     setLogoAdaptive(saved.logoAdaptive);
     setLogoScale(saved.logoScale);
+    setBackgroundDataUrl(saved.backgroundDataUrl);
   };
 
   const handleSaveBranding = async () => {
@@ -645,7 +649,9 @@ export function Settings() {
     }
     setSavingBranding(true);
     try {
-      const saved = await saveBrandingSettings({ logoDataUrl, logoScale });
+      // Send the full branding payload so saving the logo never wipes the
+      // background (and vice versa).
+      const saved = await saveBrandingSettings({ logoDataUrl, logoScale, backgroundDataUrl });
       applyBranding(saved);
       toast.success('Logo saved', {
         description: 'Reload the page to see it update everywhere.',
@@ -666,7 +672,7 @@ export function Settings() {
     }
     setSavingBranding(true);
     try {
-      const saved = await saveBrandingSettings({ logoDataUrl: '', logoScale: 1 });
+      const saved = await saveBrandingSettings({ logoDataUrl: '', logoScale: 1, backgroundDataUrl });
       applyBranding(saved);
       toast.success('Logo reset to the default.');
     } catch (error) {
@@ -675,6 +681,75 @@ export function Settings() {
       });
     } finally {
       setSavingBranding(false);
+    }
+  };
+
+  // ~4 MB raw image — matches the server's MAX_BACKGROUND_DATA_URL_BYTES cap once
+  // base64-encoded. A full-page background can be larger than the logo.
+  const MAX_BACKGROUND_BYTES = 3 * 1024 * 1024;
+
+  const handleBackgroundFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Allow re-selecting the same file later by clearing the input value.
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose an image file (PNG, JPEG, WebP, GIF, or SVG).');
+      return;
+    }
+    if (file.size > MAX_BACKGROUND_BYTES) {
+      toast.error('Background image is too large (max 3 MB).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setBackgroundDataUrl(reader.result);
+      }
+    };
+    reader.onerror = () => toast.error('Could not read the selected image.');
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveBackground = async () => {
+    if (user?.role !== 'admin') {
+      toast.error('Only admins can change the site background.');
+      return;
+    }
+    setSavingBackground(true);
+    try {
+      const saved = await saveBrandingSettings({ logoDataUrl, logoScale, backgroundDataUrl });
+      applyBranding(saved);
+      toast.success('Background saved', {
+        description: 'Reload the page to see it update everywhere.',
+      });
+    } catch (error) {
+      toast.error('Unable to save background', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setSavingBackground(false);
+    }
+  };
+
+  const handleResetBackground = async () => {
+    if (user?.role !== 'admin') {
+      toast.error('Only admins can change the site background.');
+      return;
+    }
+    setSavingBackground(true);
+    try {
+      const saved = await saveBrandingSettings({ logoDataUrl, logoScale, backgroundDataUrl: '' });
+      applyBranding(saved);
+      toast.success('Background reset to the default theme.');
+    } catch (error) {
+      toast.error('Unable to reset background', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setSavingBackground(false);
     }
   };
 
@@ -1307,6 +1382,65 @@ export function Settings() {
                 >
                   Reset to Default
                 </Button>
+              </div>
+
+              <div className="border-t border-gray-200 pt-6 dark:border-gray-800">
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold dark:text-white">Website Background</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    Upload a custom image to use as the dashboard background. Choose{' '}
+                    <span className="font-medium">Use Default</span> to fall back to the built-in
+                    light/dark theme. PNG, JPEG, WebP, GIF, or SVG up to 3&nbsp;MB.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Preview</Label>
+                    <div
+                      className="flex h-40 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 bg-cover bg-center dark:border-gray-800 dark:bg-gray-950"
+                      style={
+                        backgroundDataUrl
+                          ? { backgroundImage: `url(${backgroundDataUrl})` }
+                          : undefined
+                      }
+                    >
+                      {!backgroundDataUrl && (
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                          Default theme background
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="background-file">Choose image</Label>
+                    <Input
+                      id="background-file"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                      onChange={handleBackgroundFileChange}
+                      disabled={user?.role !== 'admin'}
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      The image is stored in the database, so it survives container rebuilds.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" onClick={handleSaveBackground} disabled={savingBackground}>
+                      {savingBackground ? 'Saving...' : 'Save Background'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleResetBackground}
+                      disabled={savingBackground || !backgroundDataUrl}
+                    >
+                      Use Default
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           </Card>

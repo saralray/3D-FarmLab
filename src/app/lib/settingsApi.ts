@@ -32,6 +32,8 @@ export interface BrandingSettings {
   logoAdaptive: boolean;
   // Size multiplier for the rendered logo (1 = built-in default size).
   logoScale: number;
+  // Empty string means "use the built-in theme background".
+  backgroundDataUrl: string;
 }
 
 const DEFAULT_BRANDING_SETTINGS: BrandingSettings = {
@@ -39,12 +41,14 @@ const DEFAULT_BRANDING_SETTINGS: BrandingSettings = {
   logoSvg: '',
   logoAdaptive: false,
   logoScale: 1,
+  backgroundDataUrl: '',
 };
 
 // The fields the client sends on save; the server derives logoSvg/logoAdaptive.
 export interface BrandingInput {
   logoDataUrl: string;
   logoScale: number;
+  backgroundDataUrl: string;
 }
 
 export async function fetchBrandingSettings(): Promise<BrandingSettings> {

@@ -124,6 +124,15 @@ const BRANDING_KEY = 'branding';
 // body limit (maxBodyBytes). 700 KB of data URL ~= a 512 KB image after base64.
 const MAX_LOGO_DATA_URL_BYTES = 700 * 1024;
 
+// The website background is a full-page image, so it gets a larger cap than the
+// logo. ~4 MB of data URL ~= a 3 MB image after base64.
+const MAX_BACKGROUND_DATA_URL_BYTES = 4 * 1024 * 1024;
+
+// The branding PUT can carry both a logo and a background data URL at once, so
+// its body limit must fit both plus the surrounding JSON envelope.
+const MAX_BRANDING_BODY_BYTES =
+  MAX_LOGO_DATA_URL_BYTES + MAX_BACKGROUND_DATA_URL_BYTES + 16 * 1024;
+
 // Allowed logo size multiplier range (1 = the built-in default size).
 const MIN_LOGO_SCALE = 0.5;
 const MAX_LOGO_SCALE = 2;
@@ -141,6 +150,7 @@ async function getBranding() {
     logoSvg: typeof stored.logoSvg === 'string' ? stored.logoSvg : '',
     logoAdaptive: stored.logoAdaptive === true,
     logoScale: clampLogoScale(stored.logoScale ?? 1),
+    backgroundDataUrl: typeof stored.backgroundDataUrl === 'string' ? stored.backgroundDataUrl : '',
   };
 }
 
@@ -353,14 +363,14 @@ function sendEmpty(res, statusCode = 204) {
   res.end();
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = maxBodyBytes) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
 
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > maxBodyBytes) {
+      if (size > maxBytes) {
         reject(new Error('Request body is too large'));
         req.destroy();
         return;
@@ -373,8 +383,8 @@ function readBody(req) {
   });
 }
 
-async function readJsonBody(req) {
-  const body = await readBody(req);
+async function readJsonBody(req, maxBytes = maxBodyBytes) {
+  const body = await readBody(req, maxBytes);
   return body.length > 0 ? JSON.parse(body.toString('utf8')) : {};
 }
 
@@ -2494,16 +2504,17 @@ async function handleApi(req, res, requestUrl) {
     }
   }
 
-  // Customizable site logo. GET is public (the Login/Navigation logo must render
-  // before auth); PUT (admin-only in the UI) stores an uploaded image as a data
-  // URL, or clears it to fall back to the bundled default.
+  // Customizable site branding (logo + optional full-page background). GET is
+  // public (the Login/Navigation logo must render before auth); PUT (admin-only
+  // in the UI) stores uploaded images as data URLs, or clears either to fall back
+  // to the bundled default logo / built-in theme background.
   if (requestUrl.pathname === '/api/settings/branding') {
     if (req.method === 'GET') {
       sendJson(res, 200, await getBranding());
       return true;
     }
     if (req.method === 'PUT') {
-      const body = await readJsonBody(req);
+      const body = await readJsonBody(req, MAX_BRANDING_BODY_BYTES);
       const logoDataUrl = body?.logoDataUrl;
       if (typeof logoDataUrl !== 'string') {
         sendJson(res, 400, { error: 'logoDataUrl must be a string' });
@@ -2518,6 +2529,25 @@ async function handleApi(req, res, requestUrl) {
       }
       if (Buffer.byteLength(trimmed, 'utf8') > MAX_LOGO_DATA_URL_BYTES) {
         sendJson(res, 413, { error: 'Logo image is too large (max ~512 KB).' });
+        return true;
+      }
+
+      // Optional full-page website background. An empty string falls back to the
+      // built-in theme background.
+      const backgroundRaw = body?.backgroundDataUrl;
+      if (backgroundRaw !== undefined && typeof backgroundRaw !== 'string') {
+        sendJson(res, 400, { error: 'backgroundDataUrl must be a string' });
+        return true;
+      }
+      const backgroundDataUrl = typeof backgroundRaw === 'string' ? backgroundRaw.trim() : '';
+      if (backgroundDataUrl && !/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,/.test(backgroundDataUrl)) {
+        sendJson(res, 400, {
+          error: 'backgroundDataUrl must be an empty string or a base64 image data URL',
+        });
+        return true;
+      }
+      if (Buffer.byteLength(backgroundDataUrl, 'utf8') > MAX_BACKGROUND_DATA_URL_BYTES) {
+        sendJson(res, 413, { error: 'Background image is too large (max ~3 MB).' });
         return true;
       }
 
@@ -2537,7 +2567,7 @@ async function handleApi(req, res, requestUrl) {
         }
       }
 
-      await setAppSetting(BRANDING_KEY, { logoDataUrl: trimmed, logoSvg, logoAdaptive, logoScale });
+      await setAppSetting(BRANDING_KEY, { logoDataUrl: trimmed, logoSvg, logoAdaptive, logoScale, backgroundDataUrl });
       sendJson(res, 200, await getBranding());
       return true;
     }

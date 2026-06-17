@@ -308,7 +308,7 @@ endpoint is also how you manage them via the API. Notable keys:
 
 | Key | What it holds |
 |-----|---------------|
-| `branding` | Site name, theme color, logo. |
+| `branding` | `{ logoDataUrl, logoSvg, logoAdaptive, logoScale, backgroundDataUrl }` — site logo plus an optional full-page website background image (both base64 data URLs; empty = bundled default logo / built-in theme background). |
 | `integration_urls` | `{ googleSheetQueueUrl, googleFormUrl }` (optional external links). |
 | `analytics_layout` | Analytics page grid layout (array of `{i,x,y,w,h}`). |
 | `printer_card_layout:<profile>` | Per-profile detail-card column layout (array of arrays). |
