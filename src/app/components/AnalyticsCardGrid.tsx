@@ -31,7 +31,40 @@ interface AnalyticsCardGridProps {
 // shrinking into unreadable slivers; react-grid-layout derives those layouts
 // from the stored `lg` arrangement.
 const BREAKPOINTS = { lg: 1024, md: 768, sm: 640, xs: 480, xxs: 0 };
-const COLS = { lg: ANALYTICS_GRID_COLS, md: ANALYTICS_GRID_COLS, sm: 4, xs: 2, xxs: 1 };
+// xxs keeps 2 cols so mobile stat cards stay 2-per-row, matching the dashboard.
+const COLS = { lg: ANALYTICS_GRID_COLS, md: ANALYTICS_GRID_COLS, sm: 4, xs: 2, xxs: 2 };
+
+const STAT_CARD_IDS: AnalyticsCardId[] = [
+  'totalJobs', 'successRate', 'printTime', 'avgPrintTime', 'filamentUsed',
+];
+
+// Compact 2-column mobile layout: stat cards 2-per-row at h:2 (≈96 px, matching
+// the dashboard status cards), chart cards stacked full-width below.
+function buildMobileLayout(layout: AnalyticsLayout): Layout[] {
+  const statCards = STAT_CARD_IDS.map(
+    (id) => layout.find((item) => item.i === id)!,
+  ).filter(Boolean);
+  const chartCards = layout.filter((item) => !STAT_CARD_IDS.includes(item.i));
+  const result: Layout[] = [];
+
+  statCards.forEach((item, idx) => {
+    const isLastOdd = idx === statCards.length - 1 && statCards.length % 2 === 1;
+    result.push({
+      i: item.i,
+      x: isLastOdd ? 0 : idx % 2,
+      y: Math.floor(idx / 2) * 2,
+      w: isLastOdd ? 2 : 1,
+      h: 2,
+    });
+  });
+
+  const chartStartY = Math.ceil(statCards.length / 2) * 2;
+  chartCards.forEach((item, idx) => {
+    result.push({ i: item.i, x: 0, y: chartStartY + idx * 8, w: 2, h: 8 });
+  });
+
+  return result;
+}
 
 interface Rect {
   x: number;
@@ -55,9 +88,10 @@ export function AnalyticsCardGrid({ layout, cards, editable, onCommit }: Analyti
     minW: ANALYTICS_CARD_MIN_SIZE[item.i].w,
     minH: ANALYTICS_CARD_MIN_SIZE[item.i].h,
   }));
-  // Store one canonical layout under `lg`; react-grid-layout derives the
-  // narrower breakpoints from it for display.
-  const layouts: Layouts = { lg: withMins };
+  // Store one canonical layout under `lg`; provide explicit xs/xxs layouts so
+  // mobile stat cards render 2-per-row at compact height, matching the dashboard.
+  const mobileLayout = buildMobileLayout(layout);
+  const layouts: Layouts = { lg: withMins, xs: mobileLayout, xxs: mobileLayout };
 
   // Track the active column count so edits made on a narrow (sm/xs/xxs)
   // breakpoint, whose coordinates aren't valid as the canonical 10-column
