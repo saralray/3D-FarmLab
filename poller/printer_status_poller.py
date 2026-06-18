@@ -1,10 +1,13 @@
 import calendar
+import ftplib
 import json
 import os
 import re
+import socket
 import ssl
 import threading
 import time
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import Any
@@ -27,15 +30,21 @@ WEB_SNAPSHOT_BASE_URL = os.getenv("WEB_SNAPSHOT_BASE_URL", "http://web:5173").rs
 # allow more headroom than the per-poll printer request timeout.
 BAMBU_SNAPSHOT_TIMEOUT_SECONDS = max(REQUEST_TIMEOUT_SECONDS, 10)
 BAMBU_PROFILES = frozenset(
-    {"bambulab_a1_mini", "bambulab_h2s", "bambulab_h2d"}
+    {"bambulab_a1_mini", "bambulab_h2s", "bambulab_h2d", "bambulab_h2c"}
 )
 # H2/X1-class printers expose an RTSP live view that the web camera hub transcodes
 # to a live MJPEG stream; for the Discord snapshot we grab a frame straight from
 # that live stream. The A1 Mini has no live view (port-6000 snapshot only).
-BAMBU_RTSP_PROFILES = frozenset({"bambulab_h2s", "bambulab_h2d"})
-# The H2D is the one dual-nozzle Bambu — it has a left and a right toolhead, so its
-# status carries two nozzle readings instead of the single flat nozzle_temper field.
-BAMBU_DUAL_NOZZLE_PROFILES = frozenset({"bambulab_h2d"})
+BAMBU_RTSP_PROFILES = frozenset({"bambulab_h2s", "bambulab_h2d", "bambulab_h2c"})
+# Dual-nozzle Bambus — they have a left and a right toolhead, so their status
+# carries two nozzle readings instead of the single flat nozzle_temper field. The
+# H2C's right toolhead is the Vortek hotend-change system, but it reports the same
+# two-nozzle structure as the H2D.
+BAMBU_DUAL_NOZZLE_PROFILES = frozenset({"bambulab_h2d", "bambulab_h2c"})
+# H2-series firmware blocks FTP file access (the slicer-proxy notes the same), so
+# the direct-from-printer 3MF filament fetch can't run there; those printers fall
+# back to the AMS remain%-delta. The A1/P1 class serves the .3mf over FTPS fine.
+BAMBU_FTP_BLOCKED_PROFILES = frozenset({"bambulab_h2s", "bambulab_h2d", "bambulab_h2c"})
 # Sanity cap when parsing a JPEG frame out of the MJPEG stream.
 MAX_FRAME_BYTES = 25 * 1024 * 1024
 _MJPEG_CONTENT_LENGTH_RE = re.compile(rb"content-length:\s*(\d+)", re.IGNORECASE)
@@ -130,6 +139,15 @@ SNAPMAKER_STATUS_PATH = (
 # fixed "bblp" username; the serial is learned from the report topic.
 BAMBU_MQTT_PORT = 8883
 BAMBU_MQTT_USERNAME = "bblp"
+# Implicit FTPS — same "bblp" + LAN-access-code auth — used to pull the active
+# print's .3mf off the printer so we can read the slicer's per-filament weight
+# (the way bambuddy's bambu_ftp service does). Lets a print started from Bambu
+# Studio / the SD card / Handy still get an exact filament estimate, not just the
+# AMS remain%-delta fallback. The H2 series blocks FTP file access, so it's skipped
+# there (see BAMBU_FTP_BLOCKED_PROFILES).
+BAMBU_FTP_PORT = 990
+BAMBU_FTP_USERNAME = "bblp"
+BAMBU_FTP_TIMEOUT_SECONDS = max(REQUEST_TIMEOUT_SECONDS, 8)
 # Treat a Bambu printer as offline if no MQTT report arrives within this window.
 BAMBU_REPORT_FRESHNESS_SECONDS = max(POLL_INTERVAL_SECONDS * 4, 20)
 # Rate-limit full-snapshot (pushall) requests so we never flood the printer.
@@ -339,6 +357,27 @@ def list_slicer_estimates(conn: psycopg.Connection) -> dict[tuple[str, str], flo
             "SELECT printer_id, job_name, filament_grams FROM slicer_print_estimates"
         )
         return {(row[0], row[1]): float(row[2]) for row in cur.fetchall()}
+
+
+def record_slicer_estimate(
+    conn: psycopg.Connection, printer_id: str, job_name: str, grams: float
+) -> None:
+    """Upsert a slicer-derived filament total (grams) for one print.
+
+    Same table/key the slicer-proxy writes when a .3mf is uploaded; here it's the
+    poller filling it in for prints fetched straight off the printer over FTPS.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO slicer_print_estimates (printer_id, job_name, filament_grams)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (printer_id, job_name) DO UPDATE
+              SET filament_grams = EXCLUDED.filament_grams,
+                  updated_at = NOW()
+            """,
+            (printer_id, job_name, grams),
+        )
 
 
 def apply_slicer_filament_estimate(
@@ -736,6 +775,10 @@ def prune_bambu_clients(active_ids: set[str]) -> None:
     for printer_id in list(_BAMBU_CLIENTS.keys()):
         if printer_id not in active_ids:
             _BAMBU_CLIENTS.pop(printer_id).close()
+    # Drop 3MF-fetch attempt records for removed printers so the cache can't grow
+    # unbounded as printers come and go.
+    for key in [k for k in _BAMBU_3MF_ATTEMPTS if k[0] not in active_ids]:
+        _BAMBU_3MF_ATTEMPTS.pop(key, None)
 
 
 def map_bambu_state(state: Any) -> str:
@@ -980,6 +1023,224 @@ def update_bambu_filament_used(
     job["filamentUsed"] = round(used, 1)
 
 
+# --- Direct-from-printer 3MF filament estimate (bambuddy bambu_ftp parity) -------
+#
+# bambuddy's most accurate source isn't the AMS delta above — it's the slicer's own
+# per-filament weight, read out of the print's .3mf. The slicer-proxy already records
+# that when *it* starts the print, but a job launched from Bambu Studio / the SD card
+# / Handy never passes through the proxy, so it had only the lossy AMS-delta. Here the
+# poller pulls the active .3mf straight off the printer over implicit FTPS (port 990,
+# bblp + LAN access code), reads Metadata/slice_info.config, and records the same
+# slicer estimate row — so every print, however started, gets the exact figure.
+
+
+def parse_3mf_filament_grams(buf: bytes) -> float | None:
+    """Sum the plate-level filament weight (grams) from a 3MF's slice_info.config.
+
+    Mirrors slicer-proxy/parse3mf.js: each <plate> in Metadata/slice_info.config
+    carries <metadata key="weight" value="<grams>"/>; summing across plates yields
+    the whole job's filament weight. Returns grams (>0, one decimal) or None.
+    """
+    try:
+        with zipfile.ZipFile(BytesIO(buf)) as archive:
+            xml = archive.read("Metadata/slice_info.config").decode("utf-8", "replace")
+    except (zipfile.BadZipFile, KeyError, OSError):
+        return None
+
+    total = 0.0
+    seen = False
+    for match in re.finditer(r'key="weight"\s+value="([0-9]*\.?[0-9]+)"', xml, re.IGNORECASE):
+        grams = float(match.group(1))
+        if grams > 0:
+            total += grams
+            seen = True
+    return round(total, 1) if seen else None
+
+
+class _ImplicitFtpTls(ftplib.FTP_TLS):
+    """FTP_TLS that does the TLS handshake immediately on connect (implicit FTPS).
+
+    ftplib only ships explicit FTPS (AUTH TLS on a plaintext control channel); Bambu
+    printers speak implicit FTPS on port 990, so the control socket must already be
+    wrapped in TLS before the first response is read. Same shape as the slicer-proxy's
+    basic-ftp `secure: 'implicit'` connection.
+    """
+
+    def connect(self, host: str, port: int, timeout: float) -> str:
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.sock = socket.create_connection((host, port), timeout)
+        self.af = self.sock.family
+        self.sock = self.context.wrap_socket(self.sock, server_hostname=host)
+        self.file = self.sock.makefile("r", encoding=self.encoding)
+        self.welcome = self.getresp()
+        return self.welcome
+
+
+def _open_bambu_ftp(printer: dict[str, Any]) -> _ImplicitFtpTls:
+    # Bambu serves a self-signed cert; trust the LAN device directly (matches MQTT).
+    context = ssl._create_unverified_context()
+    ftp = _ImplicitFtpTls(context=context)
+    ftp.connect(
+        printer.get("ipAddress") or "",
+        BAMBU_FTP_PORT,
+        BAMBU_FTP_TIMEOUT_SECONDS,
+    )
+    ftp.login(BAMBU_FTP_USERNAME, (printer.get("apiKeyHeader") or "").strip())
+    ftp.prot_p()  # encrypt the data channel too
+    return ftp
+
+
+def _bambu_3mf_candidates(print_data: dict[str, Any], job_name: str) -> list[str]:
+    """Likely FTP paths of the active print's .3mf, most-specific first.
+
+    Where the file lands is firmware/route dependent (root for a slicer/Studio push,
+    /cache for a Handy/cloud job), so we try a small ordered set and fall back to a
+    directory scan in _fetch_bambu_3mf. The bit most likely to need live tuning.
+    """
+    candidates: list[str] = []
+
+    def add(path: str | None) -> None:
+        if path:
+            cleaned = str(path).lstrip("/")
+            if cleaned.lower().endswith(".3mf") and cleaned not in candidates:
+                candidates.append(cleaned)
+
+    # gcode_file sometimes carries the on-disk path; use it directly when it's a .3mf.
+    add(print_data.get("gcode_file"))
+    # subtask_name is the project name without extension — the slicer-proxy stores it
+    # as "<name>.3mf" or keeps the slicer's "<name>.gcode.3mf"; Studio/cloud cache it.
+    for base in (job_name, f"{job_name}.gcode"):
+        add(f"{base}.3mf")
+        add(f"cache/{base}.3mf")
+    return candidates
+
+
+def _fetch_bambu_3mf(printer: dict[str, Any], print_data: dict[str, Any], job_name: str) -> bytes | None:
+    """Download the active print's .3mf over implicit FTPS, or None on any failure."""
+    candidates = _bambu_3mf_candidates(print_data, job_name)
+    try:
+        ftp = _open_bambu_ftp(printer)
+    except (*ftplib.all_errors, ssl.SSLError) as error:
+        print(f"bambu ftp connect failed ({printer.get('ipAddress')}): {error}", flush=True)
+        return None
+
+    try:
+        # If none of the guessed paths match, scan root + /cache for a .3mf whose
+        # name contains the project token — the resilient fallback bambuddy relies on.
+        token = re.sub(r"\.gcode$", "", job_name, flags=re.IGNORECASE).lower()
+        for directory in ("", "cache"):
+            try:
+                names = ftp.nlst(directory) if directory else ftp.nlst()
+            except ftplib.all_errors:
+                continue
+            for name in names:
+                cleaned = name.lstrip("/")
+                # nlst on a subdir may return bare names; re-attach the dir prefix.
+                if directory and "/" not in cleaned:
+                    cleaned = f"{directory}/{cleaned}"
+                if cleaned.lower().endswith(".3mf") and token and token in cleaned.lower():
+                    candidates.append(cleaned)
+
+        seen: set[str] = set()
+        for path in candidates:
+            if path in seen:
+                continue
+            seen.add(path)
+            sink = BytesIO()
+            try:
+                ftp.retrbinary(f"RETR {path}", sink.write)
+            except ftplib.all_errors:
+                continue
+            data = sink.getvalue()
+            if data:
+                return data
+        return None
+    finally:
+        try:
+            ftp.quit()
+        except ftplib.all_errors:
+            try:
+                ftp.close()
+            except ftplib.all_errors:
+                pass
+
+
+# Per (printer_id, job_name) cool-down so a print whose .3mf can't be fetched (H2,
+# unreachable FTP, unguessable path) isn't re-attempted every poll. Cleared per job.
+_BAMBU_3MF_ATTEMPTS: dict[tuple[str, str], float] = {}
+_BAMBU_3MF_RETRY_SECONDS = 300.0
+
+
+def ensure_bambu_slicer_estimate(
+    conn: psycopg.Connection,
+    printer: dict[str, Any],
+    print_data: dict[str, Any],
+    job: dict[str, Any] | None,
+    estimates: dict[tuple[str, str], float],
+) -> None:
+    """Fetch + store the slicer 3MF estimate for an active Bambu print if missing.
+
+    Best-effort: never raises into the poll loop. Skips H2 (FTP blocked) and any print
+    that already has an estimate (proxy upload or a prior fetch). On success the row is
+    picked up by the next poll's apply_slicer_filament_estimate, like a proxy upload.
+    """
+    printer_id = printer.get("id")
+    if not printer_id or not job:
+        return
+    if printer.get("profile") in BAMBU_FTP_BLOCKED_PROFILES:
+        return
+    job_name = job.get("filename")
+    if not job_name:
+        return
+    key = (printer_id, job_name)
+    if key in estimates:
+        return  # already have an exact figure (proxy upload or earlier fetch)
+
+    last_attempt = _BAMBU_3MF_ATTEMPTS.get(key)
+    if last_attempt is not None and (time.time() - last_attempt) < _BAMBU_3MF_RETRY_SECONDS:
+        return
+    _BAMBU_3MF_ATTEMPTS[key] = time.time()
+
+    try:
+        data = _fetch_bambu_3mf(printer, print_data, job_name)
+        if not data:
+            return
+        grams = parse_3mf_filament_grams(data)
+        if not grams or grams <= 0:
+            return
+        record_slicer_estimate(conn, printer_id, job_name, grams)
+        estimates[key] = grams  # apply it this cycle, no extra poll wait
+    except Exception as error:  # noqa: BLE001 — must never break the poll loop
+        print(f"bambu 3mf estimate failed ({printer_id}/{job_name}): {error}", flush=True)
+
+
+def maybe_record_bambu_3mf_estimate(
+    conn: psycopg.Connection,
+    printer: dict[str, Any],
+    next_printer: dict[str, Any],
+    estimates: dict[tuple[str, str], float],
+) -> None:
+    """Loop-side guard for ensure_bambu_slicer_estimate: only run for an active,
+    FTP-capable Bambu print that still lacks an estimate. Reads the cached MQTT
+    report (no extra network round-trip) for the .3mf path hints."""
+    if printer.get("profile") not in BAMBU_PROFILES:
+        return
+    if printer.get("profile") in BAMBU_FTP_BLOCKED_PROFILES:
+        return
+    job = next_printer.get("currentJob")
+    if not job or next_printer.get("status") not in {"printing", "paused"}:
+        return
+    if (printer.get("id"), job.get("filename")) in estimates:
+        return
+    try:
+        print_data = get_bambu_client(printer).latest_report() or {}
+    except Exception:  # noqa: BLE001 — client lookup must never break the loop
+        print_data = {}
+    ensure_bambu_slicer_estimate(conn, printer, print_data, job, estimates)
+
+
 # Bambu reports each fan speed as a string on a 0–15 scale (the gear shown on the
 # printer); scale it to a 0–100 percentage. The exact fields/scale are the
 # device-specific bit most likely to need live tuning.
@@ -994,6 +1255,7 @@ BAMBU_PROFILE_FANS = {
     "bambulab_a1_mini": ("part", "aux"),
     "bambulab_h2s": ("part", "aux", "chamber"),
     "bambulab_h2d": ("part", "aux", "chamber"),
+    "bambulab_h2c": ("part", "aux", "chamber"),
 }
 
 
@@ -1919,6 +2181,10 @@ def run() -> None:
             )
 
             for printer, next_printer in zip(printers, next_printers):
+                # For a Bambu print with no estimate yet (e.g. started from Studio /
+                # the SD card, not the slicer-proxy), pull its .3mf off the printer
+                # over FTPS and record the exact slicer figure (bambuddy parity).
+                maybe_record_bambu_3mf_estimate(conn, printer, next_printer, slicer_estimates)
                 # Prefer the slicer's exact 3MF estimate over the AMS-delta
                 # fallback before analytics/persistence read filamentUsed.
                 apply_slicer_filament_estimate(next_printer, slicer_estimates)

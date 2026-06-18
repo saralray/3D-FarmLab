@@ -1,4 +1,4 @@
-import { PrintJob, Printer, PrinterProfile, PrinterStatus } from '../types';
+import { PrintJob, Printer, PrinterProfile, PrinterProvider, PrinterStatus } from '../types';
 import { normalizeMaxTwoDecimals } from './numberFormat';
 import { logAuditEvent } from './auditApi';
 
@@ -8,6 +8,12 @@ export const PRINTER_PROFILES: Record<
   PrinterProfile,
   {
     label: string;
+    /** Vendor the profile belongs to; profiles are grouped by it in the UI. */
+    provider: PrinterProvider;
+    /** Display name for the provider group (e.g. "Bambu Lab"). */
+    providerLabel: string;
+    /** Model/series name shown within the provider group (e.g. "A1 Mini"). */
+    series: string;
     statusPath: string | null;
     defaultModel: string;
     buildBaseUrl: (ipAddress: string) => string;
@@ -20,6 +26,9 @@ export const PRINTER_PROFILES: Record<
 > = {
   generic: {
     label: 'Generic',
+    provider: 'generic',
+    providerLabel: 'Generic',
+    series: 'Generic',
     statusPath: null,
     defaultModel: 'Custom Printer',
     buildBaseUrl: (ipAddress) => `http://${ipAddress}`,
@@ -29,6 +38,9 @@ export const PRINTER_PROFILES: Record<
   },
   snapmaker_u1: {
     label: 'Snapmaker U1',
+    provider: 'snapmaker',
+    providerLabel: 'Snapmaker',
+    series: 'U1',
     statusPath:
       '/printer/objects/query?print_stats&extruder=temperature,target&extruder1=temperature,target&extruder2=temperature,target&extruder3=temperature,target&heater_bed=temperature,target&virtual_sdcard=progress',
     defaultModel: 'Snapmaker U1',
@@ -39,6 +51,9 @@ export const PRINTER_PROFILES: Record<
   },
   bambulab_a1_mini: {
     label: 'Bambu Lab A1 Mini',
+    provider: 'bambulab',
+    providerLabel: 'Bambu Lab',
+    series: 'A1 Mini',
     // Bambu printers report over MQTT, not HTTP — the poller handles it directly.
     statusPath: null,
     defaultModel: 'Bambu Lab A1 Mini',
@@ -49,6 +64,9 @@ export const PRINTER_PROFILES: Record<
   },
   bambulab_h2s: {
     label: 'Bambu Lab H2S',
+    provider: 'bambulab',
+    providerLabel: 'Bambu Lab',
+    series: 'H2S',
     // Same Bambu LAN protocol as the A1 Mini — MQTT report, no HTTP status.
     statusPath: null,
     defaultModel: 'Bambu Lab H2S',
@@ -59,6 +77,9 @@ export const PRINTER_PROFILES: Record<
   },
   bambulab_h2d: {
     label: 'Bambu Lab H2D',
+    provider: 'bambulab',
+    providerLabel: 'Bambu Lab',
+    series: 'H2D',
     // Same Bambu LAN protocol as the rest of the H2 series — MQTT report, no
     // HTTP status; the camera is RTSP-over-TLS (port 322) like the H2S/X1.
     statusPath: null,
@@ -68,7 +89,49 @@ export const PRINTER_PROFILES: Record<
     credentialPlaceholder: '8-digit access code from the printer screen',
     pollingDescription: 'Live status via MQTT over TLS (LAN mode)',
   },
+  bambulab_h2c: {
+    label: 'Bambu Lab H2C',
+    provider: 'bambulab',
+    providerLabel: 'Bambu Lab',
+    series: 'H2C',
+    // Same Bambu LAN protocol as the rest of the H2 series — MQTT report, no
+    // HTTP status; the camera is RTSP-over-TLS (port 322) like the H2D/X1. Like
+    // the H2D it's dual-nozzle, but the right toolhead is the Vortek
+    // hotend-change system (interchangeable induction hotends).
+    statusPath: null,
+    defaultModel: 'Bambu Lab H2C',
+    buildBaseUrl: (ipAddress) => `http://${ipAddress}`,
+    credentialLabel: 'LAN Access Code',
+    credentialPlaceholder: '8-digit access code from the printer screen',
+    pollingDescription: 'Live status via MQTT over TLS (LAN mode)',
+  },
 };
+
+// The add-printer form presents profiles grouped by provider rather than as one
+// flat list. This is derived from PRINTER_PROFILES (preserving its key order) so
+// adding a new profile above is enough to make it appear in the dropdown.
+export interface PrinterProfileOption {
+  profile: PrinterProfile;
+  series: string;
+}
+
+export interface PrinterProviderGroup {
+  provider: PrinterProvider;
+  providerLabel: string;
+  options: PrinterProfileOption[];
+}
+
+export const PRINTER_PROVIDER_GROUPS: PrinterProviderGroup[] = (
+  Object.entries(PRINTER_PROFILES) as [PrinterProfile, (typeof PRINTER_PROFILES)[PrinterProfile]][]
+).reduce<PrinterProviderGroup[]>((groups, [profile, config]) => {
+  let group = groups.find((entry) => entry.provider === config.provider);
+  if (!group) {
+    group = { provider: config.provider, providerLabel: config.providerLabel, options: [] };
+    groups.push(group);
+  }
+  group.options.push({ profile, series: config.series });
+  return groups;
+}, []);
 
 // Bambu Lab printers share one LAN integration (MQTT-over-TLS status/commands,
 // FTPS upload, port-6000 camera), so feature checks key off this rather than a
@@ -77,7 +140,8 @@ export function isBambuProfile(profile: PrinterProfile): boolean {
   return (
     profile === 'bambulab_a1_mini' ||
     profile === 'bambulab_h2s' ||
-    profile === 'bambulab_h2d'
+    profile === 'bambulab_h2d' ||
+    profile === 'bambulab_h2c'
   );
 }
 
@@ -107,6 +171,11 @@ export const PRINTER_FANS: Partial<Record<PrinterProfile, FanDescriptor[]>> = {
     { id: 'aux', label: 'Auxiliary', bambuPort: 2 },
     { id: 'chamber', label: 'Chamber', bambuPort: 3 },
   ],
+  bambulab_h2c: [
+    { id: 'part', label: 'Part Cooling', bambuPort: 1 },
+    { id: 'aux', label: 'Auxiliary', bambuPort: 2 },
+    { id: 'chamber', label: 'Chamber', bambuPort: 3 },
+  ],
 };
 
 // Profiles that report a chamber temperature sensor. Only the Bambu H2 series
@@ -115,6 +184,7 @@ export const PRINTER_FANS: Partial<Record<PrinterProfile, FanDescriptor[]>> = {
 export const PROFILES_WITH_CHAMBER_TEMP: PrinterProfile[] = [
   'bambulab_h2s',
   'bambulab_h2d',
+  'bambulab_h2c',
 ];
 
 export function profileHasChamberTemp(profile: PrinterProfile): boolean {
@@ -128,6 +198,9 @@ export function profileHasChamberTemp(profile: PrinterProfile): boolean {
 // uses "Nozzle".
 const PROFILE_NOZZLE_LABELS: Partial<Record<PrinterProfile, string[]>> = {
   bambulab_h2d: ['Right Nozzle', 'Left Nozzle'],
+  // H2C: like the H2D, tool 0 (T0) is the right nozzle and tool 1 (T1) the left.
+  // On the H2C the right toolhead is the Vortek hotend-change system.
+  bambulab_h2c: ['Right Nozzle', 'Left Nozzle'],
 };
 
 export function getNozzleLabel(
@@ -148,6 +221,7 @@ export function getNozzleLabel(
 // the left nozzle first so the layout reads left-to-right like the physical printer.
 const PROFILE_NOZZLE_DISPLAY_ORDER: Partial<Record<PrinterProfile, number[]>> = {
   bambulab_h2d: [1, 0],
+  bambulab_h2c: [1, 0],
 };
 
 export function getNozzleDisplayOrder(
@@ -170,6 +244,9 @@ function inferProfileFromDescriptor(descriptor: string): PrinterProfile | null {
   }
   if (descriptor.includes('h2d')) {
     return 'bambulab_h2d';
+  }
+  if (descriptor.includes('h2c')) {
+    return 'bambulab_h2c';
   }
   if (descriptor.includes('bambu') || descriptor.includes('a1 mini')) {
     return 'bambulab_a1_mini';
@@ -625,7 +702,11 @@ export async function setPrinterFanSpeed(
 const H2_AIRDUCT_COOLING_MODE = 0;
 
 export function printerSupportsAirFilter(printer: Printer) {
-  return printer.profile === 'bambulab_h2s' || printer.profile === 'bambulab_h2d';
+  return (
+    printer.profile === 'bambulab_h2s' ||
+    printer.profile === 'bambulab_h2d' ||
+    printer.profile === 'bambulab_h2c'
+  );
 }
 
 // Toggle the H2 air filter via the cooling-mode filtration submode.
@@ -935,7 +1016,11 @@ export function buildPrinterWebcamSnapshotUrl(printer: Printer) {
 // live MJPEG stream (multipart/x-mixed-replace) renderable in an <img>. The A1
 // Mini's slow port-6000 camera can only do still snapshots, so it's excluded.
 export function printerSupportsLiveMjpeg(printer: Printer) {
-  return printer.profile === 'bambulab_h2s' || printer.profile === 'bambulab_h2d';
+  return (
+    printer.profile === 'bambulab_h2s' ||
+    printer.profile === 'bambulab_h2d' ||
+    printer.profile === 'bambulab_h2c'
+  );
 }
 
 export function buildPrinterWebcamMjpegUrl(printer: Printer) {

@@ -4,7 +4,11 @@ export type PrinterProfile =
   | 'snapmaker_u1'
   | 'bambulab_a1_mini'
   | 'bambulab_h2s'
-  | 'bambulab_h2d';
+  | 'bambulab_h2d'
+  | 'bambulab_h2c';
+// The brand/vendor a profile belongs to. Profiles are grouped by provider in the
+// add-printer form so a long flat list reads as "pick a brand, then a model".
+export type PrinterProvider = 'generic' | 'snapmaker' | 'bambulab';
 
 export interface Spool {
   id: string;

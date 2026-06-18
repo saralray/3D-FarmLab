@@ -16,6 +16,7 @@
 //   - bambulab_a1_mini → FTPS upload of the .3mf to root + MQTT project_file (bambuddy flow)
 //   - bambulab_h2s     → same Bambu LAN flow as the A1 Mini
 //   - bambulab_h2d     → same Bambu LAN flow as the A1 Mini
+//   - bambulab_h2c     → same Bambu LAN flow as the A1 Mini
 // Generic printers have no upload API and are rejected.
 //
 // Connection secrets (IP, API key, access code, serial) are read from the DB
@@ -399,7 +400,8 @@ async function handleUpload(req, res, printerId) {
   } else if (
     printer.profile === 'bambulab_a1_mini' ||
     printer.profile === 'bambulab_h2s' ||
-    printer.profile === 'bambulab_h2d'
+    printer.profile === 'bambulab_h2d' ||
+    printer.profile === 'bambulab_h2c'
   ) {
     await uploadToBambu(printer, file);
   } else {

@@ -73,13 +73,13 @@ import {
 
 // Bambu Lab printers share one LAN integration (MQTT status/commands, port-6000
 // camera), so they're grouped rather than matched by a single model id.
-const BAMBU_PROFILES = new Set(['bambulab_a1_mini', 'bambulab_h2s', 'bambulab_h2d']);
+const BAMBU_PROFILES = new Set(['bambulab_a1_mini', 'bambulab_h2s', 'bambulab_h2d', 'bambulab_h2c']);
 
 // The H2 series (like the X1) exposes its camera as an RTSP-over-TLS stream on
 // port 322 (LIVE555 server, digest auth) — a different protocol from the A1/P1
 // port-6000 length-prefixed JPEG socket — so its snapshots are grabbed via
 // ffmpeg instead of captureBambuSnapshot.
-const BAMBU_RTSP_PROFILES = new Set(['bambulab_h2s', 'bambulab_h2d']);
+const BAMBU_RTSP_PROFILES = new Set(['bambulab_h2s', 'bambulab_h2d', 'bambulab_h2c']);
 
 const PRINTER_CARD_LAYOUT_KEY = 'printer_card_layout';
 const PRINTER_CARD_LAYOUT_PROFILES = new Set([
@@ -88,6 +88,7 @@ const PRINTER_CARD_LAYOUT_PROFILES = new Set([
   'bambulab_a1_mini',
   'bambulab_h2s',
   'bambulab_h2d',
+  'bambulab_h2c',
 ]);
 
 // Analytics page grid layout: a single shared arrangement (admins drag/resize
@@ -893,6 +894,7 @@ function buildBambuLedPayload(node, on, sequenceId) {
 const BAMBU_LIGHT_NODES = {
   bambulab_h2s: ['chamber_light', 'chamber_light2'],
   bambulab_h2d: ['chamber_light', 'chamber_light2'],
+  bambulab_h2c: ['chamber_light', 'chamber_light2'],
 };
 
 function bambuLightNodes(profile) {
@@ -1220,7 +1222,7 @@ async function handleBambuWebcam(req, res, printer, pathParts) {
 // stream multipart/x-mixed-replace; everything else returns a single JPEG
 // snapshot. It just resolves the printer and delegates to the existing webcam
 // proxy, so the cross-origin / no-store / Bambu handling is shared.
-const LIVE_MJPEG_PROFILES = new Set(['snapmaker_u1', 'bambulab_h2s', 'bambulab_h2d']);
+const LIVE_MJPEG_PROFILES = new Set(['snapmaker_u1', 'bambulab_h2s', 'bambulab_h2d', 'bambulab_h2c']);
 
 async function handleWebcamStream(req, res, requestUrl) {
   const match = requestUrl.pathname.match(/^\/webcam\/([^/]+)\/?$/);

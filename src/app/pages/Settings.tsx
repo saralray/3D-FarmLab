@@ -7,7 +7,15 @@ import { Input } from '../components/ui/input';
 import { Slider } from '../components/ui/slider';
 import defaultLogo from '../assets/printer-logo.svg';
 import { Label } from '../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { Checkbox } from '../components/ui/checkbox';
@@ -43,7 +51,12 @@ import {
 } from '../lib/managerRequestsApi';
 import { fetchPrinters, savePrinter } from '../lib/printersApi';
 import { generateId, slugifyPrinterId } from '../lib/id';
-import { isBambuProfile, normalizePrinter, PRINTER_PROFILES } from '../lib/printerProfiles';
+import {
+  isBambuProfile,
+  normalizePrinter,
+  PRINTER_PROFILES,
+  PRINTER_PROVIDER_GROUPS,
+} from '../lib/printerProfiles';
 import {
   fetchBrandingSettings,
   saveBrandingSettings,
@@ -877,14 +890,23 @@ export function Settings() {
                     onValueChange={(value) => setPrinterProfile(value as PrinterProfile)}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a profile" />
+                      {/* Show the full vendor + series name in the trigger; the
+                          dropdown groups by vendor so each item only needs its series. */}
+                      <SelectValue placeholder="Select a profile">
+                        {PRINTER_PROFILES[printerProfile].label}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="generic">Generic</SelectItem>
-                      <SelectItem value="snapmaker_u1">Snapmaker U1</SelectItem>
-                      <SelectItem value="bambulab_a1_mini">Bambu Lab A1 Mini</SelectItem>
-                      <SelectItem value="bambulab_h2s">Bambu Lab H2S</SelectItem>
-                      <SelectItem value="bambulab_h2d">Bambu Lab H2D</SelectItem>
+                      {PRINTER_PROVIDER_GROUPS.map((group) => (
+                        <SelectGroup key={group.provider}>
+                          <SelectLabel>{group.providerLabel}</SelectLabel>
+                          {group.options.map((option) => (
+                            <SelectItem key={option.profile} value={option.profile}>
+                              {option.series}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
