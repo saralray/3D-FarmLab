@@ -1753,7 +1753,9 @@ export function Settings() {
               <div className="space-y-2">
                 <Label htmlFor="sso-provider">Single sign-on provider</Label>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Choose which provider to configure. Use one SSO provider at a time.
+                  Choose which provider to configure. Each provider has its own
+                  enable toggle and they can be turned on independently — the login
+                  screen shows a button for every enabled provider.
                 </p>
                 <Select
                   value={ssoProvider}

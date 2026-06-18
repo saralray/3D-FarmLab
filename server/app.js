@@ -2616,8 +2616,14 @@ async function handleApi(req, res, requestUrl) {
       authorizeUrl.searchParams.set('response_type', 'code');
       authorizeUrl.searchParams.set('scope', OAUTH_SCOPE);
       authorizeUrl.searchParams.set('state', state);
-      // Force the account chooser so a shared kiosk doesn't silently reuse a login.
-      authorizeUrl.searchParams.set('prompt', 'select_account');
+      // Force a fresh login so a shared kiosk doesn't silently reuse a session.
+      // On-prem AD FS (authority set) only understands prompt=login/none/consent —
+      // it rejects the Entra/Google `select_account` value with invalid_request —
+      // so use `login` there and the account chooser only on cloud providers.
+      authorizeUrl.searchParams.set(
+        'prompt',
+        config.authority ? 'login' : 'select_account',
+      );
       sendRedirect(res, authorizeUrl.toString());
       return true;
     }
@@ -3084,24 +3090,9 @@ async function handleApi(req, res, requestUrl) {
         authority,
         allowedDomains,
       });
-      // Only one SSO provider is active at a time: enabling this one disables the
-      // others (their config is preserved so they can be re-enabled later) —
-      // including the SAML provider.
-      if (enabled) {
-        for (const [otherName, otherProvider] of Object.entries(OAUTH_PROVIDERS)) {
-          if (otherName === providerName) {
-            continue;
-          }
-          const otherStored = (await getAppSetting(otherProvider.settingsKey)) || {};
-          if (otherStored.enabled === true) {
-            await setAppSetting(otherProvider.settingsKey, { ...otherStored, enabled: false });
-          }
-        }
-        const samlStored = (await getAppSetting(SAML_SETTINGS_KEY)) || {};
-        if (samlStored.enabled === true) {
-          await setAppSetting(SAML_SETTINGS_KEY, { ...samlStored, enabled: false });
-        }
-      }
+      // SSO providers are independent: Google, Microsoft/AD FS, and SAML can each
+      // be enabled at the same time, and the login page renders one button per
+      // enabled provider. Enabling one no longer disables the others.
       const saved = await getOAuthConfig(providerName);
       sendJson(res, 200, {
         enabled: saved.enabled,
@@ -3182,15 +3173,8 @@ async function handleApi(req, res, requestUrl) {
         autoProvisionUsers,
         updatedAt: new Date().toISOString(),
       });
-      // Mutual exclusivity: enabling SAML disables the OAuth providers.
-      if (enabled) {
-        for (const provider of Object.values(OAUTH_PROVIDERS)) {
-          const stored = (await getAppSetting(provider.settingsKey)) || {};
-          if (stored.enabled === true) {
-            await setAppSetting(provider.settingsKey, { ...stored, enabled: false });
-          }
-        }
-      }
+      // SSO providers are independent: SAML can be enabled alongside the OAuth
+      // providers (Google, Microsoft/AD FS). Enabling SAML no longer disables them.
       await recordAuditLog({
         action: 'settings.saml.update',
         target: 'saml_sso',

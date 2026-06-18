@@ -784,10 +784,9 @@ A blank/omitted `clientSecret` **keeps** the stored one (so the form can
 round-trip without re-entering it); a non-empty value replaces it. Returns the
 same redacted shape as `GET`.
 
-**Only one SSO mechanism is active at a time:** saving with `enabled: true`
-disables the other OAuth provider **and** SAML SSO (their config is preserved, so
-they can be re-enabled later). The admin UI surfaces this as a single-provider
-chooser.
+**SSO providers are independent:** Google, Microsoft/AD FS, and SAML can each be
+enabled at the same time. Saving one provider no longer disables the others — the
+login screen shows one sign-in button per enabled provider.
 
 ## SSO configuration (`/api/settings/saml`)
 
