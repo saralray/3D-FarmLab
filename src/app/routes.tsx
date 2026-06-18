@@ -49,10 +49,6 @@ export const router = createBrowserRouter([
     element: withSuspense(<Login />),
   },
   {
-    path: '/admin',
-    element: withSuspense(<Login />),
-  },
-  {
     path: '/request',
     element: withSuspense(<PrintRequest />),
   },

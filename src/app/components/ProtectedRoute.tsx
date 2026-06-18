@@ -46,7 +46,7 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
     if (PUBLIC_VIEWER_MODE) {
       return <Navigate to="/" replace />;
     }
-    return <Navigate to="/admin" state={{ from: location }} replace />;
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   if (user.role !== 'admin') {

@@ -19,7 +19,7 @@ export function Navigation() {
 
   const handleLogout = () => {
     logout();
-    navigate('/admin');
+    navigate('/login');
   };
   const { isCollapsed, toggleSidebar } = useSidebar();
   const [logoWave, setLogoWave] = useState(false);

@@ -25,7 +25,7 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const isAdminPage = location.pathname === '/admin';
+  const isAdminPage = location.pathname === '/login';
 
   // null = still checking; true/false = whether an admin password has been set.
   // While null we hold off rendering either form to avoid a flicker.

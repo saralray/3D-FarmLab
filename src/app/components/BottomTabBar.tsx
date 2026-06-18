@@ -55,7 +55,7 @@ export function BottomTabBar() {
 
   const handleLogout = () => {
     logout();
-    navigate('/admin');
+    navigate('/login');
   };
 
   const tabClass = (active: boolean) =>
