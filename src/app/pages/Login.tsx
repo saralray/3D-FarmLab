@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Checkbox } from '../components/ui/checkbox';
-import { Eye, EyeOff, ClipboardList } from 'lucide-react';
+import { Eye, EyeOff, ClipboardList, KeyRound } from 'lucide-react';
 import { PUBLIC_VIEWER_MODE } from '../lib/runtimeConfig';
 import { fetchAdminConfigured } from '../lib/adminCredentialApi';
 import { fetchEnabledOAuthProviders, type EnabledOAuthProviders } from '../lib/oauthApi';
@@ -21,6 +21,8 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   exchange_failed: 'Could not complete sign-in. Please try again.',
   unverified_email: 'Your account email is not verified.',
   domain_not_allowed: 'Your account is not allowed to sign in here.',
+  saml_invalid: 'The SSO response could not be verified. Please try again.',
+  saml_not_provisioned: 'Your account is not provisioned for access here.',
 };
 
 export function Login() {
@@ -45,6 +47,7 @@ export function Login() {
   const [oauthProviders, setOauthProviders] = useState<EnabledOAuthProviders>({
     google: false,
     microsoft: false,
+    saml: false,
   });
 
   const from = (location.state as any)?.from?.pathname || '/';
@@ -301,13 +304,28 @@ export function Login() {
               </div>
             )}
 
-            {(oauthProviders.google || oauthProviders.microsoft) && !showSetup && (
+            {(oauthProviders.google || oauthProviders.microsoft || oauthProviders.saml) &&
+              !showSetup && (
               <>
                 <div className="flex items-center gap-3">
                   <span className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
                   <span className="text-xs uppercase tracking-wide text-gray-400">or</span>
                   <span className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
                 </div>
+                {oauthProviders.saml && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-14 w-full gap-3 text-base"
+                    disabled={isLoading}
+                    onClick={() => {
+                      window.location.href = '/api/auth/saml/start';
+                    }}
+                  >
+                    <KeyRound className="size-5" />
+                    Sign in with SSO
+                  </Button>
+                )}
                 {oauthProviders.google && (
                   <Button
                     type="button"

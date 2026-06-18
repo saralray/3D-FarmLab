@@ -50,6 +50,7 @@ import {
   DEFAULT_SITE_NAME,
 } from '../lib/settingsApi';
 import { OAuthProviderSettings } from '../components/OAuthProviderSettings';
+import { SamlSsoSettings } from '../components/SamlSsoSettings';
 import { fetchEnabledOAuthProviders } from '../lib/oauthApi';
 
 const IPV4_PATTERN =
@@ -105,7 +106,7 @@ export function Settings() {
   const [actioningManagerId, setActioningManagerId] = useState<string | null>(null);
   // Which SSO provider's config form to show. Only one provider is configured at
   // a time — the admin picks before the form appears.
-  const [ssoProvider, setSsoProvider] = useState<'google' | 'microsoft'>('google');
+  const [ssoProvider, setSsoProvider] = useState<'google' | 'microsoft' | 'saml'>('google');
 
   useEffect(() => {
     fetchPrinters()
@@ -148,7 +149,9 @@ export function Settings() {
     // Open the Sign-in tab on whichever SSO provider is currently active.
     fetchEnabledOAuthProviders()
       .then((providers) => {
-        if (providers.microsoft && !providers.google) {
+        if (providers.saml && !providers.google && !providers.microsoft) {
+          setSsoProvider('saml');
+        } else if (providers.microsoft && !providers.google) {
           setSsoProvider('microsoft');
         }
       })
@@ -1754,7 +1757,7 @@ export function Settings() {
                 </p>
                 <Select
                   value={ssoProvider}
-                  onValueChange={(value) => setSsoProvider(value as 'google' | 'microsoft')}
+                  onValueChange={(value) => setSsoProvider(value as 'google' | 'microsoft' | 'saml')}
                   disabled={user?.role !== 'admin'}
                 >
                   <SelectTrigger id="sso-provider" className="w-full sm:w-72">
@@ -1763,12 +1766,13 @@ export function Settings() {
                   <SelectContent>
                     <SelectItem value="google">Google</SelectItem>
                     <SelectItem value="microsoft">Microsoft</SelectItem>
+                    <SelectItem value="saml">SAML 2.0</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </Card>
 
-            {ssoProvider === 'google' ? (
+            {ssoProvider === 'google' && (
               <OAuthProviderSettings
                 provider="google"
                 label="Google"
@@ -1776,7 +1780,8 @@ export function Settings() {
                 clientIdPlaceholder="xxxxxxxx.apps.googleusercontent.com"
                 setupHint={<>Create an OAuth client in the Google Cloud console.</>}
               />
-            ) : (
+            )}
+            {ssoProvider === 'microsoft' && (
               <OAuthProviderSettings
                 provider="microsoft"
                 label="Microsoft"
@@ -1789,6 +1794,9 @@ export function Settings() {
                   with the authority URL below.</>
                 }
               />
+            )}
+            {ssoProvider === 'saml' && (
+              <SamlSsoSettings disabled={user?.role !== 'admin'} />
             )}
           </div>
         </TabsContent>

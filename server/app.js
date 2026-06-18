@@ -57,6 +57,14 @@ import {
   verifyState,
 } from './oauthGrant.js';
 import {
+  buildAuthnRequest,
+  buildSpMetadata,
+  isValidCertificate,
+  isValidHttpUrl,
+  parseAndVerifySamlResponse,
+  SamlError,
+} from './samlSp.js';
+import {
   addCameraViewer,
   getAllCameraHealth,
   getCameraHealth,
@@ -247,6 +255,60 @@ function resolvePublicOrigin(req) {
 
 function oauthRedirectUri(req, providerName) {
   return `${resolvePublicOrigin(req)}/api/auth/${providerName}/callback`;
+}
+
+// SAML 2.0 SSO (the dashboard is the Service Provider). Like OAuth, config lives
+// in app_settings and is read fresh on every request, so an admin can change it
+// in Settings → SSO Configuration with no restart. The flow reuses the cookieless
+// grant-token hand-off: the ACS verifies the signed assertion, mints the same
+// HMAC auth grant OAuth uses, and redirects the browser to /login?oauth_grant=.
+const SAML_SETTINGS_KEY = 'saml_sso';
+// Roles an asserted `role` attribute may map onto; anything else falls back to
+// the read-only `student` role (matching the OAuth default).
+const SAML_ALLOWED_ROLES = new Set(['admin', 'operator', 'viewer', 'student']);
+const SAML_DEFAULT_ROLE = 'student';
+
+// Default SP identifiers derived from the public origin when an admin leaves the
+// fields blank. These are also what the metadata endpoint advertises.
+function defaultSamlSpEntityId(req) {
+  return `${resolvePublicOrigin(req)}/api/auth/saml/metadata`;
+}
+function defaultSamlAcsUrl(req) {
+  return `${resolvePublicOrigin(req)}/api/auth/saml/acs`;
+}
+
+async function getSamlConfig() {
+  const stored = (await getAppSetting(SAML_SETTINGS_KEY)) || {};
+  return {
+    enabled: stored.enabled === true,
+    idpEntityId: typeof stored.idpEntityId === 'string' ? stored.idpEntityId.trim() : '',
+    idpSsoUrl: typeof stored.idpSsoUrl === 'string' ? stored.idpSsoUrl.trim() : '',
+    idpCertificate: typeof stored.idpCertificate === 'string' ? stored.idpCertificate.trim() : '',
+    spEntityId: typeof stored.spEntityId === 'string' ? stored.spEntityId.trim() : '',
+    acsUrl: typeof stored.acsUrl === 'string' ? stored.acsUrl.trim() : '',
+    autoProvisionUsers: stored.autoProvisionUsers === true,
+    updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : null,
+  };
+}
+
+// True only when the flow can actually run: enabled, with an IdP SSO URL and a
+// signing certificate to verify assertions against.
+function isSamlConfigured(config) {
+  return Boolean(config && config.enabled && config.idpSsoUrl && config.idpCertificate);
+}
+
+// Resolve the effective SP entity id / ACS URL, falling back to the request
+// origin when an admin left them blank.
+function resolveSamlEndpoints(config, req) {
+  return {
+    spEntityId: config.spEntityId || defaultSamlSpEntityId(req),
+    acsUrl: config.acsUrl || defaultSamlAcsUrl(req),
+  };
+}
+
+// Map an asserted role onto an allowed dashboard role; unknown/blank → student.
+function normalizeSamlRole(role) {
+  return SAML_ALLOWED_ROLES.has(role) ? role : SAML_DEFAULT_ROLE;
 }
 
 // Send a 302 to a path/URL on the dashboard (or the provider). Used by the OAuth
@@ -2393,14 +2455,136 @@ async function handleApi(req, res, requestUrl) {
   //   GET  /api/auth/:provider/callback → exchange code, 302 back with ?oauth_grant
   //   POST /api/auth/verify             → { token } → { user }  : provider-agnostic
   if (requestUrl.pathname === '/api/auth/providers' && req.method === 'GET') {
-    const [google, microsoft] = await Promise.all([
+    const [google, microsoft, saml] = await Promise.all([
       getOAuthConfig('google'),
       getOAuthConfig('microsoft'),
+      getSamlConfig(),
     ]);
     sendJson(res, 200, {
       google: isOAuthConfigured(google),
       microsoft: isOAuthConfigured(microsoft),
+      saml: isSamlConfigured(saml),
     });
+    return true;
+  }
+
+  // SAML 2.0 SSO endpoints (the dashboard is the SP).
+  //   GET  /api/auth/saml/metadata → SP metadata XML (public, for IdP setup)
+  //   GET  /api/auth/saml/start    → 302 to the IdP carrying a deflate AuthnRequest
+  //   POST /api/auth/saml/acs      → consume the IdP's signed SAMLResponse (POST binding)
+  if (requestUrl.pathname === '/api/auth/saml/metadata' && req.method === 'GET') {
+    const config = await getSamlConfig();
+    const { spEntityId, acsUrl } = resolveSamlEndpoints(config, req);
+    const xml = buildSpMetadata({ spEntityId, acsUrl });
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/samlmetadata+xml; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="sp-metadata.xml"');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(xml);
+    return true;
+  }
+
+  // Friendly deep-link alias for the SSO portal. Put a "Print Farm" button on the
+  // IdP portal page pointing at https://<this-host>/launch; clicking it kicks off
+  // the SP-initiated SAML login (→ IdP → ACS) and lands the signed-in user on the
+  // dashboard. It is a thin 302 to the canonical SAML start so there is a single
+  // source of truth for the flow.
+  if (requestUrl.pathname === '/launch' && req.method === 'GET') {
+    sendRedirect(res, '/api/auth/saml/start');
+    return true;
+  }
+
+  if (requestUrl.pathname === '/api/auth/saml/start' && req.method === 'GET') {
+    const config = await getSamlConfig();
+    if (!isSamlConfigured(config)) {
+      sendRedirect(res, '/login?oauth_error=not_configured');
+      return true;
+    }
+    const { spEntityId, acsUrl } = resolveSamlEndpoints(config, req);
+    const secret = await getOAuthSigningSecret();
+    // Build the request first so its id can be bound into the signed RelayState;
+    // the ACS then enforces InResponseTo against it (CSRF / unsolicited-response
+    // protection on top of the assertion signature).
+    const { url, requestId } = buildAuthnRequest({
+      spEntityId,
+      acsUrl,
+      idpSsoUrl: config.idpSsoUrl,
+      relayState: '',
+    });
+    const relayState = signState(secret, { n: requestId, p: 'saml' });
+    const redirectUrl = new URL(url);
+    redirectUrl.searchParams.set('RelayState', relayState);
+    sendRedirect(res, redirectUrl.toString());
+    return true;
+  }
+
+  if (requestUrl.pathname === '/api/auth/saml/acs' && req.method === 'POST') {
+    const config = await getSamlConfig();
+    if (!isSamlConfigured(config)) {
+      sendRedirect(res, '/login?oauth_error=not_configured');
+      return true;
+    }
+    const { spEntityId, acsUrl } = resolveSamlEndpoints(config, req);
+    const secret = await getOAuthSigningSecret();
+
+    // The IdP POSTs an auto-submit form (application/x-www-form-urlencoded).
+    let form;
+    try {
+      const body = await readBody(req);
+      form = new URLSearchParams(body.toString('utf8'));
+    } catch {
+      sendRedirect(res, '/login?oauth_error=denied');
+      return true;
+    }
+    const samlResponseB64 = form.get('SAMLResponse') || '';
+    const relayState = form.get('RelayState') || '';
+    // RelayState is our own signed token; recover the AuthnRequest id we issued.
+    const relayData = verifyState(secret, relayState);
+    const expectedInResponseTo = relayData && relayData.p === 'saml' ? relayData.n : null;
+
+    let identity;
+    try {
+      identity = parseAndVerifySamlResponse({
+        samlResponseB64,
+        idpCertificate: config.idpCertificate,
+        spEntityId,
+        acsUrl,
+        expectedInResponseTo,
+      });
+    } catch (error) {
+      if (!(error instanceof SamlError)) {
+        throw error;
+      }
+      sendRedirect(res, '/login?oauth_error=saml_invalid');
+      return true;
+    }
+
+    // Auto-provision gate. When off, only users already in the staff list may
+    // sign in, and they keep their assigned role (the assertion can't escalate);
+    // a known account always keeps its stored role regardless. When on, an
+    // unknown user is admitted with the (validated) role the assertion carries.
+    const staffUsers = await readStaffUsers();
+    const existing = staffUsers.find(
+      (account) =>
+        typeof account.username === 'string' &&
+        account.username.toLowerCase() === identity.email.toLowerCase(),
+    );
+    if (!existing && !config.autoProvisionUsers) {
+      sendRedirect(res, '/login?oauth_error=saml_not_provisioned');
+      return true;
+    }
+    const role = existing && USER_ROLES.has(existing.role)
+      ? existing.role
+      : normalizeSamlRole(identity.role);
+
+    const grant = mintAuthGrant(secret, {
+      provider: 'saml',
+      sub: identity.email,
+      email: identity.email,
+      name: identity.name || identity.email,
+      role,
+    });
+    sendRedirect(res, `/login?oauth_grant=${encodeURIComponent(grant)}`);
     return true;
   }
 
@@ -2901,7 +3085,8 @@ async function handleApi(req, res, requestUrl) {
         allowedDomains,
       });
       // Only one SSO provider is active at a time: enabling this one disables the
-      // other (its other config is preserved so it can be re-enabled later).
+      // others (their config is preserved so they can be re-enabled later) —
+      // including the SAML provider.
       if (enabled) {
         for (const [otherName, otherProvider] of Object.entries(OAUTH_PROVIDERS)) {
           if (otherName === providerName) {
@@ -2911,6 +3096,10 @@ async function handleApi(req, res, requestUrl) {
           if (otherStored.enabled === true) {
             await setAppSetting(otherProvider.settingsKey, { ...otherStored, enabled: false });
           }
+        }
+        const samlStored = (await getAppSetting(SAML_SETTINGS_KEY)) || {};
+        if (samlStored.enabled === true) {
+          await setAppSetting(SAML_SETTINGS_KEY, { ...samlStored, enabled: false });
         }
       }
       const saved = await getOAuthConfig(providerName);
@@ -2924,6 +3113,162 @@ async function handleApi(req, res, requestUrl) {
       });
       return true;
     }
+  }
+
+  // SAML 2.0 SSO configuration (Settings → SSO Configuration). GET returns the
+  // saved config (the certificate is a public signing cert, so it is returned in
+  // full so the form can round-trip). PUT validates URLs and the cert before
+  // persisting, stamps updatedAt, and — when enabling SAML — disables any OAuth
+  // provider so only one SSO mechanism is active at a time. Admin-only is enforced
+  // in the UI (the cookieless frontend /api/* surface, like the OAuth settings
+  // routes, has no server-side session to gate on; the key-gated /api/v1 surface
+  // is the authenticated path).
+  if (requestUrl.pathname === '/api/settings/saml') {
+    if (req.method === 'GET') {
+      const config = await getSamlConfig();
+      const { spEntityId, acsUrl } = resolveSamlEndpoints(config, req);
+      sendJson(res, 200, {
+        ...config,
+        // Surface the effective SP identifiers so the form can prefill the
+        // defaults the metadata endpoint advertises when the fields are blank.
+        defaultSpEntityId: defaultSamlSpEntityId(req),
+        defaultAcsUrl: defaultSamlAcsUrl(req),
+        effectiveSpEntityId: spEntityId,
+        effectiveAcsUrl: acsUrl,
+      });
+      return true;
+    }
+    if (req.method === 'PUT') {
+      const body = await readJsonBody(req);
+      const enabled = body?.enabled === true;
+      const idpEntityId = typeof body?.idpEntityId === 'string' ? body.idpEntityId.trim() : '';
+      const idpSsoUrl = typeof body?.idpSsoUrl === 'string' ? body.idpSsoUrl.trim() : '';
+      const idpCertificate =
+        typeof body?.idpCertificate === 'string' ? body.idpCertificate.trim() : '';
+      const spEntityId = typeof body?.spEntityId === 'string' ? body.spEntityId.trim() : '';
+      const acsUrl = typeof body?.acsUrl === 'string' ? body.acsUrl.trim() : '';
+      const autoProvisionUsers = body?.autoProvisionUsers === true;
+
+      // URL + certificate validation. URLs, when provided, must be absolute
+      // http(s); the IdP SSO URL and certificate are required to enable the flow.
+      for (const [label, value] of [
+        ['IdP SSO URL', idpSsoUrl],
+        ['SP entity ID', spEntityId],
+        ['ACS URL', acsUrl],
+      ]) {
+        if (value && !isValidHttpUrl(value)) {
+          sendJson(res, 400, { error: `${label} must be a valid http(s) URL` });
+          return true;
+        }
+      }
+      if (idpCertificate && !isValidCertificate(idpCertificate)) {
+        sendJson(res, 400, { error: 'IdP certificate is not a valid X.509 PEM certificate' });
+        return true;
+      }
+      if (enabled && (!idpSsoUrl || !idpCertificate)) {
+        sendJson(res, 400, {
+          error: 'An IdP SSO URL and certificate are required to enable SAML SSO',
+        });
+        return true;
+      }
+
+      await setAppSetting(SAML_SETTINGS_KEY, {
+        enabled,
+        idpEntityId,
+        idpSsoUrl,
+        idpCertificate,
+        spEntityId,
+        acsUrl,
+        autoProvisionUsers,
+        updatedAt: new Date().toISOString(),
+      });
+      // Mutual exclusivity: enabling SAML disables the OAuth providers.
+      if (enabled) {
+        for (const provider of Object.values(OAUTH_PROVIDERS)) {
+          const stored = (await getAppSetting(provider.settingsKey)) || {};
+          if (stored.enabled === true) {
+            await setAppSetting(provider.settingsKey, { ...stored, enabled: false });
+          }
+        }
+      }
+      await recordAuditLog({
+        action: 'settings.saml.update',
+        target: 'saml_sso',
+        details: { enabled, autoProvisionUsers },
+        source: 'web',
+        ip: getClientIp(req),
+      });
+      const saved = await getSamlConfig();
+      const endpoints = resolveSamlEndpoints(saved, req);
+      sendJson(res, 200, {
+        ...saved,
+        defaultSpEntityId: defaultSamlSpEntityId(req),
+        defaultAcsUrl: defaultSamlAcsUrl(req),
+        effectiveSpEntityId: endpoints.spEntityId,
+        effectiveAcsUrl: endpoints.acsUrl,
+      });
+      return true;
+    }
+  }
+
+  // Test the SAML configuration without committing it: validates the submitted
+  // (or stored) values and probes the IdP SSO URL for reachability. Returns a
+  // list of checks the UI renders, plus an overall ok flag.
+  if (requestUrl.pathname === '/api/settings/saml/test' && req.method === 'POST') {
+    const stored = await getSamlConfig();
+    const body = await readJsonBody(req).catch(() => ({}));
+    const idpSsoUrl =
+      typeof body?.idpSsoUrl === 'string' && body.idpSsoUrl.trim()
+        ? body.idpSsoUrl.trim()
+        : stored.idpSsoUrl;
+    const idpCertificate =
+      typeof body?.idpCertificate === 'string' && body.idpCertificate.trim()
+        ? body.idpCertificate.trim()
+        : stored.idpCertificate;
+
+    const checks = [];
+    const urlOk = isValidHttpUrl(idpSsoUrl);
+    checks.push({
+      label: 'IdP SSO URL is a valid http(s) URL',
+      ok: urlOk,
+    });
+    checks.push({
+      label: 'IdP certificate is a valid X.509 certificate',
+      ok: isValidCertificate(idpCertificate),
+    });
+
+    if (urlOk) {
+      // Probe the IdP endpoint. Many IdP SSO endpoints reject a bare GET (they
+      // expect a SAMLRequest), so any HTTP response — even 4xx — proves it is
+      // reachable; only a network/timeout failure counts as unreachable.
+      let reachable = false;
+      let detail = '';
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        try {
+          const probe = await fetch(idpSsoUrl, {
+            method: 'GET',
+            redirect: 'manual',
+            signal: controller.signal,
+          });
+          reachable = true;
+          detail = `HTTP ${probe.status}`;
+        } finally {
+          clearTimeout(timeout);
+        }
+      } catch (error) {
+        detail = error instanceof Error ? error.message : 'unreachable';
+      }
+      checks.push({
+        label: 'IdP SSO URL is reachable',
+        ok: reachable,
+        detail,
+      });
+    }
+
+    sendJson(res, 200, { ok: checks.every((check) => check.ok), checks });
+    return true;
   }
 
   // Customizable site branding (logo + optional full-page background). GET is

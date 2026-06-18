@@ -582,12 +582,14 @@ curl -H "X-Api-Key: abc123..." http://printfarm.local/api/v1/printers
 
 A **public** endpoint group (no API key) that runs the OAuth 2.0 Authorization
 Code flow for two providers — **`google`** and **`microsoft`** (Microsoft Entra
-ID / Azure AD). The dashboard auth is cookieless, so instead of a server session
-the callback mints a short-lived, **HMAC-signed grant token** and hands it back
-to the browser as a `?oauth_grant=<token>` URL param — the same hand-off shape as
-the slicer grant. The client verifies the token server-side before establishing a
-session. Everyone who signs in this way is granted the read-only **`student`**
-role.
+ID / Azure AD) — plus **SAML 2.0** SSO against an external identity provider (the
+dashboard is the Service Provider). The dashboard auth is cookieless, so instead
+of a server session the flow mints a short-lived, **HMAC-signed grant token** and
+hands it back to the browser as a `?oauth_grant=<token>` URL param — the same
+hand-off shape as the slicer grant. The client verifies the token server-side
+before establishing a session. OAuth sign-ins are granted the read-only
+**`student`** role; SAML sign-ins take their role from the assertion (or keep the
+stored role of an existing staff account) — see the SAML section below.
 
 Configure each provider's client id/secret, optional allowed email domains, and
 (Microsoft only) either the cloud directory **Tenant ID** or an on-prem **AD FS
@@ -606,10 +608,10 @@ enabled provider.
 Which providers are configured **and** enabled. Drives the login buttons.
 **Public.** Never returns any secret.
 
-**Response `200`:**
+**Response `200`** (`saml` reflects whether SAML SSO is enabled + configured):
 
 ```json
-{ "google": true, "microsoft": false }
+{ "google": true, "microsoft": false, "saml": false }
 ```
 
 ---
@@ -673,6 +675,66 @@ provider). **Public.**
 
 **Response `401`** if the token is missing, forged, or expired.
 
+For SAML sign-ins the ACS (below) mints the **same** grant token, so this one
+`verify` endpoint serves all providers; the returned `id` is `saml:<email>`.
+
+---
+
+### SAML 2.0 SSO endpoints
+
+The dashboard is the SAML **Service Provider**. Configure the IdP in **Settings →
+SSO Configuration** (`/api/settings/saml`). The AuthnRequest uses the
+**HTTP-Redirect** binding (DEFLATE + base64); the IdP returns the response via the
+**HTTP-POST** binding to the ACS. The assertion's enveloped XML signature is
+verified against the stored IdP certificate (the cert embedded in the assertion is
+ignored), the audience must match the SP entity ID, the recipient must match the
+ACS URL, the validity window is enforced, and `InResponseTo` must match the
+AuthnRequest id (carried in a signed `RelayState`).
+
+#### `GET /api/auth/saml/metadata`
+
+**Public.** Returns the SP metadata XML (`application/samlmetadata+xml`) generated
+from the saved SP entity ID + ACS URL (falling back to origin-derived defaults).
+Import this into the IdP to register the dashboard as an SP.
+
+---
+
+#### `GET /api/auth/saml/start`
+
+**Public.** Begins SAML sign-in: `302`-redirects the browser to the IdP SSO URL
+with a DEFLATE+base64 `SAMLRequest` and a signed `RelayState`. Redirects to
+`/login?oauth_error=not_configured` when SAML is disabled/unconfigured.
+
+---
+
+#### `GET /launch`
+
+**Public.** Friendly deep-link alias for the SSO portal — a one-click,
+SP-initiated SAML sign-in. `302`-redirects to `GET /api/auth/saml/start`, which
+takes the browser through the IdP and lands the signed-in user on the dashboard.
+Intended as the `href` for a "Print Farm" button on the IdP portal page
+(`https://<this-host>/launch`). No body or query params.
+
+---
+
+#### `POST /api/auth/saml/acs`
+
+**Public.** The Assertion Consumer Service. The IdP posts
+`application/x-www-form-urlencoded` with `SAMLResponse` (base64 XML) and
+`RelayState`. Verifies the assertion, then resolves the user:
+
+- **Existing staff account** (matched by username = asserted email): admitted with
+  its **stored** role (the assertion cannot escalate it).
+- **Unknown user + Auto Provision Users on:** admitted with the asserted `role`
+  (validated to `admin`/`operator`/`viewer`/`student`; anything else →
+  `student`).
+- **Unknown user + Auto Provision Users off:** rejected with
+  `/login?oauth_error=saml_not_provisioned`.
+
+On success mints the grant token and `302`-redirects to
+`/login?oauth_grant=<token>`. On a verification failure redirects to
+`/login?oauth_error=saml_invalid` (or `not_configured`/`denied`).
+
 ## Sign-in settings (`/api/settings/oauth/:provider`)
 
 Admin-only in the UI (client-side session guard, like
@@ -722,6 +784,85 @@ A blank/omitted `clientSecret` **keeps** the stored one (so the form can
 round-trip without re-entering it); a non-empty value replaces it. Returns the
 same redacted shape as `GET`.
 
-**Only one provider is active at a time:** saving with `enabled: true` disables
-the other provider (its other config is preserved, so it can be re-enabled
-later). The admin UI surfaces this as a single-provider chooser.
+**Only one SSO mechanism is active at a time:** saving with `enabled: true`
+disables the other OAuth provider **and** SAML SSO (their config is preserved, so
+they can be re-enabled later). The admin UI surfaces this as a single-provider
+chooser.
+
+## SSO configuration (`/api/settings/saml`)
+
+Admin-only in the UI (client-side session guard, like `/api/settings/oauth`).
+Stores the SAML SSO config in `app_settings` (`saml_sso`) and applies it on the
+next sign-in with no restart. The IdP certificate is a **public** signing cert, so
+it is returned in full (unlike the OAuth client secret).
+
+#### `GET /api/settings/saml`
+
+**Response `200`:**
+
+```json
+{
+  "enabled": false,
+  "idpEntityId": "https://idp.example.com",
+  "idpSsoUrl": "https://idp.example.com/adfs/ls/",
+  "idpCertificate": "-----BEGIN CERTIFICATE-----\n...",
+  "spEntityId": "",
+  "acsUrl": "",
+  "autoProvisionUsers": false,
+  "updatedAt": "2026-06-18T00:00:00.000Z",
+  "defaultSpEntityId": "https://<origin>/api/auth/saml/metadata",
+  "defaultAcsUrl": "https://<origin>/api/auth/saml/acs",
+  "effectiveSpEntityId": "https://<origin>/api/auth/saml/metadata",
+  "effectiveAcsUrl": "https://<origin>/api/auth/saml/acs"
+}
+```
+
+`spEntityId`/`acsUrl` fall back to the origin-derived `default*` values (which the
+metadata endpoint advertises) when left blank; `effective*` is the resolved value.
+
+#### `PUT /api/settings/saml`
+
+**Request body:**
+
+```json
+{
+  "enabled": true,
+  "idpEntityId": "https://idp.example.com",
+  "idpSsoUrl": "https://idp.example.com/adfs/ls/",
+  "idpCertificate": "-----BEGIN CERTIFICATE-----\n...",
+  "spEntityId": "",
+  "acsUrl": "",
+  "autoProvisionUsers": false
+}
+```
+
+Validates before saving: any provided URL must be absolute http(s) (`400`
+otherwise); the certificate, if provided, must be a valid X.509 PEM (`400`
+otherwise); enabling requires both an IdP SSO URL and certificate (`400`
+otherwise). Stamps `updatedAt`, writes an audit log, and — when enabling —
+disables the OAuth providers. Returns the same shape as `GET`.
+
+#### `POST /api/settings/saml/test`
+
+Validates the submitted (or, where blank, stored) `idpSsoUrl` + `idpCertificate`
+and probes the IdP SSO URL for reachability (5 s timeout; any HTTP response counts
+as reachable). Does **not** save.
+
+**Request body** (optional — falls back to stored values):
+
+```json
+{ "idpSsoUrl": "https://idp.example.com/adfs/ls/", "idpCertificate": "-----BEGIN CERTIFICATE-----\n..." }
+```
+
+**Response `200`:**
+
+```json
+{
+  "ok": true,
+  "checks": [
+    { "label": "IdP SSO URL is a valid http(s) URL", "ok": true },
+    { "label": "IdP certificate is a valid X.509 certificate", "ok": true },
+    { "label": "IdP SSO URL is reachable", "ok": true, "detail": "HTTP 200" }
+  ]
+}
+```

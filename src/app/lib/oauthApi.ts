@@ -21,6 +21,7 @@ export interface OAuthUser {
 export interface EnabledOAuthProviders {
   google: boolean;
   microsoft: boolean;
+  saml: boolean;
 }
 
 // Admin-facing config shape for the Settings → Sign-in form. The client secret is
@@ -65,12 +66,16 @@ export async function fetchEnabledOAuthProviders(): Promise<EnabledOAuthProvider
   try {
     const response = await fetch('/api/auth/providers', { cache: 'no-store' });
     if (!response.ok) {
-      return { google: false, microsoft: false };
+      return { google: false, microsoft: false, saml: false };
     }
     const data = (await response.json()) as Partial<EnabledOAuthProviders>;
-    return { google: Boolean(data.google), microsoft: Boolean(data.microsoft) };
+    return {
+      google: Boolean(data.google),
+      microsoft: Boolean(data.microsoft),
+      saml: Boolean(data.saml),
+    };
   } catch {
-    return { google: false, microsoft: false };
+    return { google: false, microsoft: false, saml: false };
   }
 }
 
