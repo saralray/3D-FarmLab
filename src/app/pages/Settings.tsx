@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Bell, Check, Copy, Image as ImageIcon, KeyRound, MonitorCheck, Plus, Settings as SettingsIcon, Shield, Trash2, Users, X } from 'lucide-react';
+import { Bell, Check, Copy, Image as ImageIcon, KeyRound, MonitorCheck, Settings as SettingsIcon, Shield, Trash2, Users, X } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -56,6 +56,18 @@ import { fetchEnabledOAuthProviders } from '../lib/oauthApi';
 const IPV4_PATTERN =
   /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
+// Drives both the desktop tab bar and the mobile section picker so the two never
+// drift apart. Ordered by how often each section is touched.
+const SETTINGS_TABS = [
+  { value: 'manage-printers', label: 'Printers', icon: SettingsIcon },
+  { value: 'add-user', label: 'Users', icon: Users },
+  { value: 'branding', label: 'Branding', icon: ImageIcon },
+  { value: 'notifications', label: 'Notifications', icon: Bell },
+  { value: 'slicer-upload', label: 'API Keys', icon: KeyRound },
+  { value: 'managers', label: 'Managers', icon: MonitorCheck },
+  { value: 'sign-in', label: 'Sign-in', icon: Shield },
+] as const;
+
 export function Settings() {
   const { user, users, createUser, removeUser, changeUserPassword, changeUserRole, changeAdminPassword } =
     useAuth();
@@ -107,6 +119,8 @@ export function Settings() {
   // Which SSO provider's config form to show. Only one provider is configured at
   // a time — the admin picks before the form appears.
   const [ssoProvider, setSsoProvider] = useState<'google' | 'microsoft' | 'saml'>('google');
+  // Controlled so the desktop tab bar and the mobile section dropdown stay in sync.
+  const [activeTab, setActiveTab] = useState<string>('manage-printers');
 
   useEffect(() => {
     fetchPrinters()
@@ -808,36 +822,38 @@ export function Settings() {
       <div>
         <h1 className="text-3xl font-bold mb-2 dark:text-white">Settings</h1>
         <p className="text-gray-600 dark:text-gray-400">
-          Admin-only configuration for printers and user access.
+          Configure printers, users, branding, integrations, and sign-in. Most actions are admin-only.
         </p>
       </div>
 
-      <Tabs defaultValue="manage-printers" className="space-y-6">
-        <TabsList className="w-full justify-start overflow-x-auto">
-          <TabsTrigger value="manage-printers" className="min-w-max">
-            <SettingsIcon className="size-4" />
-            Manage Printers
-          </TabsTrigger>
-          <TabsTrigger value="add-user" className="min-w-max">
-            <Plus className="size-4" />
-            Add User
-          </TabsTrigger>
-          <TabsTrigger value="notifications" className="min-w-max">
-            <Bell className="size-4" />
-            Notifications
-          </TabsTrigger>
-          <TabsTrigger value="branding" className="min-w-max">
-            <ImageIcon className="size-4" />
-            Branding
-          </TabsTrigger>
-          <TabsTrigger value="slicer-upload" className="min-w-max">
-            <KeyRound className="size-4" />
-            API Keys
-          </TabsTrigger>
-          <TabsTrigger value="sign-in" className="min-w-max">
-            <Shield className="size-4" />
-            Sign-in
-          </TabsTrigger>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        {/* Mobile: a compact section picker keeps seven tabs from overflowing. */}
+        <div className="sm:hidden">
+          <Select value={activeTab} onValueChange={setActiveTab}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SETTINGS_TABS.map((tab) => (
+                <SelectItem key={tab.value} value={tab.value}>
+                  <span className="flex items-center gap-2">
+                    <tab.icon className="size-4" />
+                    {tab.label}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Desktop / tablet: wrapping tab bar so no section is hidden off-screen. */}
+        <TabsList className="hidden h-auto w-full flex-wrap justify-start gap-1 sm:flex">
+          {SETTINGS_TABS.map((tab) => (
+            <TabsTrigger key={tab.value} value={tab.value} className="flex-none">
+              <tab.icon className="size-4" />
+              {tab.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="manage-printers">
@@ -1017,7 +1033,8 @@ export function Settings() {
                 {isCreatingUser ? 'Adding user...' : 'Add User'}
               </Button>
             </form>
-            <div className="mb-5">
+
+            <div className="mt-8 mb-5 border-t border-gray-200 pt-6 dark:border-gray-800">
               <div className="flex items-center gap-2">
                 <Users className="size-5 text-blue-500" />
                 <h2 className="text-xl font-semibold dark:text-white">User List</h2>
@@ -1027,21 +1044,20 @@ export function Settings() {
               </p>
             </div>
 
-
             <div className="space-y-3">
               {users.map((account) => (
                 <div
                   key={account.id}
                   className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-950"
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
                       <div className="font-medium dark:text-white">{account.name}</div>
                       <div className="text-sm text-gray-600 dark:text-gray-400">
                         @{account.username}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                       {user?.role === 'admin' &&
                       account.username !== ADMIN_USERNAME &&
                       account.id !== user?.id ? (
@@ -1651,19 +1667,23 @@ export function Settings() {
                 </div>
               </div>
             )}
+          </Card>
+        </TabsContent>
 
-            {/* Manager Access Requests */}
-            <div className="mt-8">
-              <div className="mb-4 flex items-center gap-2">
+        <TabsContent value="managers">
+          <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+            <div className="mb-5">
+              <div className="flex items-center gap-2">
                 <MonitorCheck className="size-5 text-blue-500" />
                 <h2 className="text-xl font-semibold dark:text-white">Managers</h2>
               </div>
-              <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                 External apps can request a <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">printfarm_manage</code> API key.
                 Approve pending requests to grant access. Revoking removes the key immediately.
               </p>
+            </div>
 
-              <div className="space-y-3">
+            <div className="space-y-3">
                 {managerRequests.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
                     No manager connection requests yet.
@@ -1679,7 +1699,7 @@ export function Settings() {
                     return (
                       <div
                         key={req.id}
-                        className="flex items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950"
+                        className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:flex-row sm:items-start sm:justify-between dark:border-gray-800 dark:bg-gray-950"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
@@ -1742,14 +1762,13 @@ export function Settings() {
                     );
                   })
                 )}
-              </div>
             </div>
           </Card>
         </TabsContent>
 
         <TabsContent value="sign-in">
           <div className="space-y-6">
-            <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
+            <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
               <div className="space-y-2">
                 <Label htmlFor="sso-provider">Single sign-on provider</Label>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
