@@ -5,11 +5,13 @@ import hashlib
 import json
 import os
 import re
+import signal
 import socket
 import ssl
 import threading
 import time
 import zipfile
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import Any
@@ -35,6 +37,22 @@ OFFLINE_GRACE_SECONDS = max(int(os.getenv("PRINTER_OFFLINE_GRACE_SECONDS", "30")
 PERSIST_MAX_INTERVAL_SECONDS = max(
     int(os.getenv("PRINTER_PERSIST_MAX_INTERVAL_MS", "30000")) / 1000, 0
 )
+# ── Scalability & resilience ─────────────────────────────────────────────────
+# Refresh concurrency. Snapmaker/generic polling is blocking HTTP (each up to
+# REQUEST_TIMEOUT_SECONDS), so a small fixed pool serializes the cycle when many
+# printers are slow/offline. The pool is sized to the live printer count (capped),
+# so a healthy 50-200 printer farm refreshes in roughly one printer's timeout
+# instead of (printers / 8) timeouts. Set PRINTER_POLL_CONCURRENCY to pin an exact
+# size; 0 (default) sizes it automatically from the shard's printer count.
+POLL_CONCURRENCY = max(int(os.getenv("PRINTER_POLL_CONCURRENCY", "0")), 0)
+POLL_CONCURRENCY_MAX = max(int(os.getenv("PRINTER_POLL_CONCURRENCY_MAX", "64")), 1)
+POLL_CONCURRENCY_MIN = 8
+# Horizontal sharding. Run N poller replicas, each owning a disjoint subset of
+# printers (crc32(id) %% count == index): no double-polling, and each replica
+# holds Bambu MQTT connections only for its own shard. Default is a single shard
+# that owns every printer (the previous behavior).
+SHARD_COUNT = max(int(os.getenv("POLLER_SHARD_COUNT", "1")), 1)
+SHARD_INDEX = int(os.getenv("POLLER_SHARD_INDEX", "0")) % SHARD_COUNT
 # Bambu cameras aren't plain HTTP (port-6000 JPEG socket on the A1, RTSP-over-TLS
 # on the H2), so the poller can't fetch their snapshots directly the way it does
 # the Snapmaker's /webcam/snapshot.jpg. The web service already implements both
@@ -139,6 +157,15 @@ CREATE TABLE IF NOT EXISTS slicer_print_estimates (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (printer_id, job_name)
 );
+CREATE TABLE IF NOT EXISTS poller_health (
+  shard_index INTEGER PRIMARY KEY,
+  shard_count INTEGER NOT NULL DEFAULT 1,
+  last_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  cycle_duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
+  printers_polled INTEGER NOT NULL DEFAULT 0,
+  rows_written INTEGER NOT NULL DEFAULT 0,
+  refresh_failures INTEGER NOT NULL DEFAULT 0
+);
 SELECT pg_advisory_unlock(90210);
 """
 
@@ -188,6 +215,51 @@ def ensure_schema(conn: psycopg.Connection) -> None:
     with conn.cursor() as cur:
         cur.execute(SCHEMA_SQL)
     conn.commit()
+
+
+def owns_printer(printer_id: str) -> bool:
+    """True when this shard is responsible for a printer. A single-shard poller
+    (the default) owns everything; with N shards each printer is deterministically
+    assigned to exactly one shard, so replicas never double-poll."""
+    if SHARD_COUNT <= 1:
+        return True
+    return zlib.crc32(printer_id.encode("utf-8")) % SHARD_COUNT == SHARD_INDEX
+
+
+def upsert_poller_health(
+    conn: psycopg.Connection,
+    *,
+    cycle_duration_ms: float,
+    printers_polled: int,
+    rows_written: int,
+    refresh_failures: int,
+) -> None:
+    """Record this shard's last-cycle health so the exporter can surface poller
+    liveness and lag (printfarm_poller_*). One tiny upsert per cycle per shard."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO poller_health (
+              shard_index, shard_count, last_run_at,
+              cycle_duration_ms, printers_polled, rows_written, refresh_failures
+            ) VALUES (%s, %s, NOW(), %s, %s, %s, %s)
+            ON CONFLICT (shard_index) DO UPDATE SET
+              shard_count = EXCLUDED.shard_count,
+              last_run_at = EXCLUDED.last_run_at,
+              cycle_duration_ms = EXCLUDED.cycle_duration_ms,
+              printers_polled = EXCLUDED.printers_polled,
+              rows_written = EXCLUDED.rows_written,
+              refresh_failures = EXCLUDED.refresh_failures;
+            """,
+            (
+                SHARD_INDEX,
+                SHARD_COUNT,
+                cycle_duration_ms,
+                printers_polled,
+                rows_written,
+                refresh_failures,
+            ),
+        )
 
 
 # ── Printer secret encryption at rest ────────────────────────────────────────
@@ -2287,27 +2359,71 @@ def should_persist_printer(printer_id: str, signature: str, now: float) -> bool:
     return (now - _LAST_PG_WRITE.get(printer_id, 0.0)) >= PERSIST_MAX_INTERVAL_SECONDS
 
 
-def compute_next_printer(printer: dict[str, Any]) -> dict[str, Any]:
+def compute_next_printer(printer: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     """Refresh one printer's live status — network/MQTT I/O only, no DB access.
 
     Safe to run in a worker thread: it never touches the psycopg connection or the
-    main-thread-only print-time tracker. Any failure falls back to the offline
-    grace-period state, mirroring the previous inline behaviour.
+    main-thread-only print-time tracker. Returns (next_state, refresh_failed); on
+    any failure it falls back to the offline grace-period state (mirroring the
+    previous inline behaviour) and flags the failure for the health metrics.
     """
     try:
-        return refresh_status(printer)
+        return refresh_status(printer), False
     except Exception:
-        return apply_offline_grace_period(printer)
+        return apply_offline_grace_period(printer), True
 
 
 # Refresh printers concurrently. Snapmaker/generic polling is blocking HTTP (each
 # up to REQUEST_TIMEOUT_SECONDS), so doing them in series let one slow/offline
-# printer stall the whole cycle; a small thread pool bounds the cycle to roughly
-# one printer's timeout instead of the sum. DB writes stay on the main thread.
-_REFRESH_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="poller-refresh")
+# printer stall the whole cycle; a thread pool bounds the cycle to roughly one
+# printer's timeout instead of the sum. The pool is sized to the shard's printer
+# count (capped) so it scales with the farm. DB writes stay on the main thread.
+_refresh_pool: ThreadPoolExecutor | None = None
+_refresh_pool_size = 0
+
+
+def get_refresh_pool(printer_count: int) -> ThreadPoolExecutor:
+    """Return a refresh pool sized for the current workload, recreating it only
+    when the desired size changes (rare). Refresh work is I/O-bound, so a thread
+    per printer (capped at POLL_CONCURRENCY_MAX) keeps a cycle close to a single
+    printer's timeout even when many printers are offline."""
+    global _refresh_pool, _refresh_pool_size
+    if POLL_CONCURRENCY > 0:
+        desired = POLL_CONCURRENCY
+    else:
+        desired = min(POLL_CONCURRENCY_MAX, max(POLL_CONCURRENCY_MIN, printer_count))
+    desired = max(desired, 1)
+    if _refresh_pool is None or desired != _refresh_pool_size:
+        if _refresh_pool is not None:
+            _refresh_pool.shutdown(wait=False)
+        _refresh_pool = ThreadPoolExecutor(
+            max_workers=desired, thread_name_prefix="poller-refresh"
+        )
+        _refresh_pool_size = desired
+    return _refresh_pool
+
+
+# Set by SIGTERM/SIGINT so the poll loop exits promptly and cleans up MQTT/DB
+# (docker stop sends SIGTERM). Event.wait makes the inter-cycle sleep interruptible.
+_shutdown_event = threading.Event()
+
+
+def _handle_shutdown(signum, _frame) -> None:
+    print(f"poller received signal {signum}; shutting down…", flush=True)
+    _shutdown_event.set()
 
 
 def run() -> None:
+    signal.signal(signal.SIGTERM, _handle_shutdown)
+    signal.signal(signal.SIGINT, _handle_shutdown)
+    print(
+        f"poller starting: shard {SHARD_INDEX + 1}/{SHARD_COUNT}, "
+        f"interval {POLL_INTERVAL_SECONDS:.1f}s, "
+        f"concurrency {'auto' if POLL_CONCURRENCY == 0 else POLL_CONCURRENCY}"
+        f"(max {POLL_CONCURRENCY_MAX}), redis {'on' if is_redis_enabled() else 'off'}",
+        flush=True,
+    )
+
     # One long-lived connection, reused across poll cycles. Reconnecting every
     # cycle (and re-running the full schema DDL each time) is a connection storm
     # plus catalog-lock churn against the DB every few seconds — the schema only
@@ -2315,7 +2431,11 @@ def run() -> None:
     conn: psycopg.Connection | None = None
     schema_ready = False
 
-    while True:
+    while not _shutdown_event.is_set():
+        cycle_start = time.monotonic()
+        printers_polled = 0
+        rows_written = 0
+        refresh_failures = 0
         try:
             if conn is None or conn.closed:
                 conn = psycopg.connect(db_url())
@@ -2324,7 +2444,9 @@ def run() -> None:
                 ensure_schema(conn)
                 schema_ready = True
 
-            printers = list_printers(conn)
+            # Each shard polls only the printers it owns, so N replicas split the
+            # farm with no double-polling and no Bambu MQTT contention.
+            printers = [p for p in list_printers(conn) if owns_printer(p["id"])]
             active_ids = {printer["id"] for printer in printers}
             prune_bambu_clients(active_ids)
             prune_print_time_tracking(active_ids)
@@ -2334,12 +2456,13 @@ def run() -> None:
             # Concurrent, side-effect-free refresh; DB writes and the
             # _PRINTING_SINCE tracker run sequentially on this thread below
             # (psycopg connections and that dict are not shared across threads).
-            next_printers = (
-                list(_REFRESH_POOL.map(compute_next_printer, printers)) if printers else []
-            )
+            pool = get_refresh_pool(len(printers))
+            results = list(pool.map(compute_next_printer, printers)) if printers else []
 
             now = time.time()
-            for printer, next_printer in zip(printers, next_printers):
+            for printer, (next_printer, failed) in zip(printers, results):
+                if failed:
+                    refresh_failures += 1
                 # For a Bambu print with no estimate yet (e.g. started from Studio /
                 # the SD card, not the slicer-proxy), pull its .3mf off the printer
                 # over FTPS and record the exact slicer figure (bambuddy parity).
@@ -2360,11 +2483,21 @@ def run() -> None:
                     upsert_printer(conn, next_printer)
                     _LAST_PERSIST_SIG[printer_id] = signature
                     _LAST_PG_WRITE[printer_id] = now
+                    rows_written += 1
                 # Mirror live telemetry to Redis every cycle (cheap, no-op when
                 # Redis is off). Postgres stays fresh via the write-on-change path
                 # above, so a Redis outage simply falls back to it — no added
                 # staleness — while readers can serve hot state from Redis.
                 publish_live_telemetry(printer_id, next_printer)
+
+            printers_polled = len(printers)
+            upsert_poller_health(
+                conn,
+                cycle_duration_ms=(time.monotonic() - cycle_start) * 1000,
+                printers_polled=printers_polled,
+                rows_written=rows_written,
+                refresh_failures=refresh_failures,
+            )
             conn.commit()
         except Exception as error:
             print(f"printer poller error: {error}", flush=True)
@@ -2378,7 +2511,37 @@ def run() -> None:
             conn = None
             schema_ready = False
 
-        time.sleep(POLL_INTERVAL_SECONDS)
+        # Hold the configured cadence: subtract the work already done so the
+        # effective interval is POLL_INTERVAL_SECONDS, not interval + work. When a
+        # cycle overruns the interval (too many slow printers for the concurrency),
+        # warn so the operator can raise PRINTER_POLL_CONCURRENCY or add a shard.
+        elapsed = time.monotonic() - cycle_start
+        if printers_polled and elapsed > POLL_INTERVAL_SECONDS:
+            print(
+                f"poller cycle overran: {elapsed:.2f}s > interval "
+                f"{POLL_INTERVAL_SECONDS:.2f}s for {printers_polled} printers "
+                f"({refresh_failures} refresh failures) — raise "
+                f"PRINTER_POLL_CONCURRENCY or add a shard",
+                flush=True,
+            )
+        # Interruptible sleep so SIGTERM exits promptly instead of after the nap.
+        if _shutdown_event.wait(max(0.0, POLL_INTERVAL_SECONDS - elapsed)):
+            break
+
+    # Graceful shutdown: close Bambu MQTT connections and the DB cleanly.
+    for client in list(_BAMBU_CLIENTS.values()):
+        try:
+            client.close()
+        except Exception:
+            pass
+    if _refresh_pool is not None:
+        _refresh_pool.shutdown(wait=False)
+    if conn is not None and not conn.closed:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    print("poller stopped.", flush=True)
 
 
 if __name__ == "__main__":

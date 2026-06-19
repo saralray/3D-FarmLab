@@ -111,6 +111,16 @@ services:
       # how long an unchanged row can go without a write (safety net). 0 = write
       # every cycle (the previous behavior).
       PRINTER_PERSIST_MAX_INTERVAL_MS: ${PRINTER_PERSIST_MAX_INTERVAL_MS:-30000}
+      # Refresh concurrency. 0 = auto-size the worker pool to the printer count
+      # (capped by _MAX); set an explicit number to pin it. Raise _MAX if cycles
+      # overrun the interval with many slow/offline printers.
+      PRINTER_POLL_CONCURRENCY: ${PRINTER_POLL_CONCURRENCY:-0}
+      PRINTER_POLL_CONCURRENCY_MAX: ${PRINTER_POLL_CONCURRENCY_MAX:-64}
+      # Horizontal sharding. Default is a single shard owning every printer. To
+      # split the farm across replicas, define one poller service per shard, each
+      # with the same POLLER_SHARD_COUNT and a distinct POLLER_SHARD_INDEX (0..N-1).
+      POLLER_SHARD_COUNT: ${POLLER_SHARD_COUNT:-1}
+      POLLER_SHARD_INDEX: ${POLLER_SHARD_INDEX:-0}
       # Must match the web service: used to decrypt printer secrets read from the DB.
       PRINTER_SECRET_KEY: ${PRINTER_SECRET_KEY:-}
       # Bambu cameras aren't plain HTTP, so the poller grabs their Discord-snapshot
