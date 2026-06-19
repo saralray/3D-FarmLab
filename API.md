@@ -324,20 +324,27 @@ endpoint is also how you manage them via the API. Notable keys:
 
 Manage staff accounts (operators / extra admins). Mirrors the dashboard's user
 management. The primary `admin` account is **not** in this list — it's the
-separate **admin-credential** resource (below). Password hashes are
-**never** returned.
+separate **admin-credential** resource (below). Unlike the cookieless frontend
+`/api/users`, the list/create/role responses here **include** each account's
+stored `passwordHash` (the API key is the guard, matching `admin-credential`),
+so accounts can be migrated host→host.
 
 Passwords are supplied **pre-hashed** as a sha256 hex string (`passwordHash`),
-matching how the frontend submits them — the server never sees plaintext.
+matching how the frontend submits them — the server never sees plaintext. The
+server then runs that sha256 through a slow, salted **scrypt** KDF before
+storing it, so the persisted (and returned) `passwordHash` is a self-describing
+`scrypt$N$r$p$salt$hash` string, **not** a bare sha256. For migration, create
+and password-set also accept an already-derived `scrypt$…` value verbatim;
+legacy bare-sha256 records keep working and are upgraded to scrypt on next login.
 
 | Method & path | Description |
 |---------------|-------------|
-| `GET /users` | List staff users (sanitized — no hashes). |
-| `POST /users` | Create a user. Body `{ name, username, role, passwordHash }`. `role` ∈ `admin`/`operator`/`viewer`. Returns the sanitized record. |
+| `GET /users` | List staff users (each record includes its stored `passwordHash`). |
+| `POST /users` | Create a user. Body `{ name, username, role, passwordHash }` (`passwordHash` a sha256 hex or a `scrypt$…` string). `role` ∈ `admin`/`operator`/`viewer`. Returns the record with its stored hash. |
 | `DELETE /users/:id` | Remove a user. |
-| `PUT /users/:id/password` | Set a new password. Body `{ passwordHash }`. |
+| `PUT /users/:id/password` | Set a new password. Body `{ passwordHash }` (sha256 hex or `scrypt$…`). |
 | `PUT /users/:id/role` | Change the account role. Body `{ role }`, `role` ∈ `admin`/`operator`/`viewer`. Returns the updated record. |
-| `POST /users/verify` | Validate a login. Body `{ username, passwordHash }` → `200 { valid: true, user }` or `401 { valid: false }`. |
+| `POST /users/verify` | Validate a login. Body `{ username, passwordHash }` (sha256 hex) → `200 { valid: true, user }` (sanitized — no hash) or `401 { valid: false }`. |
 
 `username` `admin` is reserved (`409`); duplicate usernames return `409`.
 
@@ -350,7 +357,9 @@ matching how the frontend submits them — the server never sees plaintext.
 
 ### Admin credential — `/api/v1/admin-credential`
 
-The primary admin password (a sha256 hash in `app_settings`). Because a
+The primary admin password (stored in `app_settings`). The supplied `passwordHash`
+is a sha256 hex (hashed client-side); the server stretches it with a salted
+**scrypt** KDF before storing (`scrypt$N$r$p$salt$hash`). Because a
 `printfarm_manage` key is the guard, it may **set or reset** the password
 outright — unlike the public frontend endpoint, which is first-run-only and
 otherwise requires the current password.
@@ -358,8 +367,8 @@ otherwise requires the current password.
 | Method & path | Description |
 |---------------|-------------|
 | `GET /admin-credential` | `{ "configured": <bool> }` — whether a password is set. Never returns the hash. |
-| `PUT /admin-credential` | Set or reset the password. Body `{ passwordHash }`. `201` on first set, `200` on reset. |
-| `POST /admin-credential/verify` | Validate. Body `{ passwordHash }` → `200 { valid: true }` or `401 { valid: false }`. |
+| `PUT /admin-credential` | Set or reset the password. Body `{ passwordHash }` (sha256 hex, or a `scrypt$…` string for migration). `201` on first set, `200` on reset. |
+| `POST /admin-credential/verify` | Validate. Body `{ passwordHash }` (sha256 hex) → `200 { valid: true }` or `401 { valid: false }`. |
 
 ---
 

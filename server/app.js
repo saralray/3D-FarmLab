@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -6,6 +6,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import mqtt from 'mqtt';
 import busboy from 'busboy';
 import {
@@ -546,10 +547,115 @@ function timingSafeEqualString(a, b) {
   return timingSafeEqual(aBuffer, bBuffer);
 }
 
+// ── Password hashing at rest (server-side KDF) ───────────────────────────────
+// The browser still hashes the password to a sha256 before sending it, so the
+// plaintext never crosses the wire even on a plain-http :8080 deployment. The
+// server then runs that sha256 through a slow, salted scrypt KDF before storing
+// it. A leaked database therefore no longer yields a fast, unsalted, directly
+// replayable hash — an attacker must brute-force scrypt per account. Stored
+// format is a single self-describing string:
+//   scrypt$<N>$<r>$<p>$<saltHex>$<hashHex>
+// Records created before this change are a bare 64-char sha256 hex; verifyPassword
+// accepts both, and the login path lazily re-stores legacy records in the new
+// format on the next successful sign-in (transparent migration).
+const scryptAsync = promisify(scrypt);
+const SCRYPT_N = 16384; // CPU/memory cost (~16 MB at r=8); within node's 32 MB default maxmem.
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SCRYPT_KEYLEN = 32;
+
+function isScryptHash(value) {
+  return typeof value === 'string' && value.startsWith('scrypt$');
+}
+
+// A value accepted as input when storing a credential: either a fresh client
+// sha256 (which we derive) or an already-derived scrypt string (host→host user
+// migration through the key-gated /api/v1 surface, stored verbatim).
+function isStorablePasswordHash(value) {
+  return isSha256Hex(value) || isScryptHash(value);
+}
+
+// Derive the stored credential string from a client-supplied sha256 hex.
+async function derivePasswordHash(clientSha256) {
+  const normalized = String(clientSha256).toLowerCase();
+  const salt = randomBytes(16);
+  const derived = await scryptAsync(normalized, salt, SCRYPT_KEYLEN, {
+    N: SCRYPT_N,
+    r: SCRYPT_R,
+    p: SCRYPT_P,
+  });
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt.toString('hex')}$${derived.toString('hex')}`;
+}
+
+// Coerce a credential input into its stored form: derive a sha256, pass a scrypt
+// string through unchanged, or return null when the input is neither.
+async function toStoredPasswordHash(value) {
+  if (isScryptHash(value)) {
+    return value;
+  }
+  if (isSha256Hex(value)) {
+    return derivePasswordHash(value);
+  }
+  return null;
+}
+
+// True when a stored credential is in the legacy bare-sha256 format and should be
+// upgraded to scrypt after a successful verify.
+function passwordNeedsUpgrade(stored) {
+  return isSha256Hex(stored);
+}
+
+// Verify a client-supplied sha256 against a stored credential (scrypt or legacy
+// bare-sha256), in constant time.
+async function verifyPassword(stored, clientSha256) {
+  if (typeof stored !== 'string' || !stored || !isSha256Hex(clientSha256)) {
+    return false;
+  }
+  const normalized = clientSha256.toLowerCase();
+  if (!isScryptHash(stored)) {
+    // Legacy record: compare against the stored sha256 directly.
+    return timingSafeEqualString(stored.toLowerCase(), normalized);
+  }
+  const parts = stored.split('$'); // scrypt, N, r, p, saltHex, hashHex
+  if (parts.length !== 6) {
+    return false;
+  }
+  const N = Number(parts[1]);
+  const r = Number(parts[2]);
+  const p = Number(parts[3]);
+  const salt = Buffer.from(parts[4], 'hex');
+  const expected = Buffer.from(parts[5], 'hex');
+  if (!N || !r || !p || salt.length === 0 || expected.length === 0) {
+    return false;
+  }
+  let derived;
+  try {
+    derived = await scryptAsync(normalized, salt, expected.length, { N, r, p });
+  } catch {
+    return false;
+  }
+  return derived.length === expected.length && timingSafeEqual(derived, expected);
+}
+
 // The stored staff-user list, or [] when none have been created yet.
 async function readStaffUsers() {
   const stored = await getAppSetting(STAFF_USERS_KEY);
   return Array.isArray(stored) ? stored : [];
+}
+
+// Find the staff record matching a username + client sha256, verifying the
+// password against either credential format (scrypt or legacy). A plain Array
+// .find can't be used because verifyPassword is async.
+async function findUserByCredential(usersList, username, clientSha256) {
+  for (const candidate of usersList) {
+    if (
+      candidate.username === username &&
+      (await verifyPassword(candidate.passwordHash, clientSha256))
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
 }
 
 // Drop the password hash before a record leaves the server.
@@ -2169,7 +2275,7 @@ async function handleDataApiUsers(req, res, { apiKey, method, id, sub }) {
         sendJson(res, 400, { error: 'role must be admin, operator, or viewer' });
         return true;
       }
-      if (!isSha256Hex(passwordHash)) {
+      if (!isStorablePasswordHash(passwordHash)) {
         sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
         return true;
       }
@@ -2182,7 +2288,7 @@ async function handleDataApiUsers(req, res, { apiKey, method, id, sub }) {
         sendJson(res, 409, { error: 'That username is already in use.' });
         return true;
       }
-      const newUser = { id: randomUUID(), name, username, role, passwordHash: passwordHash.toLowerCase() };
+      const newUser = { id: randomUUID(), name, username, role, passwordHash: await toStoredPasswordHash(passwordHash) };
       await setAppSetting(STAFF_USERS_KEY, [...usersList, newUser]);
       auditDataApi(req, apiKey, 'user.create', newUser.id, { username, role });
       sendJson(res, 201, staffUserWithHash(newUser));
@@ -2198,11 +2304,7 @@ async function handleDataApiUsers(req, res, { apiKey, method, id, sub }) {
     const { passwordHash } = body || {};
     const usersList = await readStaffUsers();
     const found = isSha256Hex(passwordHash)
-      ? usersList.find(
-          (candidate) =>
-            candidate.username === username &&
-            timingSafeEqualString(String(candidate.passwordHash || ''), passwordHash.toLowerCase()),
-        )
+      ? await findUserByCredential(usersList, username, passwordHash)
       : undefined;
     if (!found) {
       sendJson(res, 401, { valid: false });
@@ -2214,7 +2316,7 @@ async function handleDataApiUsers(req, res, { apiKey, method, id, sub }) {
 
   if (sub === 'password' && method === 'PUT') {
     const { passwordHash } = await readJsonBody(req);
-    if (!isSha256Hex(passwordHash)) {
+    if (!isStorablePasswordHash(passwordHash)) {
       sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
       return true;
     }
@@ -2225,7 +2327,7 @@ async function handleDataApiUsers(req, res, { apiKey, method, id, sub }) {
       return true;
     }
     const nextUsers = [...usersList];
-    nextUsers[index] = { ...nextUsers[index], passwordHash: passwordHash.toLowerCase() };
+    nextUsers[index] = { ...nextUsers[index], passwordHash: await toStoredPasswordHash(passwordHash) };
     await setAppSetting(STAFF_USERS_KEY, nextUsers);
     auditDataApi(req, apiKey, 'user.password', id);
     sendEmpty(res);
@@ -2281,10 +2383,7 @@ async function handleDataApiAdminCredential(req, res, { apiKey, method, id }) {
 
   if (id === 'verify' && method === 'POST') {
     const { passwordHash } = await readJsonBody(req);
-    const valid =
-      storedHash.length > 0 &&
-      isSha256Hex(passwordHash) &&
-      timingSafeEqualString(storedHash, passwordHash.toLowerCase());
+    const valid = storedHash.length > 0 && (await verifyPassword(storedHash, passwordHash));
     sendJson(res, valid ? 200 : 401, { valid });
     return true;
   }
@@ -2299,11 +2398,11 @@ async function handleDataApiAdminCredential(req, res, { apiKey, method, id }) {
   }
   if (method === 'PUT') {
     const { passwordHash } = await readJsonBody(req);
-    if (!isSha256Hex(passwordHash)) {
+    if (!isStorablePasswordHash(passwordHash)) {
       sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
       return true;
     }
-    await setAppSetting(ADMIN_CREDENTIAL_KEY, { passwordHash: passwordHash.toLowerCase() });
+    await setAppSetting(ADMIN_CREDENTIAL_KEY, { passwordHash: await toStoredPasswordHash(passwordHash) });
     auditDataApi(req, apiKey, 'admin-credential.set', null);
     sendEmpty(res, storedHash.length > 0 ? 200 : 201);
     return true;
@@ -3140,18 +3239,28 @@ async function handleApi(req, res, requestUrl) {
     if (username === RESERVED_USERNAME) {
       const stored = await getAppSetting(ADMIN_CREDENTIAL_KEY);
       const storedHash = stored && typeof stored.passwordHash === 'string' ? stored.passwordHash : '';
-      if (storedHash && timingSafeEqualString(storedHash, passwordHash.toLowerCase())) {
+      if (storedHash && (await verifyPassword(storedHash, passwordHash))) {
         user = { id: 'admin', name: 'Print Farm Admin', username: 'admin', role: 'admin' };
+        // Transparently upgrade a legacy bare-sha256 credential to scrypt.
+        if (passwordNeedsUpgrade(storedHash)) {
+          await setAppSetting(ADMIN_CREDENTIAL_KEY, {
+            passwordHash: await derivePasswordHash(passwordHash),
+          }).catch(() => {});
+        }
       }
     } else {
       const usersList = await readStaffUsers();
-      const found = usersList.find(
-        (candidate) =>
-          candidate.username === username &&
-          timingSafeEqualString(String(candidate.passwordHash || ''), passwordHash.toLowerCase()),
-      );
+      const found = await findUserByCredential(usersList, username, passwordHash);
       if (found) {
         user = sanitizeStaffUser(found);
+        // Transparently upgrade a legacy bare-sha256 credential to scrypt.
+        if (passwordNeedsUpgrade(found.passwordHash)) {
+          const upgraded = await derivePasswordHash(passwordHash);
+          const nextUsers = usersList.map((candidate) =>
+            candidate.id === found.id ? { ...candidate, passwordHash: upgraded } : candidate,
+          );
+          await setAppSetting(STAFF_USERS_KEY, nextUsers).catch(() => {});
+        }
       }
     }
 
@@ -3258,7 +3367,7 @@ async function handleApi(req, res, requestUrl) {
         sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
         return true;
       }
-      await setAppSetting(ADMIN_CREDENTIAL_KEY, { passwordHash: passwordHash.toLowerCase() });
+      await setAppSetting(ADMIN_CREDENTIAL_KEY, { passwordHash: await derivePasswordHash(passwordHash) });
       // First-run setup signs the admin in immediately (matches the client flow).
       await issueSession(
         req,
@@ -3282,11 +3391,11 @@ async function handleApi(req, res, requestUrl) {
       }
       // Knowledge of the current password authorizes the change (there is no
       // server session to authorize it otherwise).
-      if (!timingSafeEqualString(storedHash, String(currentPasswordHash || '').toLowerCase())) {
+      if (!(await verifyPassword(storedHash, String(currentPasswordHash || '')))) {
         sendJson(res, 401, { error: 'Current password is incorrect' });
         return true;
       }
-      await setAppSetting(ADMIN_CREDENTIAL_KEY, { passwordHash: newPasswordHash.toLowerCase() });
+      await setAppSetting(ADMIN_CREDENTIAL_KEY, { passwordHash: await derivePasswordHash(newPasswordHash) });
       // Revoke every existing admin session except the caller's, then re-issue a
       // fresh cookie so the password change instantly invalidates stale sessions.
       await deleteSessionsForUser('admin').catch(() => {});
@@ -3309,10 +3418,7 @@ async function handleApi(req, res, requestUrl) {
     const storedHash =
       stored && typeof stored.passwordHash === 'string' ? stored.passwordHash : '';
     const { passwordHash } = await readJsonBody(req);
-    const valid =
-      storedHash.length > 0 &&
-      isSha256Hex(passwordHash) &&
-      timingSafeEqualString(storedHash, passwordHash.toLowerCase());
+    const valid = storedHash.length > 0 && (await verifyPassword(storedHash, passwordHash));
     sendJson(res, valid ? 200 : 401, { valid });
     return true;
   }
@@ -3366,7 +3472,7 @@ async function handleApi(req, res, requestUrl) {
         name,
         username,
         role,
-        passwordHash: passwordHash.toLowerCase(),
+        passwordHash: await derivePasswordHash(passwordHash),
       };
       await setAppSetting(STAFF_USERS_KEY, [...usersList, newUser]);
       sendJson(res, 201, sanitizeStaffUser(newUser));
@@ -3384,14 +3490,7 @@ async function handleApi(req, res, requestUrl) {
     const passwordHash = body?.passwordHash;
     const usersList = await readStaffUsers();
     const found = isSha256Hex(passwordHash)
-      ? usersList.find(
-          (candidate) =>
-            candidate.username === username &&
-            timingSafeEqualString(
-              String(candidate.passwordHash || ''),
-              passwordHash.toLowerCase(),
-            ),
-        )
+      ? await findUserByCredential(usersList, username, passwordHash)
       : undefined;
     if (!found) {
       sendJson(res, 401, { valid: false });
@@ -3443,7 +3542,7 @@ async function handleApi(req, res, requestUrl) {
         return true;
       }
       const nextUsers = [...usersList];
-      nextUsers[index] = { ...nextUsers[index], passwordHash: passwordHash.toLowerCase() };
+      nextUsers[index] = { ...nextUsers[index], passwordHash: await derivePasswordHash(passwordHash) };
       await setAppSetting(STAFF_USERS_KEY, nextUsers);
       // A password change invalidates the account's existing sessions.
       await deleteSessionsForUser(userId).catch(() => {});
