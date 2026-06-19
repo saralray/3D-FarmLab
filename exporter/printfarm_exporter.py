@@ -22,6 +22,9 @@ EXPORTER_PORT = int(os.getenv("EXPORTER_PORT", "9180"))
 # Cap how long a single scrape waits to reach PostgreSQL; a hung connect would
 # otherwise stall the scrape until Prometheus's own scrape_timeout fires.
 DB_CONNECT_TIMEOUT_SECONDS = max(int(os.getenv("EXPORTER_DB_TIMEOUT_SECONDS", "5")), 1)
+# Also bound each scrape query server-side, so a slow/locked query fails the
+# scrape fast (reported as printfarm_scrape_success 0) instead of hanging.
+DB_STATEMENT_TIMEOUT_MS = max(int(os.getenv("DATABASE_STATEMENT_TIMEOUT_MS", "30000")), 0)
 
 # Only "สั่งพิมพ์งาน 3D Print" rows are real print-queue jobs (matches
 # QUEUE_FORM_TYPE in server/postgres.js); soft-deleted rows are excluded.
@@ -47,7 +50,11 @@ class PrintFarmCollector:
         success = 1
         metrics = []
         try:
-            with psycopg.connect(db_url(), connect_timeout=DB_CONNECT_TIMEOUT_SECONDS) as conn:
+            with psycopg.connect(
+                db_url(),
+                connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
+                options=f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}",
+            ) as conn:
                 metrics = self._build_metrics(conn)
         except Exception as error:  # noqa: BLE001 - report as a failed scrape, never crash
             success = 0

@@ -53,6 +53,14 @@ POLL_CONCURRENCY_MIN = 8
 # that owns every printer (the previous behavior).
 SHARD_COUNT = max(int(os.getenv("POLLER_SHARD_COUNT", "1")), 1)
 SHARD_INDEX = int(os.getenv("POLLER_SHARD_INDEX", "0")) % SHARD_COUNT
+# Database connection safety (mirrors the Node pool). connect_timeout bounds a
+# stalled connect; statement_timeout caps a runaway query; the
+# idle_in_transaction timeout reaps a connection left mid-transaction (e.g. after
+# an error) so it can't hold locks; keepalives detect a dead TCP link (DB
+# restart/failover). 0 disables a timeout.
+DB_CONNECT_TIMEOUT_SECONDS = max(int(os.getenv("DATABASE_CONNECT_TIMEOUT_MS", "5000")) // 1000, 1)
+DB_STATEMENT_TIMEOUT_MS = max(int(os.getenv("DATABASE_STATEMENT_TIMEOUT_MS", "30000")), 0)
+DB_IDLE_TX_TIMEOUT_MS = max(int(os.getenv("DATABASE_IDLE_TX_TIMEOUT_MS", "60000")), 0)
 # Bambu cameras aren't plain HTTP (port-6000 JPEG socket on the A1, RTSP-over-TLS
 # on the H2), so the poller can't fetch their snapshots directly the way it does
 # the Snapmaker's /webcam/snapshot.jpg. The web service already implements both
@@ -209,6 +217,22 @@ def db_url() -> str:
     if not url:
         raise RuntimeError("DATABASE_URL is not configured")
     return url
+
+
+def connect_db() -> psycopg.Connection:
+    """Open the poll-loop's Postgres connection with the same safety guards as the
+    Node pool: bounded connect, per-statement and idle-in-transaction timeouts
+    (server-side via -c options), and TCP keepalives to detect a dead link."""
+    return psycopg.connect(
+        db_url(),
+        connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
+        options=(
+            f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS} "
+            f"-c idle_in_transaction_session_timeout={DB_IDLE_TX_TIMEOUT_MS}"
+        ),
+        keepalives=1,
+        keepalives_idle=30,
+    )
 
 
 def ensure_schema(conn: psycopg.Connection) -> None:
@@ -2438,7 +2462,7 @@ def run() -> None:
         refresh_failures = 0
         try:
             if conn is None or conn.closed:
-                conn = psycopg.connect(db_url())
+                conn = connect_db()
                 schema_ready = False
             if not schema_ready:
                 ensure_schema(conn)

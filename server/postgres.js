@@ -196,8 +196,21 @@ const QUEUE_FORM_TYPE = 'สั่งพิมพ์งาน 3D Print';
 
 let pool;
 
+// Read a non-negative integer env var, falling back when unset/invalid.
+function intFromEnv(name, fallback) {
+  const value = Number.parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 // The pool is created lazily so importing this module never fails when
 // DATABASE_URL is absent; the connection is only needed once a query runs.
+// Pool size and the safety timeouts are env-tunable so a deployment can size the
+// pool to its web-replica count and Postgres max_connections. The timeouts are
+// real production guards: statement_timeout caps a runaway query rather than
+// letting it pin a pooled connection forever; idle_in_transaction_session_timeout
+// reaps a connection left mid-transaction (e.g. after an error path) so it can't
+// hold locks; keepAlive lets a dead TCP connection (DB restart/failover) be
+// detected and replaced instead of hanging. Set a timeout to 0 to disable it.
 function getPool() {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
@@ -207,9 +220,15 @@ function getPool() {
 
     pool = new Pool({
       connectionString,
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      max: intFromEnv('DATABASE_POOL_MAX', 10),
+      idleTimeoutMillis: intFromEnv('DATABASE_POOL_IDLE_MS', 30000),
+      connectionTimeoutMillis: intFromEnv('DATABASE_CONNECT_TIMEOUT_MS', 5000),
+      // Generous default so the schema/migration advisory-lock wait at startup
+      // (web + slicer-proxy contending) is never killed, while still bounding a
+      // genuinely runaway query.
+      statement_timeout: intFromEnv('DATABASE_STATEMENT_TIMEOUT_MS', 30000),
+      idle_in_transaction_session_timeout: intFromEnv('DATABASE_IDLE_TX_TIMEOUT_MS', 60000),
+      keepAlive: true,
     });
 
     // Without a listener, an error on an idle pooled client crashes the

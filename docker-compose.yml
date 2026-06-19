@@ -47,6 +47,13 @@ services:
         condition: service_started
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      # Postgres connection-pool sizing and safety timeouts (ms; 0 disables a
+      # timeout). Size the pool to the web-replica count vs Postgres max_connections.
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      DATABASE_POOL_IDLE_MS: ${DATABASE_POOL_IDLE_MS:-30000}
+      DATABASE_CONNECT_TIMEOUT_MS: ${DATABASE_CONNECT_TIMEOUT_MS:-5000}
+      DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-30000}
+      DATABASE_IDLE_TX_TIMEOUT_MS: ${DATABASE_IDLE_TX_TIMEOUT_MS:-60000}
       # Optional Redis acceleration. Empty = disabled (falls back to Postgres /
       # in-memory). Reaches the redis service over the internal compose network.
       REDIS_URL: ${REDIS_URL:-}
@@ -102,6 +109,10 @@ services:
         condition: service_started
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      # Postgres connection safety timeouts (ms; 0 disables). Mirror the Node pool.
+      DATABASE_CONNECT_TIMEOUT_MS: ${DATABASE_CONNECT_TIMEOUT_MS:-5000}
+      DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-30000}
+      DATABASE_IDLE_TX_TIMEOUT_MS: ${DATABASE_IDLE_TX_TIMEOUT_MS:-60000}
       # Optional Redis acceleration. Empty = disabled (telemetry stays Postgres-only).
       REDIS_URL: ${REDIS_URL:-}
       PRINTER_POLL_INTERVAL_MS: ${PRINTER_POLL_INTERVAL_MS:-2000}
@@ -143,6 +154,12 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      # Shares server/postgres.js with web, so the same pool sizing/timeout knobs apply.
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      DATABASE_POOL_IDLE_MS: ${DATABASE_POOL_IDLE_MS:-30000}
+      DATABASE_CONNECT_TIMEOUT_MS: ${DATABASE_CONNECT_TIMEOUT_MS:-5000}
+      DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-30000}
+      DATABASE_IDLE_TX_TIMEOUT_MS: ${DATABASE_IDLE_TX_TIMEOUT_MS:-60000}
       SLICER_PROXY_PORT: ${SLICER_PROXY_PORT:-8091}
       # Used to redirect a slicer's "Device" tab to the dashboard's printer page.
       HTTP_PORT: ${HTTP_PORT:-8080}
@@ -167,6 +184,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      # Bound each scrape query so a slow/locked query fails the scrape fast (0 disables).
+      DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-30000}
       # If you change this, also update the target in
       # monitoring/prometheus/prometheus.yml.
       EXPORTER_PORT: ${EXPORTER_PORT:-9180}
