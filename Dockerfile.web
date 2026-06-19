@@ -32,18 +32,19 @@ RUN groupadd --system printfarm \
   && useradd --system --gid printfarm --home-dir /app printfarm
 
 # The server's runtime dependencies are the pg client, the mqtt client (used for
-# Bambu printer commands), and busboy (multipart parsing for the in-app
-# print-request form upload), and the SAML SSO XML stack (xml-crypto +
-# @xmldom/xmldom + xpath, used by server/samlSp.js to verify signed SAML
-# assertions). Keep these versions in sync with package.json. The build stage
-# (npm ci) covers the rest.
+# Bambu printer commands), busboy (multipart parsing for the in-app print-request
+# form upload), ioredis (optional Redis acceleration layer — sessions, login
+# rate-limit and live-telemetry cache; inert when REDIS_URL is unset), and the
+# SAML SSO XML stack (xml-crypto + @xmldom/xmldom + xpath, used by
+# server/samlSp.js to verify signed SAML assertions). Keep these versions in sync
+# with package.json. The build stage (npm ci) covers the rest.
 #
 # Installed *before* copying the project package.json on purpose: with that
 # package.json present, npm would try to resolve the whole frontend dependency
 # tree (which has peer-dep conflicts, e.g. @dnd-kit/core needs react-dom) even
 # though none of it is needed at runtime. Installing the leaf packages into an
 # empty dir keeps this image to just the server deps.
-RUN npm install pg@8.21.0 mqtt@5.15.1 busboy@1.6.0 \
+RUN npm install pg@8.21.0 mqtt@5.15.1 busboy@1.6.0 ioredis@5.4.1 \
       xml-crypto@6.0.1 @xmldom/xmldom@0.8.10 xpath@0.0.34 \
       --no-save --no-audit --no-fund \
   && npm cache clean --force

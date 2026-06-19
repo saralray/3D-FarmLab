@@ -14,6 +14,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # Optional Redis acceleration layer (sessions, login rate-limit, live-telemetry
+  # cache). Not published to the host — only the web and poller reach it over the
+  # internal network. AOF persistence so a restart keeps live sessions/counters.
+  # The whole stack runs fine without it: leave REDIS_URL empty in .env to disable
+  # (web/poller fall back to Postgres/in-memory) and this service idles harmlessly.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   web:
     build:
       context: .
@@ -24,8 +41,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # Non-blocking: the Redis client connects lazily and tolerates an outage, so
+      # web never waits on Redis health — this only nudges start ordering.
+      redis:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      # Optional Redis acceleration. Empty = disabled (falls back to Postgres /
+      # in-memory). Reaches the redis service over the internal compose network.
+      REDIS_URL: ${REDIS_URL:-}
       VITE_PUBLIC_VIEWER_MODE: ${VITE_PUBLIC_VIEWER_MODE:-false}
       MAX_BODY_BYTES: ${MAX_BODY_BYTES:-1048576}
       # Shared with slicer-proxy: verifies the signed slicer operator-grant token.
@@ -73,8 +97,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # Non-blocking (see web): the poller's Redis client tolerates an outage.
+      redis:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      # Optional Redis acceleration. Empty = disabled (telemetry stays Postgres-only).
+      REDIS_URL: ${REDIS_URL:-}
       PRINTER_POLL_INTERVAL_MS: ${PRINTER_POLL_INTERVAL_MS:-2000}
       PRINTER_REQUEST_TIMEOUT_MS: ${PRINTER_REQUEST_TIMEOUT_MS:-3000}
       PRINTER_OFFLINE_GRACE_SECONDS: ${PRINTER_OFFLINE_GRACE_SECONDS:-30}
@@ -156,3 +185,4 @@ services:
 volumes:
   postgres_data:
   prometheus_data:
+  redis_data:
