@@ -189,8 +189,101 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions (expires_at);
+-- Poller liveness/lag, one row per shard, written each cycle by the poller (which
+-- also defines this table) and read by the exporter. Defined here too so the
+-- baseline owns every table the migrations below tune, regardless of start order.
+CREATE TABLE IF NOT EXISTS poller_health (
+  shard_index INTEGER PRIMARY KEY,
+  shard_count INTEGER NOT NULL DEFAULT 1,
+  last_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  cycle_duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
+  printers_polled INTEGER NOT NULL DEFAULT 0,
+  rows_written INTEGER NOT NULL DEFAULT 0,
+  refresh_failures INTEGER NOT NULL DEFAULT 0
+);
+-- Versioned migrations applied after this idempotent baseline (see MIGRATIONS).
+-- This baseline schema is the forward-only "version 0"; ordered migrations record
+-- their version here so each runs exactly once and the DB's schema level is visible.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 SELECT pg_advisory_unlock(90210);
 `;
+
+// Ordered, versioned migrations applied once each, after the idempotent baseline
+// schema above. Use this for changes that benefit from ordering/visibility or
+// that aren't naturally expressible as CREATE/ALTER ... IF NOT EXISTS (data
+// backfills, type changes, storage tuning). Each migration's SQL must be safe to
+// run inside a single transaction. Append new migrations with the next version;
+// never edit or renumber an applied one.
+const MIGRATIONS = [
+  {
+    version: 1,
+    name: 'autovacuum-tuning-high-churn-tables',
+    // printers is updated on telemetry change, queue_jobs churns large bytea
+    // blobs (insert / soft-delete / printed updates), sessions churns on
+    // login/logout/expiry, and poller_health is updated every poll cycle. Make
+    // autovacuum/analyze trigger well before the 20% default so dead tuples and
+    // bloat are reclaimed instead of accumulating under sustained write load.
+    sql: `
+      ALTER TABLE printers SET (
+        autovacuum_vacuum_scale_factor = 0.05,
+        autovacuum_analyze_scale_factor = 0.05
+      );
+      ALTER TABLE queue_jobs SET (
+        autovacuum_vacuum_scale_factor = 0.05,
+        autovacuum_analyze_scale_factor = 0.05,
+        toast.autovacuum_vacuum_scale_factor = 0.05
+      );
+      ALTER TABLE sessions SET (
+        autovacuum_vacuum_scale_factor = 0.05
+      );
+      ALTER TABLE poller_health SET (
+        autovacuum_vacuum_scale_factor = 0,
+        autovacuum_vacuum_threshold = 25
+      );
+    `,
+  },
+];
+
+// Advisory lock id for the migration run (distinct from the baseline's 90210), so
+// concurrent web/slicer-proxy startups serialize on a single dedicated connection
+// rather than racing the same migration.
+const MIGRATION_LOCK_ID = 90211;
+
+async function runMigrations() {
+  const client = await getPool().connect();
+  try {
+    // Session-scoped advisory lock must live on one connection for the whole run,
+    // hence a dedicated client rather than the pooled query() helper.
+    await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
+    const { rows } = await client.query('SELECT version FROM schema_migrations');
+    const applied = new Set(rows.map((row) => Number(row.version)));
+    for (const migration of MIGRATIONS) {
+      if (applied.has(migration.version)) {
+        continue;
+      }
+      await client.query('BEGIN');
+      try {
+        await client.query(migration.sql);
+        await client.query(
+          'INSERT INTO schema_migrations (version, name) VALUES ($1, $2) ON CONFLICT (version) DO NOTHING',
+          [migration.version, migration.name],
+        );
+        await client.query('COMMIT');
+        console.log(`[migrate] applied #${migration.version} ${migration.name}`);
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      }
+    }
+  } finally {
+    await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]).catch(() => {});
+    client.release();
+  }
+}
 
 const QUEUE_FORM_TYPE = 'สั่งพิมพ์งาน 3D Print';
 
@@ -290,10 +383,15 @@ let schemaReadyPromise;
 
 export async function ensureSchema() {
   if (!schemaReadyPromise) {
-    schemaReadyPromise = query(SCHEMA_SQL).catch((error) => {
-      schemaReadyPromise = undefined;
-      throw error;
-    });
+    // Baseline (idempotent) first, then the ordered versioned migrations. Reset
+    // the memo on failure so a transient error doesn't permanently wedge schema
+    // setup for the process.
+    schemaReadyPromise = query(SCHEMA_SQL)
+      .then(() => runMigrations())
+      .catch((error) => {
+        schemaReadyPromise = undefined;
+        throw error;
+      });
   }
 
   await schemaReadyPromise;
