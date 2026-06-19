@@ -60,6 +60,13 @@ import {
 } from './postgres.js';
 import { verifySlicerGrant } from './slicerGrant.js';
 import {
+  isRedisEnabled,
+  redisDel,
+  redisGet,
+  redisIncrWithTtl,
+  redisTtl,
+} from './redis.js';
+import {
   mintAuthGrant,
   signState,
   verifyAuthGrant,
@@ -796,14 +803,18 @@ function isPrivilegedRole(role) {
   return role === 'admin' || role === 'operator';
 }
 
-// In-memory login throttle (per client IP). A single web process today, so a Map
-// is enough; when the web tier is scaled to multiple instances this must move to
-// Redis (one shared counter) — see the architecture review's rate-limit note.
+// Login throttle (per client IP). Backed by Redis when REDIS_URL is set — a single
+// shared counter so the limit holds across multiple web instances — and by this
+// in-memory Map otherwise (or whenever Redis is unreachable). Both signals are
+// consulted on check so a Redis outage mid-window can't silently reset a client's
+// failure count; failures are recorded to whichever backend is live.
 const LOGIN_ATTEMPTS = new Map();
 const LOGIN_MAX_FAILURES = 8;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_WINDOW_SECONDS = Math.floor(LOGIN_WINDOW_MS / 1000);
+const loginAttemptKey = (key) => `loginfail:${key}`;
 
-function checkLoginRate(key, now = Date.now()) {
+function checkLoginRateMemory(key, now = Date.now()) {
   const entry = LOGIN_ATTEMPTS.get(key);
   if (!entry || now >= entry.resetAt) {
     return { allowed: true };
@@ -814,7 +825,7 @@ function checkLoginRate(key, now = Date.now()) {
   return { allowed: true };
 }
 
-function recordLoginFailure(key, now = Date.now()) {
+function recordLoginFailureMemory(key, now = Date.now()) {
   const entry = LOGIN_ATTEMPTS.get(key);
   if (!entry || now >= entry.resetAt) {
     LOGIN_ATTEMPTS.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
@@ -823,7 +834,32 @@ function recordLoginFailure(key, now = Date.now()) {
   entry.count += 1;
 }
 
-function clearLoginAttempts(key) {
+async function checkLoginRate(key) {
+  if (isRedisEnabled()) {
+    const raw = await redisGet(loginAttemptKey(key));
+    if (raw !== null && Number(raw) >= LOGIN_MAX_FAILURES) {
+      const ttl = await redisTtl(loginAttemptKey(key));
+      return { allowed: false, retryAfterMs: (ttl ?? LOGIN_WINDOW_SECONDS) * 1000 };
+    }
+  }
+  // Always honor the in-memory signal too (covers Redis-down windows).
+  return checkLoginRateMemory(key);
+}
+
+async function recordLoginFailure(key) {
+  if (isRedisEnabled()) {
+    const count = await redisIncrWithTtl(loginAttemptKey(key), LOGIN_WINDOW_SECONDS);
+    if (count !== null) {
+      return; // recorded in Redis (the shared counter)
+    }
+  }
+  recordLoginFailureMemory(key); // Redis disabled or unreachable → in-memory
+}
+
+async function clearLoginAttempts(key) {
+  if (isRedisEnabled()) {
+    await redisDel(loginAttemptKey(key));
+  }
   LOGIN_ATTEMPTS.delete(key);
 }
 
@@ -3215,7 +3251,7 @@ async function handleApi(req, res, requestUrl) {
   // authorizes subsequent mutations; the client role state is presentation only.
   if (requestUrl.pathname === '/api/auth/login' && req.method === 'POST') {
     const rateKey = getClientIp(req) || 'unknown';
-    const rate = checkLoginRate(rateKey);
+    const rate = await checkLoginRate(rateKey);
     if (!rate.allowed) {
       res.setHeader('Retry-After', String(Math.ceil(rate.retryAfterMs / 1000)));
       sendJson(res, 429, {
@@ -3231,7 +3267,7 @@ async function handleApi(req, res, requestUrl) {
     const remember = Boolean(body?.remember);
 
     if (!username || !isSha256Hex(passwordHash)) {
-      recordLoginFailure(rateKey);
+      await recordLoginFailure(rateKey);
       sendJson(res, 401, { error: 'Invalid credentials.' });
       return true;
     }
@@ -3266,12 +3302,12 @@ async function handleApi(req, res, requestUrl) {
     }
 
     if (!user) {
-      recordLoginFailure(rateKey);
+      await recordLoginFailure(rateKey);
       sendJson(res, 401, { error: 'Invalid credentials.' });
       return true;
     }
 
-    clearLoginAttempts(rateKey);
+    await clearLoginAttempts(rateKey);
     await issueSession(req, res, user, { remember });
     await recordAuditLog({
       actorName: user.name,
