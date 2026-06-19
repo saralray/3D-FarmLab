@@ -85,7 +85,7 @@ Lists the available resources.
 ```json
 {
   "version": "v1",
-  "resources": ["printers", "queue", "analytics", "notifications", "slicer-keys", "audit-logs", "settings", "users", "admin-credential"]
+  "resources": ["printers", "queue", "analytics", "notifications", "slicer-keys", "audit-logs", "settings", "users", "admin-credential", "manager-requests"]
 }
 ```
 
@@ -362,6 +362,27 @@ otherwise requires the current password.
 
 ---
 
+### Manager access requests — `/api/v1/manager-requests`
+
+The operator/manager access-request workflow (someone requests access → an
+admin approves or denies → a `printfarm_manage` key is minted on approval).
+This is the key-gated mirror of the public [`/api/manager`](#manager-access-request-api-apimanager)
+flow, giving an external manager app full parity over granting and revoking
+access. Unlike the public status-poll flow (which reveals the minted key once
+via `/status`), `approve` returns the plaintext `key` inline since the calling
+key is the guard.
+
+| Method & path | Description |
+|---------------|-------------|
+| `GET /manager-requests` | List all requests (pending/approved/denied). |
+| `POST /manager-requests` | Create a request. Body `{ name, description? }` → `201 { id }`. |
+| `GET /manager-requests/:id` | Fetch one request record. |
+| `POST /manager-requests/:id/approve` | Approve a **pending** request: mints a `printfarm_manage` key → `200 { ok: true, apiKeyId, key }`. `400` if not pending. |
+| `POST /manager-requests/:id/deny` | Deny a **pending** request → `200 { ok: true }`. `400` if not pending. |
+| `DELETE /manager-requests/:id` | Delete the request (and revoke its minted key, if any). |
+
+---
+
 ## Quick reference (curl)
 
 ```bash
@@ -402,6 +423,10 @@ curl -H "X-Api-Key: $KEY" -X POST "$BASE/queue/import" \
 # staff users / admin password
 curl -H "X-Api-Key: $KEY" "$BASE/users"
 curl -H "X-Api-Key: $KEY" "$BASE/admin-credential"
+
+# manager access requests
+curl -H "X-Api-Key: $KEY" "$BASE/manager-requests"
+curl -H "X-Api-Key: $KEY" -X POST "$BASE/manager-requests/<id>/approve"
 ```
 
 ---

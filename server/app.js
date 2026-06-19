@@ -28,7 +28,8 @@ import {
   getPrinterById,
   getPrinterByIdOrName,
   getPublicPrinterById,
-  getQueueJobFile,
+  getQueueJobFileMeta,
+  readQueueJobFileChunk,
   importQueueJobs,
   insertQueueSubmission,
   setQueueJobFile,
@@ -667,6 +668,46 @@ function readBodyBounded(req, maxBytes) {
   });
 }
 
+// Bytes pulled per DB round-trip when streaming a stored model file out to the
+// client. Caps resident memory per in-flight download to ~this size instead of
+// the whole file; the trade-off is more (cheap) substring reads.
+const QUEUE_FILE_STREAM_CHUNK_BYTES = 256 * 1024;
+
+// Stream a stored queue-job model file to the response in fixed-size chunks,
+// reading each slice straight from Postgres so the full file never sits in
+// server RAM. Returns false (without touching the response) when no file
+// exists, so the caller can send a 404. Honours backpressure by waiting for the
+// socket to drain between chunks.
+async function streamQueueJobFile(res, id) {
+  const meta = await getQueueJobFileMeta(id);
+  if (!meta) {
+    return false;
+  }
+
+  const safeName = (meta.filename || 'model').replace(/[^\w.\- ]+/g, '_');
+  res.statusCode = 200;
+  res.setHeader('Content-Type', meta.mime);
+  res.setHeader('Content-Length', meta.size);
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+  res.setHeader('Cache-Control', 'no-store');
+
+  for (let offset = 0; offset < meta.size; offset += QUEUE_FILE_STREAM_CHUNK_BYTES) {
+    const chunk = await readQueueJobFileChunk(id, offset, QUEUE_FILE_STREAM_CHUNK_BYTES);
+    if (chunk.length === 0) {
+      break;
+    }
+    if (!res.write(chunk)) {
+      await new Promise((resolve, reject) => {
+        res.once('drain', resolve);
+        res.once('error', reject);
+      });
+    }
+  }
+
+  res.end();
+  return true;
+}
+
 function parseHeaderString(headerValue = '') {
   const separatorIndex = headerValue.indexOf(':');
   if (separatorIndex === -1) {
@@ -1290,6 +1331,7 @@ const DATA_API_RESOURCES = [
   'settings',
   'users',
   'admin-credential',
+  'manager-requests',
 ];
 
 function extractApiKey(req) {
@@ -1389,6 +1431,8 @@ async function handleDataApi(req, res, requestUrl) {
       return handleDataApiUsers(req, res, { apiKey, method, id, sub });
     case 'admin-credential':
       return handleDataApiAdminCredential(req, res, { apiKey, method, id });
+    case 'manager-requests':
+      return handleDataApiManagerRequests(req, res, { apiKey, method, id, sub });
     default:
       sendJson(res, 404, { error: `Unknown resource '${entity}'.`, resources: DATA_API_RESOURCES });
       return true;
@@ -1605,18 +1649,10 @@ async function handleDataApiQueue(req, res, { apiKey, method, id, sub, requestUr
   // PUT  /api/v1/queue/:id/file — attach model bytes to an imported job (dest).
   if (id && sub === 'file') {
     if (method === 'GET') {
-      const fileRecord = await getQueueJobFile(id);
-      if (!fileRecord) {
+      const streamed = await streamQueueJobFile(res, id);
+      if (!streamed) {
         sendJson(res, 404, { error: 'File not found' });
-        return true;
       }
-      const safeName = (fileRecord.filename || 'model').replace(/[^\w.\- ]+/g, '_');
-      res.statusCode = 200;
-      res.setHeader('Content-Type', fileRecord.mime);
-      res.setHeader('Content-Length', fileRecord.content.length);
-      res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
-      res.setHeader('Cache-Control', 'no-store');
-      res.end(fileRecord.content);
       return true;
     }
     if (method === 'PUT') {
@@ -1993,6 +2029,95 @@ async function handleDataApiAdminCredential(req, res, { apiKey, method, id }) {
   return dataApiMethodNotAllowed(res);
 }
 
+// manager-requests: the operator/manager access-request workflow that the
+// frontend exposes (request access → admin approves/denies → an api key is
+// minted). Mirrors the cookieless /api/manager/* routes so an external manager
+// app has full parity over granting and revoking access. Unlike the frontend
+// status-poll flow (which reveals the minted key once via /status), the approve
+// route returns the plaintext key inline since the calling key is the guard.
+async function handleDataApiManagerRequests(req, res, { apiKey, method, id, sub }) {
+  if (!id) {
+    if (method === 'GET') {
+      sendJson(res, 200, await listManagerRequests());
+      return true;
+    }
+    if (method === 'POST') {
+      const { name, description } = await readJsonBody(req);
+      if (typeof name !== 'string' || !name.trim()) {
+        sendJson(res, 400, { error: 'name is required' });
+        return true;
+      }
+      const newId = randomUUID();
+      await createManagerRequest({
+        id: newId,
+        name: name.trim(),
+        description: typeof description === 'string' ? description.trim() || null : null,
+      });
+      auditDataApi(req, apiKey, 'manager-request.create', newId, { name: name.trim() });
+      sendJson(res, 201, { id: newId });
+      return true;
+    }
+    return dataApiMethodNotAllowed(res);
+  }
+
+  const mgr = await getManagerRequest(id);
+  if (!mgr) {
+    sendJson(res, 404, { error: 'Request not found' });
+    return true;
+  }
+
+  if (sub === 'approve' && method === 'POST') {
+    if (mgr.status !== 'pending') {
+      sendJson(res, 400, { error: 'Request is not pending' });
+      return true;
+    }
+    const key = randomBytes(24).toString('base64url');
+    const keyId = randomUUID();
+    await createSlicerApiKey({
+      id: keyId,
+      name: `Manager: ${mgr.name}`,
+      keyHash: hash(key),
+      keyPrefix: key.slice(0, 8),
+      permissions: ['printfarm_manage'],
+    });
+    await approveManagerRequest(id, { apiKeyId: keyId, keySecret: key });
+    auditDataApi(req, apiKey, 'manager-request.approve', id, { apiKeyId: keyId });
+    sendJson(res, 200, { ok: true, apiKeyId: keyId, key });
+    return true;
+  }
+
+  if (sub === 'deny' && method === 'POST') {
+    if (mgr.status !== 'pending') {
+      sendJson(res, 400, { error: 'Request is not pending' });
+      return true;
+    }
+    await denyManagerRequest(id);
+    auditDataApi(req, apiKey, 'manager-request.deny', id);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (sub) {
+    sendJson(res, 404, { error: 'Use /manager-requests/:id, /:id/approve, or /:id/deny.' });
+    return true;
+  }
+
+  if (method === 'GET') {
+    sendJson(res, 200, mgr);
+    return true;
+  }
+  if (method === 'DELETE') {
+    if (mgr.api_key_id) {
+      await deleteSlicerApiKey(mgr.api_key_id);
+    }
+    await deleteManagerRequest(id);
+    auditDataApi(req, apiKey, 'manager-request.delete', id);
+    sendEmpty(res);
+    return true;
+  }
+  return dataApiMethodNotAllowed(res);
+}
+
 async function handleApi(req, res, requestUrl) {
   if (requestUrl.pathname === '/healthz') {
     sendJson(res, 200, { ok: true }, 'no-store');
@@ -2340,18 +2465,10 @@ async function handleApi(req, res, requestUrl) {
     const jobId = decodeURIComponent(
       requestUrl.pathname.slice('/api/queue/'.length, -'/file'.length),
     );
-    const fileRecord = await getQueueJobFile(jobId);
-    if (!fileRecord) {
+    const streamed = await streamQueueJobFile(res, jobId);
+    if (!streamed) {
       sendJson(res, 404, { error: 'File not found' });
-      return true;
     }
-    const safeName = (fileRecord.filename || 'model').replace(/[^\w.\- ]+/g, '_');
-    res.statusCode = 200;
-    res.setHeader('Content-Type', fileRecord.mime);
-    res.setHeader('Content-Length', fileRecord.content.length);
-    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
-    res.setHeader('Cache-Control', 'no-store');
-    res.end(fileRecord.content);
     return true;
   }
 

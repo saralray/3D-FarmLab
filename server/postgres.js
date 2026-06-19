@@ -754,13 +754,17 @@ export async function insertQueueSubmission(job) {
   );
 }
 
-// Fetch a stored submission's file for download. Returns null when the job is
-// missing, soft-deleted, or has no stored file.
-export async function getQueueJobFile(id) {
+// Fetch a stored submission's file metadata for download. Returns null when the
+// job is missing, soft-deleted, or has no stored file. Deliberately does NOT
+// pull `file_content` — model files can be tens of MB, so loading the whole
+// bytea into a Node Buffer per request makes server RAM scale with file size ×
+// concurrent downloads. Callers stream the bytes via readQueueJobFileChunk()
+// instead, keeping resident memory to a small fixed window.
+export async function getQueueJobFileMeta(id) {
   await ensureSchema();
   const result = await query(
     `
-    SELECT filename, file_mime, file_content
+    SELECT filename, file_mime, octet_length(file_content) AS size
     FROM queue_jobs
     WHERE id = $1
       AND deleted_at IS NULL
@@ -777,15 +781,39 @@ export async function getQueueJobFile(id) {
   return {
     filename: row.filename,
     mime: row.file_mime || 'application/octet-stream',
-    content: row.file_content,
+    size: Number(row.size) || 0,
   };
+}
+
+// Read one slice of a stored file's bytea, 1-indexed by byte (`offset` is
+// 0-based here and mapped to Postgres' 1-based substring). Returns a Buffer of
+// at most `length` bytes (shorter at EOF, empty past the end). Pulling fixed
+// chunks lets the download route stream straight to the client without ever
+// materialising the full file server-side.
+export async function readQueueJobFileChunk(id, offset, length) {
+  await ensureSchema();
+  const result = await query(
+    `
+    SELECT substring(file_content FROM $2 FOR $3) AS chunk
+    FROM queue_jobs
+    WHERE id = $1
+      AND deleted_at IS NULL
+      AND file_content IS NOT NULL;
+  `,
+    [id, offset + 1, length],
+  );
+
+  if (result.rows.length === 0 || result.rows[0].chunk == null) {
+    return Buffer.alloc(0);
+  }
+  return result.rows[0].chunk;
 }
 
 // ── Queue migration (host → host) ──────────────────────────────────────────
 // A remote print-farm manager migrates the queue between hosts by pulling a
 // manifest from the source (exportQueueJobs), recreating the rows on the
 // destination (importQueueJobs), then streaming each model file across with
-// GET/PUT .../file (getQueueJobFile / setQueueJobFile). The manifest carries
+// GET/PUT .../file (chunked-streamed reads / setQueueJobFile). The manifest carries
 // metadata only — file bytes move per-job so a 50 MB model never has to be
 // buffered as base64 inside one JSON document.
 
