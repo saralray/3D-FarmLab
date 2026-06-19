@@ -23,6 +23,16 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 POLL_INTERVAL_SECONDS = max(int(os.getenv("PRINTER_POLL_INTERVAL_MS", "5000")) / 1000, 1)
 REQUEST_TIMEOUT_SECONDS = max(int(os.getenv("PRINTER_REQUEST_TIMEOUT_MS", "3000")) / 1000, 1)
 OFFLINE_GRACE_SECONDS = max(int(os.getenv("PRINTER_OFFLINE_GRACE_SECONDS", "30")), 0)
+# The poller used to rewrite every printer's full row (all JSONB columns) on every
+# poll cycle — at 50-200 printers that is the dominant source of database write
+# load and table bloat. It now writes a printer only when its persisted telemetry
+# actually changed (see persist_signature). This caps how long a row can go
+# without a write anyway, as a safety net that bounds any stale row (and any
+# unforeseen false "unchanged") to one interval. Set 0 to force a write every
+# cycle (the previous always-write behavior).
+PERSIST_MAX_INTERVAL_SECONDS = max(
+    int(os.getenv("PRINTER_PERSIST_MAX_INTERVAL_MS", "30000")) / 1000, 0
+)
 # Bambu cameras aren't plain HTTP (port-6000 JPEG socket on the A1, RTSP-over-TLS
 # on the H2), so the poller can't fetch their snapshots directly the way it does
 # the Snapmaker's /webcam/snapshot.jpg. The web service already implements both
@@ -2198,6 +2208,56 @@ def prune_print_time_tracking(active_ids: set[str]) -> None:
     for printer_id in list(_BAMBU_PRINT_BASELINE.keys()):
         if printer_id not in active_ids:
             _BAMBU_PRINT_BASELINE.pop(printer_id, None)
+    for printer_id in list(_LAST_PERSIST_SIG.keys()):
+        if printer_id not in active_ids:
+            _LAST_PERSIST_SIG.pop(printer_id, None)
+            _LAST_PG_WRITE.pop(printer_id, None)
+
+
+# ── Database write change-detection ──────────────────────────────────────────
+# The poller persists a printer row only when the telemetry it would write has
+# actually changed since the last write, rather than rewriting the full row every
+# poll cycle. A per-printer signature of the persisted fields is cached here; an
+# unchanged signature means the stored row is already correct and the write is
+# skipped. PERSIST_MAX_INTERVAL_SECONDS forces a periodic write as a safety net.
+_LAST_PERSIST_SIG: dict[str, str] = {}
+_LAST_PG_WRITE: dict[str, float] = {}
+
+# Exactly the fields upsert_printer persists (minus the id key) — kept in sync
+# with that function so a real change is never missed (a missed change would leave
+# the stored row stale). Connection/config fields are included because the poller
+# writes them back too; they simply never differ between cycles.
+_PERSIST_SCALAR_FIELDS = (
+    "name", "model", "sortOrder", "profile", "url", "ipAddress",
+    "apiKeyHeader", "serial", "status", "progress", "lastMaintenance",
+    "totalPrintTime", "successRate", "bedTarget", "chamberTarget",
+    "lightOn", "airFilterOn", "offlineSince",
+)
+_PERSIST_OBJECT_FIELDS = (
+    "temperature", "currentJob", "nozzleTemperatures", "nozzleTargets",
+    "spools", "fanSpeeds",
+)
+
+
+def persist_signature(printer: dict[str, Any]) -> str:
+    """Deterministic signature of the fields upsert_printer would write."""
+    payload = {field: printer.get(field) for field in _PERSIST_SCALAR_FIELDS}
+    for field in _PERSIST_OBJECT_FIELDS:
+        payload[field] = printer.get(field)
+    # default=str copes with any Decimal/datetime; sort_keys makes dict ordering
+    # irrelevant so two logically equal states serialize identically.
+    return json.dumps(payload, sort_keys=True, default=str)
+
+
+def should_persist_printer(printer_id: str, signature: str, now: float) -> bool:
+    """True when a printer row must be written: its telemetry changed, the printer
+    is new to this poller process, or it has gone longer than
+    PERSIST_MAX_INTERVAL_SECONDS without a write."""
+    if signature != _LAST_PERSIST_SIG.get(printer_id):
+        return True
+    if PERSIST_MAX_INTERVAL_SECONDS <= 0:
+        return True
+    return (now - _LAST_PG_WRITE.get(printer_id, 0.0)) >= PERSIST_MAX_INTERVAL_SECONDS
 
 
 def compute_next_printer(printer: dict[str, Any]) -> dict[str, Any]:
@@ -2251,6 +2311,7 @@ def run() -> None:
                 list(_REFRESH_POOL.map(compute_next_printer, printers)) if printers else []
             )
 
+            now = time.time()
             for printer, next_printer in zip(printers, next_printers):
                 # For a Bambu print with no estimate yet (e.g. started from Studio /
                 # the SD card, not the slicer-proxy), pull its .3mf off the printer
@@ -2262,7 +2323,16 @@ def run() -> None:
                 next_printer["totalPrintTime"] = accumulate_total_print_time(next_printer)
                 collect_analytics_for_transition(conn, printer, next_printer)
                 notify_for_transition(webhooks, printer, next_printer)
-                upsert_printer(conn, next_printer)
+                # Write the printer row only when its persisted telemetry actually
+                # changed (or the safety interval elapsed), instead of every cycle.
+                # The signature is computed after all the mutations above so it
+                # reflects exactly what would be written.
+                printer_id = printer["id"]
+                signature = persist_signature(next_printer)
+                if should_persist_printer(printer_id, signature, now):
+                    upsert_printer(conn, next_printer)
+                    _LAST_PERSIST_SIG[printer_id] = signature
+                    _LAST_PG_WRITE[printer_id] = now
             conn.commit()
         except Exception as error:
             print(f"printer poller error: {error}", flush=True)

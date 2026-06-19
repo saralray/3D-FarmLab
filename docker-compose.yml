@@ -78,6 +78,10 @@ services:
       PRINTER_POLL_INTERVAL_MS: ${PRINTER_POLL_INTERVAL_MS:-2000}
       PRINTER_REQUEST_TIMEOUT_MS: ${PRINTER_REQUEST_TIMEOUT_MS:-3000}
       PRINTER_OFFLINE_GRACE_SECONDS: ${PRINTER_OFFLINE_GRACE_SECONDS:-30}
+      # The poller writes a printer row only when its telemetry changed; this caps
+      # how long an unchanged row can go without a write (safety net). 0 = write
+      # every cycle (the previous behavior).
+      PRINTER_PERSIST_MAX_INTERVAL_MS: ${PRINTER_PERSIST_MAX_INTERVAL_MS:-30000}
       # Must match the web service: used to decrypt printer secrets read from the DB.
       PRINTER_SECRET_KEY: ${PRINTER_SECRET_KEY:-}
       # Bambu cameras aren't plain HTTP, so the poller grabs their Discord-snapshot
