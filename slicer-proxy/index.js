@@ -43,6 +43,7 @@ import {
   buildSpoolManagerSpools,
   FILAMENT_PLUGIN_SETTINGS,
 } from './filamentSync.js';
+import { buildConnection, buildJob, buildPrinterState } from './octoprintDevice.js';
 
 const port = Number.parseInt(process.env.SLICER_PROXY_PORT || '8091', 10);
 const host = process.env.HOST || '0.0.0.0';
@@ -431,6 +432,34 @@ async function handleUpload(req, res, printerId) {
   sendJson(res, 201, { done: true, files: { local: { name: file.filename } } });
 }
 
+// OctoPrint device-page state paths the slicer polls to show "connected".
+const DEVICE_STATE_PATHS = new Set(['/api/connection', '/api/printer', '/api/job']);
+
+// Serve the printer's last-known state in OctoPrint's connection/printer/job
+// shapes so the slicer's device page connects. Authenticated like the filament
+// reads (any valid key, read-only, no connection secrets returned).
+async function handleDeviceState(req, res, printerId, apiPath) {
+  const key = await authenticate(req);
+  if (!key) {
+    sendJson(res, 401, { error: 'Invalid or missing API key' });
+    return;
+  }
+
+  const printer = await getPrinterById(printerId);
+  if (!printer) {
+    sendJson(res, 404, { error: 'Printer not found' });
+    return;
+  }
+
+  if (apiPath === '/api/connection') {
+    sendJson(res, 200, buildConnection(printer));
+  } else if (apiPath === '/api/printer') {
+    sendJson(res, 200, buildPrinterState(printer));
+  } else {
+    sendJson(res, 200, buildJob(printer));
+  }
+}
+
 // OctoPrint filament-plugin read paths the slicer hits when syncing filament.
 const FILAMENT_SYNC_PATHS = new Set([
   '/plugin/filamentmanager/spools',
@@ -506,6 +535,19 @@ async function handleRequest(req, res) {
     }
     if (apiPath === '/api/files/local' && req.method === 'POST') {
       await handleUpload(req, res, printerId);
+      return;
+    }
+    // A slicer's "Device" page issues a connect command before monitoring; we
+    // have no serial link to manage, so just acknowledge it (firmware-managed).
+    if (apiPath === '/api/connection' && req.method === 'POST') {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+    // Device-page state: connection / printer / job, synthesized from our DB so
+    // the slicer shows the printer as connected instead of "cannot connect".
+    if (req.method === 'GET' && DEVICE_STATE_PATHS.has(apiPath)) {
+      await handleDeviceState(req, res, printerId, apiPath);
       return;
     }
     // Read-only filament-sync surface: serve the printer's currently-loaded AMS
