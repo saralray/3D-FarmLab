@@ -1227,6 +1227,29 @@ const CSP_HEADER = process.env.CSP_REPORT_ONLY === 'true'
   ? 'Content-Security-Policy-Report-Only'
   : 'Content-Security-Policy';
 
+// The Snapmaker U1 webcam player is third-party HTML served by the printer and
+// proxied onto our origin under /__printer_webcam/. It ships an inline <script>
+// (a jmuxer H264 player with a snapshot fallback) and pulls jmuxer from jsDelivr
+// — both of which the strict app CSP (script-src 'self', no 'unsafe-inline')
+// blocks, so the player JS never runs and the camera frame stays dead. These
+// responses are camera assets carrying no app data, so they get a policy scoped
+// to exactly what the player needs: its own inline script, the jsdelivr CDN, and
+// blob/media URLs for the muxed video. If the CDN is unreachable (offline LAN),
+// jmuxer is simply undefined and the inline script falls back to snapshot.jpg —
+// which the firmware's player already handles. This overrides the app CSP for
+// webcam responses only; every other route keeps script-src 'self'.
+const WEBCAM_CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "img-src 'self' data: blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+  "connect-src 'self'",
+  "media-src 'self' blob: data:",
+  "worker-src 'self' blob:",
+].join('; ');
+
 // HSTS is only meaningful over HTTPS (browsers ignore it on plain http), so it is
 // emitted only when the request actually arrived over TLS (nginx sets
 // X-Forwarded-Proto). HSTS_MAX_AGE=0 disables it; default is 180 days.
@@ -4340,6 +4363,11 @@ async function handlePrinterProxy(req, res, requestUrl, prefix, makeTargetUrl, e
 
   if (isWebcam) {
     res.setHeader('Cache-Control', 'no-store');
+    // The proxied camera player ships an inline script + a jmuxer CDN reference
+    // the strict app CSP would block, killing the live view. Swap in the
+    // webcam-scoped policy (and drop any report-only variant) so it can run.
+    res.setHeader('Content-Security-Policy', WEBCAM_CSP);
+    res.removeHeader('Content-Security-Policy-Report-Only');
     // The webcam player is embedded in an <iframe> on the detail page; relax the
     // global X-Frame-Options: DENY to allow same-origin framing of camera assets.
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');

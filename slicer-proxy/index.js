@@ -37,6 +37,12 @@ import {
 } from '../server/postgres.js';
 import { mintSlicerGrant } from '../server/slicerGrant.js';
 import { extractFilamentGramsFrom3mf } from './parse3mf.js';
+import {
+  buildFilamentManagerSelections,
+  buildFilamentManagerSpools,
+  buildSpoolManagerSpools,
+  FILAMENT_PLUGIN_SETTINGS,
+} from './filamentSync.js';
 
 const port = Number.parseInt(process.env.SLICER_PROXY_PORT || '8091', 10);
 const host = process.env.HOST || '0.0.0.0';
@@ -425,6 +431,38 @@ async function handleUpload(req, res, printerId) {
   sendJson(res, 201, { done: true, files: { local: { name: file.filename } } });
 }
 
+// OctoPrint filament-plugin read paths the slicer hits when syncing filament.
+const FILAMENT_SYNC_PATHS = new Set([
+  '/plugin/filamentmanager/spools',
+  '/plugin/filamentmanager/selections',
+  '/plugin/SpoolManager/loadSpoolsByQuery',
+]);
+
+// Serve the printer's currently-loaded filament in the OctoPrint plugin shapes.
+// Authenticated with the same API key as uploads (read-only; no scope required,
+// no connection secrets returned), so the slicer's X-Api-Key reaches it.
+async function handleFilamentSync(req, res, printerId, apiPath) {
+  const key = await authenticate(req);
+  if (!key) {
+    sendJson(res, 401, { error: 'Invalid or missing API key' });
+    return;
+  }
+
+  const printer = await getPrinterById(printerId);
+  if (!printer) {
+    sendJson(res, 404, { error: 'Printer not found' });
+    return;
+  }
+
+  if (apiPath === '/plugin/filamentmanager/spools') {
+    sendJson(res, 200, buildFilamentManagerSpools(printer));
+  } else if (apiPath === '/plugin/filamentmanager/selections') {
+    sendJson(res, 200, buildFilamentManagerSelections(printer));
+  } else {
+    sendJson(res, 200, buildSpoolManagerSpools(printer));
+  }
+}
+
 async function handleRequest(req, res) {
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const { pathname } = requestUrl;
@@ -457,12 +495,23 @@ async function handleRequest(req, res) {
       sendJson(res, 200, { api: '0.1', server: '1.9.0', text: 'OctoPrint 1.9.0' });
       return;
     }
-    if ((apiPath === '/api/server' || apiPath === '/api/settings') && req.method === 'GET') {
+    if (apiPath === '/api/server' && req.method === 'GET') {
       sendJson(res, 200, { version: '1.9.0', plugins: {} });
+      return;
+    }
+    // Advertise the filament plugins so the slicer offers a "sync filament" action.
+    if (apiPath === '/api/settings' && req.method === 'GET') {
+      sendJson(res, 200, { version: '1.9.0', plugins: FILAMENT_PLUGIN_SETTINGS });
       return;
     }
     if (apiPath === '/api/files/local' && req.method === 'POST') {
       await handleUpload(req, res, printerId);
+      return;
+    }
+    // Read-only filament-sync surface: serve the printer's currently-loaded AMS
+    // spools in the OctoPrint filament-plugin shapes (FilamentManager / SpoolManager).
+    if (req.method === 'GET' && FILAMENT_SYNC_PATHS.has(apiPath)) {
+      await handleFilamentSync(req, res, printerId, apiPath);
       return;
     }
   }
