@@ -40,6 +40,7 @@ import {
   readQueueJobFileChunk,
   importQueueJobs,
   insertQueueSubmission,
+  pingDatabase,
   setQueueJobFile,
   listDailyAnalytics,
   listDiscordWebhooks,
@@ -65,9 +66,17 @@ import {
   redisGet,
   redisHGetAll,
   redisIncrWithTtl,
+  redisPing,
   redisSet,
   redisTtl,
 } from './redis.js';
+import { logger } from './logger.js';
+import {
+  classifyRoute,
+  recordRequestEnd,
+  recordRequestStart,
+  renderMetrics,
+} from './metrics.js';
 import {
   mintAuthGrant,
   signState,
@@ -1810,9 +1819,12 @@ async function handleBambuWebcam(req, res, printer, pathParts) {
     // but the <img> swallows the 502 body — so log the real cause server-side
     // (visible via `docker compose logs web`) to diagnose camera issues.
     const message = error instanceof Error ? error.message : 'Bambu camera unavailable';
-    console.error(
-      `bambu camera capture failed (${printer.profile} ${printer.name} @ ${printer.ipAddress}): ${message}`,
-    );
+    logger.error('bambu camera capture failed', {
+      profile: printer.profile,
+      printer: printer.name,
+      ip: printer.ipAddress,
+      err: message,
+    });
     sendJson(res, 502, { error: message });
   }
 }
@@ -1918,7 +1930,7 @@ async function authenticateDataApi(req) {
     return null;
   }
   touchSlicerApiKey(record.id).catch((error) => {
-    console.error('Failed to stamp API key usage', error);
+    logger.error('failed to stamp API key usage', error);
   });
   return record;
 }
@@ -1935,7 +1947,7 @@ function auditDataApi(req, apiKey, action, target, details) {
     source: 'api',
     ip: getClientIp(req),
   }).catch((error) => {
-    console.error('Failed to record API audit log', error);
+    logger.error('failed to record API audit log', error);
   });
 }
 
@@ -3017,7 +3029,7 @@ async function handleApi(req, res, requestUrl) {
     await insertQueueSubmission(job);
     sendQueueAddedNotifications([{ ...job, stlFileUrl: `/api/queue/${id}/file` }]).catch(
       (error) => {
-        console.error('Failed to send queue add notification', error);
+        logger.error('failed to send queue add notification', error);
       },
     );
     sendJson(res, 201, { ok: true, id });
@@ -4298,15 +4310,117 @@ async function serveStatic(req, res, requestUrl) {
   createReadStream(filePath).pipe(res);
 }
 
+// Readiness probe backing /readyz. Unlike /healthz (a cheap, dependency-free
+// liveness signal), this reports whether the process can actually serve traffic:
+// the database must be reachable. Redis is optional — when configured it is
+// reported, but a Redis outage is "degraded", not "not ready", because the app
+// falls back to Postgres/in-memory. Returns { ok, status, checks }.
+async function checkReadiness() {
+  const checks = {};
+  let ok = true;
+
+  try {
+    await pingDatabase();
+    checks.database = 'ok';
+  } catch (error) {
+    checks.database = 'error';
+    ok = false;
+    logger.warn('readiness: database check failed', error);
+  }
+
+  if (isRedisEnabled()) {
+    checks.redis = (await redisPing()) ? 'ok' : 'degraded';
+  }
+
+  return { ok, status: ok ? 'ready' : 'unavailable', checks };
+}
+
+// Access logging. To stay useful at scale (constant frontend polling + scrapes
+// would drown an info-per-request log), the default samples: every 4xx/5xx is
+// logged, but successful reads are not. LOG_HTTP=all logs every request;
+// LOG_HTTP=off disables access logging entirely. Probe/scrape endpoints are
+// always skipped from the sampled log.
+const LOG_HTTP_MODE = (process.env.LOG_HTTP || 'sample').toLowerCase();
+const QUIET_ROUTES = new Set(['healthz', 'readyz', 'metrics']);
+
+function logHttp(req, res, route, durationMs, requestId) {
+  if (LOG_HTTP_MODE === 'off') {
+    return;
+  }
+  const status = res.statusCode;
+  const fields = {
+    method: req.method,
+    route,
+    status,
+    durationMs: Math.round(durationMs),
+    reqId: requestId,
+  };
+  if (status >= 500) {
+    logger.error('http request', fields);
+    return;
+  }
+  if (status >= 400) {
+    logger.warn('http request', fields);
+    return;
+  }
+  if (LOG_HTTP_MODE === 'all' && !QUIET_ROUTES.has(route)) {
+    logger.info('http request', fields);
+  }
+}
+
 async function handleRequest(req, res) {
   setSecurityHeaders(res);
 
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const route = classifyRoute(requestUrl.pathname);
+
+  // Per-request instrumentation: a short request id (echoed back so it can be
+  // correlated across logs and a client report), and timing/metrics recorded
+  // once the response finishes. recordRequestStart/End bracket the in-flight
+  // gauge; the listener fires for every response path including early returns.
+  const requestId = String(req.headers['x-request-id'] || randomUUID()).slice(0, 64);
+  res.setHeader('X-Request-Id', requestId);
+  const startedAt = process.hrtime.bigint();
+  recordRequestStart();
+  // Settle exactly once, on whichever ends the response first: 'finish' (body
+  // fully flushed) or 'close' (connection torn down — the only one that fires
+  // for some proxied Connection: close responses, and for client aborts). The
+  // guard keeps the in-flight gauge balanced and avoids double-counting.
+  let settled = false;
+  const settle = () => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    recordRequestEnd(req.method, res.statusCode, route, durationMs);
+    logHttp(req, res, route, durationMs, requestId);
+  };
+  res.on('finish', settle);
+  res.on('close', settle);
 
   if (requestUrl.pathname === '/healthz') {
-    // Liveness/readiness probe: keep this cheap and DB-independent so a
-    // brief database blip never cascades into web pods being killed.
+    // Liveness probe: keep this cheap and DB-independent so a brief database
+    // blip never cascades into web containers being killed and restarted.
     sendJson(res, 200, { ok: true }, 'no-store');
+    return;
+  }
+
+  if (requestUrl.pathname === '/readyz') {
+    // Readiness probe: reports dependency health (DB required, Redis optional).
+    // 503 when the database is unreachable so a load balancer can route away.
+    const readiness = await checkReadiness();
+    sendJson(res, readiness.ok ? 200 : 503, readiness, 'no-store');
+    return;
+  }
+
+  if (requestUrl.pathname === '/metrics') {
+    // Prometheus scrape of the web tier's own request metrics. Intentionally
+    // internal — nginx returns 404 for /metrics; Prometheus scrapes web:5173
+    // directly over the compose network. Carries no secrets.
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(renderMetrics());
     return;
   }
 
@@ -4347,7 +4461,7 @@ async function handleRequest(req, res) {
 
     await serveStatic(req, res, requestUrl);
   } catch (error) {
-    console.error(error);
+    logger.error('unhandled request error', { route, reqId: requestId, err: error });
     if (!res.headersSent) {
       sendJson(res, error.message === 'Request body is too large' ? 413 : 500, {
         error: error instanceof Error ? error.message : 'Request failed',
@@ -4381,22 +4495,22 @@ ensureSchema()
     // (no-op when PRINTER_SECRET_KEY is unset or every row is already encrypted).
     encryptPlaintextPrinterSecrets().then((count) => {
       if (count > 0) {
-        console.log(`Encrypted ${count} plaintext printer secret(s) at rest`);
+        logger.info('encrypted plaintext printer secrets at rest', { count });
       }
     }),
   )
   .catch((error) => {
-    console.error('Initial schema setup failed; will retry on first database request', error);
+    logger.error('initial schema setup failed; will retry on first database request', error);
   });
 
 // Periodically sweep expired login sessions so the table doesn't accumulate dead
 // rows (getSession already ignores expired rows, so this is pure housekeeping).
 setInterval(() => {
   deleteExpiredSessions().catch((error) => {
-    console.error('Expired-session sweep failed', error);
+    logger.error('expired-session sweep failed', error);
   });
 }, 60 * 60 * 1000).unref();
 
 createServer(handleRequest).listen(port, host, () => {
-  console.log(`Print Farm server listening on ${host}:${port}`);
+  logger.info('Print Farm server listening', { host, port });
 });

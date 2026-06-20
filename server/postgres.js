@@ -344,6 +344,13 @@ function isPublicViewerMode() {
   return process.env.VITE_PUBLIC_VIEWER_MODE === 'true';
 }
 
+// Cheap connectivity check for the readiness probe. Runs a trivial query through
+// the pool so it exercises connect + round-trip (bounded by the pool's connect /
+// statement timeouts). Throws on failure so the caller can report "not ready".
+export async function pingDatabase() {
+  await query('SELECT 1;');
+}
+
 function buildPrinterListSelect(includeSensitive = true) {
   return `
     json_build_object(

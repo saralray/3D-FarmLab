@@ -148,6 +148,14 @@ server {
     proxy_read_timeout 3600s;
   }
 
+  # The web tier exposes its own Prometheus request metrics at /metrics. Like the
+  # exporter, these are scraped by Prometheus directly over the internal compose
+  # network — keep them off the public site so request/latency internals (and the
+  # endpoint itself) aren't exposed.
+  location = /metrics {
+    return 404;
+  }
+
   location / {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;

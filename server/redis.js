@@ -146,6 +146,22 @@ export async function redisTtl(key) {
   }
 }
 
+// Liveness check for the readiness probe. Returns true only when Redis is
+// configured AND a PING round-trips; false otherwise (disabled, connecting, or
+// erroring). Never throws — a Redis outage must not fail readiness, since the
+// app degrades gracefully to Postgres/in-memory when Redis is unavailable.
+export async function redisPing() {
+  if (!isReady()) {
+    return false;
+  }
+  try {
+    return (await getClient().ping()) === 'PONG';
+  } catch (err) {
+    warnOnce('PING failed', err);
+    return false;
+  }
+}
+
 // Read every field of a hash as a plain object, or null on miss. Used by the live
 // telemetry overlay (one hash per printer).
 export async function redisHGetAll(key) {
