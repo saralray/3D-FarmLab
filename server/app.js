@@ -145,6 +145,17 @@ async function getIntegrationUrls() {
   };
 }
 
+// Website access mode: whether an unauthenticated visitor may view the dashboard
+// read-only (a "public viewer" session) or is bounced to the login screen.
+// Stored in app_settings and read fresh; defaults to enabled to preserve the
+// prior behavior where anonymous visitors fell back to a viewer session.
+const PUBLIC_VIEWER_KEY = 'public_viewer';
+
+async function getPublicViewerSetting() {
+  const stored = (await getAppSetting(PUBLIC_VIEWER_KEY)) || {};
+  return { enabled: stored.enabled !== false };
+}
+
 // OAuth (SSO) sign-in config. Two providers are supported — Google and Microsoft
 // Entra ID (Azure AD) — and each is configured independently in Settings →
 // Sign-in (client id/secret, optional allowed-email-domain list, and, for
@@ -4004,6 +4015,27 @@ async function handleApi(req, res, requestUrl) {
         googleFormUrl: googleFormUrl.trim(),
       });
       sendJson(res, 200, await getIntegrationUrls());
+      return true;
+    }
+  }
+
+  // Website access mode — does an unauthenticated visitor get a read-only viewer
+  // session, or is the dashboard login-gated? GET is public (the unauthenticated
+  // bootstrap reads it to decide); PUT is admin-gated by isAdminMutation's
+  // /api/settings/* rule.
+  if (requestUrl.pathname === '/api/settings/public-viewer') {
+    if (req.method === 'GET') {
+      sendJson(res, 200, await getPublicViewerSetting());
+      return true;
+    }
+    if (req.method === 'PUT') {
+      const body = await readJsonBody(req);
+      if (typeof body?.enabled !== 'boolean') {
+        sendJson(res, 400, { error: 'enabled must be a boolean' });
+        return true;
+      }
+      await setAppSetting(PUBLIC_VIEWER_KEY, { enabled: body.enabled });
+      sendJson(res, 200, await getPublicViewerSetting());
       return true;
     }
   }

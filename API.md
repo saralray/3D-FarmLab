@@ -840,6 +840,35 @@ On success mints the grant token and `302`-redirects to
 `/login?oauth_grant=<token>`. On a verification failure redirects to
 `/login?oauth_error=saml_invalid` (or `not_configured`/`denied`).
 
+## Website access mode (`/api/settings/public-viewer`)
+
+Controls whether an unauthenticated visitor gets a read-only "public viewer"
+session of the dashboard, or is redirected to the login screen. Stored in
+`app_settings` under the `public_viewer` key; **defaults to enabled** (preserving
+the prior behavior where anonymous visitors fell back to a viewer session). The
+build-time `VITE_PUBLIC_VIEWER_MODE=true` flag forces public viewing on
+regardless of this setting. Connection secrets remain redacted for non-privileged
+sessions either way.
+
+#### `GET /api/settings/public-viewer`
+
+Public (the unauthenticated client bootstrap reads it to decide whether to grant
+a viewer session).
+
+**Response `200`:**
+
+```json
+{ "enabled": true }
+```
+
+#### `PUT /api/settings/public-viewer`
+
+Admin-only (covered by the `/api/settings/*` write rule).
+
+**Request body:** `{ "enabled": false }` — `enabled` must be a boolean (else `400`).
+
+**Response `200`:** the saved setting, e.g. `{ "enabled": false }`.
+
 ## Sign-in settings (`/api/settings/oauth/:provider`)
 
 Admin-only in the UI (client-side session guard, like

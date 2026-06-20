@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import {
   ADMIN_USERNAME,
   PUBLIC_VIEWER_MODE,
@@ -10,6 +10,7 @@ import { logAuditEvent, setAuditActor } from '../lib/auditApi';
 import { verifySlicerGrant } from '../lib/slicerGrantApi';
 import { verifyOAuthGrant } from '../lib/oauthApi';
 import { fetchSession, loginSession, logoutSession } from '../lib/authSessionApi';
+import { fetchPublicViewerSetting } from '../lib/publicViewerApi';
 import {
   changeAdminCredential,
   setupAdminCredential,
@@ -179,6 +180,20 @@ function writeStoredSession(user: User | null, remember = false) {
 function createViewerSession() {
   writeStoredSession(PUBLIC_VIEWER_USER);
   return PUBLIC_VIEWER_USER;
+}
+
+// Whether an unauthenticated visitor may view the dashboard read-only. Admins
+// control this in Settings → Sign-in (the `public_viewer` app setting). The
+// build-time PUBLIC_VIEWER_MODE forces it on and is handled separately. Fails
+// open to the prior default (anonymous viewer) on a transient error — connection
+// secrets are redacted server-side for non-privileged sessions regardless.
+async function isPublicViewerAllowed(): Promise<boolean> {
+  try {
+    const setting = await fetchPublicViewerSetting();
+    return setting.enabled;
+  } catch {
+    return true;
+  }
 }
 
 // When the dashboard is opened from a slicer's "Device" tab, the slicer-proxy
@@ -355,6 +370,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Resolved once during bootstrap; reused by the cross-tab session watcher and
+  // logout so they don't refetch the setting on every tick.
+  const publicViewerAllowedRef = useRef(false);
 
   useEffect(() => {
     if (PUBLIC_VIEWER_MODE) {
@@ -410,9 +428,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Restore an existing session from the server cookie; fall back to viewer.
+      // Restore an existing session from the server cookie. With no session, fall
+      // back to a read-only viewer only if public viewing is enabled; otherwise
+      // leave the user unauthenticated so ProtectedRoute sends them to login.
       const sessionUser = await fetchSession();
-      await establish(sessionUser ?? createViewerSession());
+      if (sessionUser) {
+        await establish(sessionUser);
+        return;
+      }
+      const allowViewer = await isPublicViewerAllowed();
+      publicViewerAllowedRef.current = allowViewer;
+      if (allowViewer) {
+        await establish(createViewerSession());
+        return;
+      }
+      clearStoredSession();
+      if (!cancelled) {
+        setUser(null);
+        setIsLoading(false);
+      }
     };
 
     bootstrap();
@@ -430,7 +464,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const interval = window.setInterval(() => {
       const storedSession = readStoredSession();
       if (!storedSession) {
-        setUser(createViewerSession());
+        setUser(publicViewerAllowedRef.current ? createViewerSession() : null);
       }
     }, 60 * 1000);
 
@@ -500,6 +534,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const loginAsViewer = async (): Promise<LoginResult> => {
+    // Defense in depth: the Login page hides the guest button when public
+    // viewing is disabled, but re-check here so the entry point can't be reused
+    // to bypass the toggle. The build-time PUBLIC_VIEWER_MODE always allows it.
+    if (!PUBLIC_VIEWER_MODE) {
+      const allowed = await isPublicViewerAllowed();
+      publicViewerAllowedRef.current = allowed;
+      if (!allowed) {
+        return { success: false, error: 'Public viewing is disabled. Please sign in.' };
+      }
+    }
     const viewerUser = PUBLIC_VIEWER_USER;
     setUser(viewerUser);
     writeStoredSession(viewerUser);
@@ -783,8 +827,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // state regardless of the network result.
     void logoutSession();
 
-    const viewerUser = createViewerSession();
-    setUser(viewerUser);
+    // Drop to a read-only viewer if public viewing is enabled; otherwise clear
+    // the session entirely so ProtectedRoute redirects to login.
+    if (publicViewerAllowedRef.current) {
+      setUser(createViewerSession());
+    } else {
+      clearStoredSession();
+      setUser(null);
+    }
   };
 
   return (

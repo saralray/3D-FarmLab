@@ -65,6 +65,10 @@ import {
 import { OAuthProviderSettings } from '../components/OAuthProviderSettings';
 import { SamlSsoSettings } from '../components/SamlSsoSettings';
 import { fetchEnabledOAuthProviders } from '../lib/oauthApi';
+import {
+  fetchPublicViewerSetting,
+  savePublicViewerSetting,
+} from '../lib/publicViewerApi';
 
 const IPV4_PATTERN =
   /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
@@ -132,6 +136,10 @@ export function Settings() {
   // Which SSO provider's config form to show. Only one provider is configured at
   // a time — the admin picks before the form appears.
   const [ssoProvider, setSsoProvider] = useState<'google' | 'microsoft' | 'saml'>('google');
+  // Website access mode: whether an unauthenticated visitor can view the
+  // dashboard read-only, or is sent to the login screen.
+  const [publicViewerEnabled, setPublicViewerEnabled] = useState(true);
+  const [savingPublicViewer, setSavingPublicViewer] = useState(false);
   // Controlled so the desktop tab bar and the mobile section dropdown stay in sync.
   const [activeTab, setActiveTab] = useState<string>('manage-printers');
 
@@ -185,7 +193,36 @@ export function Settings() {
       .catch(() => {
         /* non-fatal — defaults to Google */
       });
+
+    fetchPublicViewerSetting()
+      .then((setting) => setPublicViewerEnabled(setting.enabled))
+      .catch(() => {
+        /* non-fatal — defaults to enabled */
+      });
   }, []);
+
+  const handleTogglePublicViewer = async (enabled: boolean) => {
+    if (user?.role !== 'admin') {
+      toast.error('Only admins can change the website access mode.');
+      return;
+    }
+    setSavingPublicViewer(true);
+    try {
+      const saved = await savePublicViewerSetting(enabled);
+      setPublicViewerEnabled(saved.enabled);
+      toast.success(
+        saved.enabled
+          ? 'Public viewing enabled — visitors can see the dashboard without signing in.'
+          : 'Public viewing disabled — visitors must sign in to see the dashboard.',
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Unable to update website access mode.',
+      );
+    } finally {
+      setSavingPublicViewer(false);
+    }
+  };
 
   const refreshPrinters = async () => {
     const storedPrinters = await fetchPrinters();
@@ -1833,6 +1870,28 @@ export function Settings() {
 
         <TabsContent value="sign-in">
           <div className="space-y-6">
+            <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="public-viewer-toggle" className="text-base">
+                    Public dashboard viewing
+                  </Label>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    When on, anyone can open the dashboard read-only without
+                    signing in (connection secrets stay hidden). When off,
+                    visitors are sent to the login screen and must sign in to see
+                    anything.
+                  </p>
+                </div>
+                <Switch
+                  id="public-viewer-toggle"
+                  checked={publicViewerEnabled}
+                  onCheckedChange={handleTogglePublicViewer}
+                  disabled={user?.role !== 'admin' || savingPublicViewer}
+                />
+              </div>
+            </Card>
+
             <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
               <div className="space-y-2">
                 <Label htmlFor="sso-provider">Single sign-on provider</Label>
