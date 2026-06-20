@@ -1,0 +1,94 @@
+# Alerting rules for 3D-FarmLab. Loaded via rule_files in prometheus.yml. These
+# fire on the /prometheus/alerts page; wire an Alertmanager (alerting: block in
+# prometheus.yml) to deliver them to email/Slack/Discord/PagerDuty.
+#
+# Thresholds assume the default 2s poll interval and 5s scrape interval. Tune
+# `for:` and the numbers to your farm size and noise tolerance.
+groups:
+  - name: printfarm_poller
+    rules:
+      # The poller upserts a poller_health row (per shard) every cycle; the
+      # exporter turns its timestamp into this gauge. If it stops advancing the
+      # poller has stalled/crashed and printer state is going stale.
+      - alert: PollerStalled
+        expr: time() - printfarm_poller_last_run_timestamp_seconds > 60
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Poller shard {{ $labels.shard }} has stalled"
+          description: "No poller_health update from shard {{ $labels.shard }} for over 60s. Printer telemetry is going stale. Check `docker compose logs poller`."
+
+      # Sustained per-cycle refresh failures mean printers are unreachable or the
+      # poll cycle is erroring — distinct from a clean offline transition.
+      - alert: PollerRefreshFailures
+        expr: rate(printfarm_poller_refresh_failures[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Poller shard {{ $labels.shard }} is logging refresh failures"
+          description: "Shard {{ $labels.shard }} has had refresh failures for 10m. Some printers may be unreachable, or the cycle is overrunning — consider raising PRINTER_POLL_CONCURRENCY_MAX or adding a shard."
+
+  - name: printfarm_exporter
+    rules:
+      # The exporter sets printfarm_scrape_success 0 (instead of crashing) when
+      # its database read fails, so the metric endpoint stays up but reports bad.
+      - alert: ExporterScrapeFailing
+        expr: printfarm_scrape_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Print-farm exporter cannot read the database"
+          description: "printfarm_scrape_success has been 0 for 2m — the exporter's PostgreSQL read is failing. Metrics are stale. Check the db service and exporter logs."
+
+      # Prometheus can't reach the exporter at all (process down / network).
+      - alert: ExporterDown
+        expr: up{job="printfarm"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Print-farm exporter is unreachable"
+          description: "Prometheus has failed to scrape the exporter for 2m. Check the exporter service."
+
+  - name: printfarm_web
+    rules:
+      # The web container's /metrics endpoint is unreachable — process down or
+      # crash-looping. (Liveness is /healthz; this is the scrape view of it.)
+      - alert: WebDown
+        expr: up{job="printfarm_web"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Web tier is unreachable"
+          description: "Prometheus has failed to scrape web:5173/metrics for 1m. The dashboard/API may be down — check `docker compose ps` and the web logs."
+
+      # 5xx responses as a fraction of all requests. Catches a broad backend
+      # failure (DB outage, unhandled errors) rather than isolated 4xx noise.
+      - alert: WebHighErrorRate
+        expr: |
+          sum(rate(printfarm_web_http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(printfarm_web_http_requests_total[5m])), 1) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Web 5xx error rate above 5%"
+          description: "More than 5% of web requests have returned 5xx for 5m. Check the database (/readyz), Redis, and recent web logs."
+
+      # p95 request latency. Sustained high latency signals DB contention, a slow
+      # query (despite statement_timeout), or pool exhaustion.
+      - alert: WebHighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(printfarm_web_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Web p95 latency above 1s"
+          description: "95th-percentile web request latency has exceeded 1s for 10m. Check DB load, the connection pool (DATABASE_POOL_MAX), and slow queries."

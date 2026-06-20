@@ -57,6 +57,13 @@ services:
       # Optional Redis acceleration. Empty = disabled (falls back to Postgres /
       # in-memory). Reaches the redis service over the internal compose network.
       REDIS_URL: ${REDIS_URL:-}
+      # Observability. LOG_LEVEL (debug|info|warn|error); LOG_FORMAT (text|json —
+      # use json to ship structured logs to an aggregator); LOG_HTTP (sample|all|
+      # off) controls the per-request access log. Request metrics are always at
+      # the internal /metrics (scraped by Prometheus, 404 on the public site).
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      LOG_HTTP: ${LOG_HTTP:-sample}
       VITE_PUBLIC_VIEWER_MODE: ${VITE_PUBLIC_VIEWER_MODE:-false}
       MAX_BODY_BYTES: ${MAX_BODY_BYTES:-1048576}
       # Shared with slicer-proxy: verifies the signed slicer operator-grant token.
@@ -209,6 +216,7 @@ services:
       - '--web.route-prefix=/prometheus'
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
 
 volumes:
