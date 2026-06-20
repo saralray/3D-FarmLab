@@ -1,17 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, Check, CheckCheck, MonitorCheck, Trash2, CheckCircle2, AlertTriangle, XCircle, Info, X } from 'lucide-react';
-import { toast } from 'sonner';
+import { useState } from 'react';
+import { Bell, CheckCheck, Trash2, CheckCircle2, AlertTriangle, XCircle, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { ScrollArea } from './ui/scroll-area';
-import { Button } from './ui/button';
 import { usePrinterEvents, PrinterEvent, PrinterEventLevel } from '../contexts/PrinterEventsContext';
-import { useAuth } from '../contexts/AuthContext';
-import {
-  approveManagerRequest,
-  denyManagerRequest,
-  fetchManagerRequests,
-} from '../lib/managerRequestsApi';
-import type { ManagerRequest } from '../lib/managerRequestsApi';
 
 const LEVEL_ICON: Record<PrinterEventLevel, typeof Info> = {
   success: CheckCircle2,
@@ -75,141 +66,18 @@ function EventRow({ event }: { event: PrinterEvent }) {
   );
 }
 
-function ManagerRequestRow({
-  request,
-  onAction,
-}: {
-  request: ManagerRequest;
-  onAction: () => void;
-}) {
-  const [actioning, setActioning] = useState<'approve' | 'deny' | null>(null);
-
-  const handleApprove = async () => {
-    setActioning('approve');
-    try {
-      await approveManagerRequest(request.id);
-      toast.success('Manager access approved', { description: request.name });
-      onAction();
-    } catch (err) {
-      toast.error('Failed to approve', {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setActioning(null);
-    }
-  };
-
-  const handleDeny = async () => {
-    setActioning('deny');
-    try {
-      await denyManagerRequest(request.id);
-      toast.success('Manager access denied', { description: request.name });
-      onAction();
-    } catch (err) {
-      toast.error('Failed to deny', {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setActioning(null);
-    }
-  };
-
-  return (
-    <div className="flex gap-3 bg-amber-50/60 px-4 py-3 dark:bg-amber-900/10">
-      <MonitorCheck className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
-          Manager access request
-        </p>
-        <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
-          <span className="font-medium">{request.name}</span>
-          {request.description && ` — ${request.description}`}
-        </p>
-        <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-          {new Date(request.createdAt).toLocaleString()}
-        </p>
-        <div className="mt-2 flex gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            disabled={actioning !== null}
-            onClick={handleApprove}
-          >
-            {actioning === 'approve' ? (
-              '…'
-            ) : (
-              <>
-                <Check className="mr-1 size-3" />
-                Approve
-              </>
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            disabled={actioning !== null}
-            onClick={handleDeny}
-          >
-            {actioning === 'deny' ? (
-              '…'
-            ) : (
-              <>
-                <X className="mr-1 size-3" />
-                Deny
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const MANAGER_POLL_INTERVAL_MS = 30_000;
+/** Only the most recent events are shown until the history is expanded. */
+const MAX_VISIBLE_EVENTS = 5;
 
 /**
- * Notification center. Shows printer status events and (for admins) pending
- * manager access requests with inline approve/deny.
+ * Notification center. Shows printer status events. Manager access requests are
+ * approved/denied from Settings → Managers.
  */
 export function NotificationBell() {
   const { events, unreadCount, markAllRead, clearAll } = usePrinterEvents();
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
 
-  const [pendingRequests, setPendingRequests] = useState<ManagerRequest[]>([]);
   const [isOpen, setIsOpen] = useState(false);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const loadPendingRequests = useCallback(async () => {
-    if (!isAdmin) return;
-    try {
-      const all = await fetchManagerRequests();
-      setPendingRequests(all.filter((r) => r.status === 'pending'));
-    } catch {
-      // Silent — this is best-effort background polling
-    }
-  }, [isAdmin]);
-
-  useEffect(() => {
-    if (!isAdmin) {
-      setPendingRequests([]);
-      return;
-    }
-
-    loadPendingRequests();
-
-    pollTimerRef.current = setInterval(loadPendingRequests, MANAGER_POLL_INTERVAL_MS);
-    return () => {
-      if (pollTimerRef.current !== null) {
-        clearInterval(pollTimerRef.current);
-      }
-    };
-  }, [isAdmin, loadPendingRequests]);
-
-  const totalUnread = unreadCount + pendingRequests.length;
+  const [showAllEvents, setShowAllEvents] = useState(false);
 
   return (
     <Popover
@@ -218,26 +86,31 @@ export function NotificationBell() {
         setIsOpen(open);
         if (open) {
           markAllRead();
-          if (isAdmin) {
-            loadPendingRequests();
-          }
+        } else {
+          setShowAllEvents(false);
         }
       }}
     >
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={`Printer notifications${totalUnread > 0 ? ` (${totalUnread} unread)` : ''}`}
+          aria-label={`Printer notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
           className="relative inline-flex size-9 items-center justify-center rounded-md text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
         >
           <Bell className="size-5" />
-          {totalUnread > 0 && (
+          {unreadCount > 0 && (
             <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-gray-900" />
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" sideOffset={8} className="w-80 p-0">
-        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+      <PopoverContent
+        side="top"
+        align="start"
+        sideOffset={8}
+        collisionPadding={12}
+        className="flex max-h-[min(24rem,var(--radix-popover-content-available-height))] w-80 flex-col p-0"
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Notifications</h3>
           {events.length > 0 && (
             <div className="flex items-center gap-1">
@@ -261,23 +134,35 @@ export function NotificationBell() {
           )}
         </div>
 
-        {pendingRequests.length === 0 && events.length === 0 ? (
+        {events.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
             No printer activity yet.
           </div>
         ) : (
-          <ScrollArea className="max-h-96">
+          <ScrollArea className="min-h-0 flex-1">
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {pendingRequests.map((req) => (
-                <ManagerRequestRow
-                  key={req.id}
-                  request={req}
-                  onAction={loadPendingRequests}
-                />
-              ))}
-              {events.map((event) => (
+              {(showAllEvents ? events : events.slice(0, MAX_VISIBLE_EVENTS)).map((event) => (
                 <EventRow key={event.id} event={event} />
               ))}
+              {events.length > MAX_VISIBLE_EVENTS && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllEvents((v) => !v)}
+                  className="flex w-full items-center justify-center gap-1 px-4 py-2 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                >
+                  {showAllEvents ? (
+                    <>
+                      Show less
+                      <ChevronUp className="size-3.5" />
+                    </>
+                  ) : (
+                    <>
+                      Show history ({events.length - MAX_VISIBLE_EVENTS} more)
+                      <ChevronDown className="size-3.5" />
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </ScrollArea>
         )}
