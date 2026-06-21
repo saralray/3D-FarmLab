@@ -2301,6 +2301,14 @@ def build_job_transition_event(
         }
 
     if previous_filename and not next_filename:
+        # A printer going offline mid-print clears currentJob (see
+        # build_offline_printer_state), which looks identical to a finished print
+        # here. The print didn't end — the connection was lost — so don't emit a
+        # completed/stopped job event; the "Printer Offline" status embed covers
+        # it. Mirrors the same guard in collect_analytics_for_transition.
+        if next_printer.get("status") == "offline":
+            return None
+
         raw_print_state = next_printer.get("rawPrintState")
         if raw_print_state in ("cancelled", "failed"):
             title = f"{printer_name} Print Cancelled"
