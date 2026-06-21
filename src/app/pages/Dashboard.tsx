@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Printer } from '../types';
 import { PrinterCard } from '../components/PrinterCard';
-import { Activity, AlertCircle, CheckCircle, Lightbulb, Pause } from 'lucide-react';
+import { Activity, AlertCircle, Check, CheckCircle, LayoutGrid, Lightbulb, Pause } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { useAuth } from '../contexts/AuthContext';
@@ -19,12 +19,16 @@ export function Dashboard() {
   const [printers, setPrinters] = useState<Printer[]>(livePrinters);
   const [draggedPrinterId, setDraggedPrinterId] = useState<string | null>(null);
   const [lightsInFlight, setLightsInFlight] = useState(false);
+  const [isLayoutEditing, setIsLayoutEditing] = useState(false);
   const { user } = useAuth();
   // Drag-to-reorder ("edit layout") is awkward on touch phones, so it's
   // disabled there — cards stay tap-to-open only.
   const isMobile = useIsMobile();
   const { siteName } = useBrandingSettings();
+  // Admins on non-touch screens may reorder, but only after explicitly entering
+  // "Edit layout" mode via the top-right button (mirrors the Analytics page).
   const canReorder = user?.role === 'admin' && !isMobile;
+  const isReordering = canReorder && isLayoutEditing;
   const loadErrorToastShownRef = useRef(false);
 
   // Adopt the shared poll's data except while a drag is in progress, so the
@@ -159,8 +163,10 @@ export function Dashboard() {
       sortOrder: index,
     }));
 
-    setDraggedPrinterId(null);
-
+    // Keep the drag guard set until the order is persisted AND a refresh has
+    // pulled the new order back into livePrinters. Clearing it earlier lets the
+    // adoption effect overwrite the optimistic order with a stale poll, which
+    // made the layout snap back to the old version after a reorder.
     try {
       await persistPrinterOrder(nextPrinters);
       toast.success('Dashboard order updated.');
@@ -168,14 +174,38 @@ export function Dashboard() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to save dashboard order.');
       await refresh();
+    } finally {
+      setDraggedPrinterId(null);
     }
   };
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold mb-2 dark:text-white">{siteName || DEFAULT_SITE_NAME} Dashboard</h1>
-        <p className="text-gray-600 dark:text-gray-400">Monitor and manage all printers in real-time</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold mb-2 dark:text-white">{siteName || DEFAULT_SITE_NAME} Dashboard</h1>
+          <p className="text-gray-600 dark:text-gray-400">Monitor and manage all printers in real-time</p>
+        </div>
+        {canReorder && (
+          <Button
+            type="button"
+            variant={isLayoutEditing ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setIsLayoutEditing((value) => !value)}
+          >
+            {isLayoutEditing ? (
+              <>
+                <Check className="size-4 mr-2" />
+                Done
+              </>
+            ) : (
+              <>
+                <LayoutGrid className="size-4 mr-2" />
+                Edit layout
+              </>
+            )}
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -194,16 +224,21 @@ export function Dashboard() {
 
       <div>
         <h2 className="text-xl font-semibold mb-4 dark:text-white">All Printers ({stats.total})</h2>
+        {isReordering && (
+          <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+            Drag a printer card onto another to reorder them. The new order is saved automatically.
+          </p>
+        )}
         <div className="printer-grid grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
           {printers.map((printer) => (
             <PrinterCard
               key={printer.id}
               printer={printer}
-              canManage={canReorder}
+              canManage={isReordering}
               canViewSensitiveInfo={!isReadOnlyRole(user?.role)}
-              onDragStart={canReorder ? handlePrinterDragStart : undefined}
-              onDragOver={canReorder ? handlePrinterDragOver : undefined}
-              onDragEnd={canReorder ? handlePrinterDragEnd : undefined}
+              onDragStart={isReordering ? handlePrinterDragStart : undefined}
+              onDragOver={isReordering ? handlePrinterDragOver : undefined}
+              onDragEnd={isReordering ? handlePrinterDragEnd : undefined}
             />
           ))}
         </div>
