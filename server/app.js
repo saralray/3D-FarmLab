@@ -28,6 +28,7 @@ import {
   deleteQueueJob,
   deleteQueueJobs,
   deleteSlicerApiKey,
+  deleteSlicerApiKeysBySession,
   denyManagerRequest,
   ensureSchema,
   exportQueueJobs,
@@ -1104,6 +1105,10 @@ function classifyApiRequest(method, pathname) {
     return 'public';
   }
   if (pathname === '/api/audit-logs' && method === 'POST') {
+    return 'authed';
+  }
+  // Any signed-in user may mint/revoke their own ephemeral slicer-upload token.
+  if (pathname === '/api/auth/slicer-token' && (method === 'POST' || method === 'DELETE')) {
     return 'authed';
   }
   if (isOperatorMutation(method, pathname)) {
@@ -3614,11 +3619,51 @@ async function handleApi(req, res, requestUrl) {
     const token = parseCookies(req)[SESSION_COOKIE];
     if (token) {
       const tokenHash = hash(token);
+      // Revoke any ephemeral slicer-upload key minted for this session.
+      await deleteSlicerApiKeysBySession(tokenHash).catch(() => {});
       await deleteSession(tokenHash).catch(() => {});
       await invalidateCachedSession(tokenHash).catch(() => {});
     }
     clearSessionCookie(req, res);
     sendEmpty(res);
+    return true;
+  }
+
+  // Mint / revoke an ephemeral slicer-upload API key bound to the caller's
+  // session. The slicer requests one right after login (so the user never has to
+  // create or paste a key) and revokes it on exit; it is also auto-revoked on
+  // logout above. The plaintext key is returned once and only held in slicer
+  // memory. Authenticated by the session cookie, not by an API key.
+  if (requestUrl.pathname === '/api/auth/slicer-token') {
+    const session = await resolveSession(req);
+    if (!session) {
+      sendJson(res, 401, { error: 'Not signed in.' });
+      return true;
+    }
+    const sessionTokenHash = hash(parseCookies(req)[SESSION_COOKIE]);
+
+    if (req.method === 'POST') {
+      // Re-mint is idempotent: drop any prior token for this session first.
+      await deleteSlicerApiKeysBySession(sessionTokenHash).catch(() => {});
+      const key = randomBytes(24).toString('base64url');
+      const newId = randomUUID();
+      await createSlicerApiKey({
+        id: newId,
+        name: `Slicer session (${session.username})`,
+        keyHash: hash(key),
+        keyPrefix: key.slice(0, 8),
+        permissions: ['slicer_upload'],
+        sessionTokenHash,
+      });
+      sendJson(res, 201, { id: newId, key, permissions: ['slicer_upload'] });
+      return true;
+    }
+    if (req.method === 'DELETE') {
+      await deleteSlicerApiKeysBySession(sessionTokenHash).catch(() => {});
+      sendEmpty(res);
+      return true;
+    }
+    sendJson(res, 405, { error: 'Method not allowed.' });
     return true;
   }
 

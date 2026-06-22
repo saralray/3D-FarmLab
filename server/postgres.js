@@ -129,6 +129,11 @@ CREATE TABLE IF NOT EXISTS slicer_api_keys (
 ALTER TABLE slicer_api_keys
   ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL
   DEFAULT '["slicer_upload","printfarm_manage"]'::jsonb;
+-- Ephemeral keys minted for a logged-in slicer session carry the hash of the
+-- session token that owns them. They are auto-deleted when that session logs out
+-- or the slicer revokes them on exit; named admin keys leave this NULL.
+ALTER TABLE slicer_api_keys
+  ADD COLUMN IF NOT EXISTS session_token_hash TEXT;
 -- Slicer-derived filament estimate per print. When a .3mf is uploaded through
 -- the slicer-proxy we parse its Metadata/slice_info.config (plate weight =
 -- grams) and store the job total here, keyed by printer + the subtask name the
@@ -1323,24 +1328,33 @@ export async function listSlicerApiKeys() {
       ),
       '[]'::json
     ) AS data
-    FROM slicer_api_keys;
+    FROM slicer_api_keys
+    WHERE session_token_hash IS NULL;
   `);
 
   return result.rows[0].data;
 }
 
-export async function createSlicerApiKey({ id, name, keyHash, keyPrefix, permissions }) {
+export async function createSlicerApiKey({ id, name, keyHash, keyPrefix, permissions, sessionTokenHash = null }) {
   await ensureSchema();
   await query(
-    `INSERT INTO slicer_api_keys (id, name, key_hash, key_prefix, permissions)
-     VALUES ($1, $2, $3, $4, $5::jsonb);`,
-    [id, name, keyHash, keyPrefix, JSON.stringify(permissions ?? [])],
+    `INSERT INTO slicer_api_keys (id, name, key_hash, key_prefix, permissions, session_token_hash)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6);`,
+    [id, name, keyHash, keyPrefix, JSON.stringify(permissions ?? []), sessionTokenHash],
   );
 }
 
 export async function deleteSlicerApiKey(id) {
   await ensureSchema();
   await query('DELETE FROM slicer_api_keys WHERE id = $1;', [id]);
+}
+
+// Delete every ephemeral key minted for a given session (by session token hash).
+// Used to revoke a slicer's upload token on logout / on slicer exit.
+export async function deleteSlicerApiKeysBySession(sessionTokenHash) {
+  await ensureSchema();
+  if (!sessionTokenHash) return;
+  await query('DELETE FROM slicer_api_keys WHERE session_token_hash = $1;', [sessionTokenHash]);
 }
 
 // Used by the proxy to authenticate an upload. Returns the matching key row
