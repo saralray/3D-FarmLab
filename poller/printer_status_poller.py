@@ -2189,24 +2189,18 @@ def send_discord_embed(
         tts_on = bool(webhook.get("tts"))
         try:
             if tts_on:
+                # TTS notifications are spoken text only — never attach the
+                # snapshot image, even when one is available.
                 payload = {
                     "username": username,
                     "tts": True,
                     "content": tts_content_for_embed(embed),
                 }
-                if snapshot_bytes:
-                    requests.post(
-                        webhook_url,
-                        data={"payload_json": json.dumps(payload)},
-                        files={"file": ("snapshot.jpg", BytesIO(snapshot_bytes), "image/jpeg")},
-                        timeout=REQUEST_TIMEOUT_SECONDS,
-                    ).raise_for_status()
-                else:
-                    requests.post(
-                        webhook_url,
-                        json=payload,
-                        timeout=REQUEST_TIMEOUT_SECONDS,
-                    ).raise_for_status()
+                requests.post(
+                    webhook_url,
+                    json=payload,
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                ).raise_for_status()
             elif snapshot_bytes:
                 embed_with_image = {**embed, "image": {"url": "attachment://snapshot.jpg"}}
                 requests.post(
