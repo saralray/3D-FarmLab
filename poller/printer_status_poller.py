@@ -144,6 +144,49 @@ ALTER TABLE printers ADD COLUMN IF NOT EXISTS temperature_chamber DOUBLE PRECISI
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS chamber_target DOUBLE PRECISION;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS air_filter_on BOOLEAN;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS error_message TEXT;
+-- Preventive-maintenance hour accounting. The poller accrues these when a job
+-- finishes (finalize_job_analytics); health_score is owned/recomputed by the web
+-- worker. Declared here too so the poller can write them regardless of which
+-- service runs ensureSchema first.
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS total_print_hours DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS current_nozzle_hours DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS last_maintenance_at TIMESTAMPTZ;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS health_score INTEGER NOT NULL DEFAULT 100;
+-- Maintenance schedules (read by the poller to know each printer's intervals) and
+-- events (written by the poller when total_print_hours crosses an interval). The
+-- partial unique index is the authoritative "no duplicate pending events" guard.
+-- The Node web schema is authoritative for these tables; the subset here keeps the
+-- poller's writes valid no matter the service start order.
+CREATE TABLE IF NOT EXISTS maintenance_schedules (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  printer_id TEXT NOT NULL,
+  maintenance_type TEXT NOT NULL,
+  interval_hours DOUBLE PRECISION NOT NULL,
+  description TEXT,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS maintenance_schedules_printer_idx
+  ON maintenance_schedules (printer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS maintenance_schedules_unique_idx
+  ON maintenance_schedules (printer_id, maintenance_type, interval_hours);
+CREATE TABLE IF NOT EXISTS maintenance_events (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  printer_id TEXT NOT NULL,
+  maintenance_type TEXT NOT NULL,
+  interval_hours DOUBLE PRECISION,
+  triggered_at_hours DOUBLE PRECISION,
+  completed_at_hours DOUBLE PRECISION,
+  status TEXT NOT NULL DEFAULT 'pending',
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS maintenance_events_pending_unique_idx
+  ON maintenance_events (printer_id, maintenance_type, interval_hours)
+  WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS maintenance_events_printer_status_idx
+  ON maintenance_events (printer_id, status);
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -2007,10 +2050,74 @@ def refresh_status(printer: dict[str, Any]) -> dict[str, Any]:
     return {**printer, **live_status, "offlineSince": None}
 
 
+def accrue_print_hours_and_trigger_maintenance(
+    conn: psycopg.Connection, printer_id: str, duration_hours: float
+) -> None:
+    """Add this job's duration to the printer's lifetime + nozzle hour counters,
+    then create a pending maintenance event for every interval multiple crossed.
+
+    The partial unique index on (printer_id, maintenance_type, interval_hours)
+    WHERE status='pending' makes the inserts idempotent — a duplicate while a task
+    is still pending is silently dropped, so we never double-create. We only fire on
+    a *newly crossed* multiple (floor(new) > floor(old)), which also means an
+    already-completed interval isn't re-triggered."""
+    if not printer_id or duration_hours <= 0:
+        return
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE printers
+               SET total_print_hours = total_print_hours + %(h)s,
+                   current_nozzle_hours = current_nozzle_hours + %(h)s
+             WHERE id = %(id)s
+            RETURNING total_print_hours,
+                      total_print_hours - %(h)s AS previous_total
+            """,
+            {"h": duration_hours, "id": printer_id},
+        )
+        row = cur.fetchone()
+        if not row:
+            return
+        new_total, previous_total = float(row[0]), float(row[1])
+
+        # Enabled schedules whose next interval boundary was crossed by this job.
+        cur.execute(
+            """
+            SELECT maintenance_type, interval_hours
+            FROM maintenance_schedules
+            WHERE printer_id = %(id)s
+              AND enabled = TRUE
+              AND interval_hours > 0
+              AND floor(%(new)s / interval_hours) > floor(%(old)s / interval_hours)
+            """,
+            {"id": printer_id, "new": new_total, "old": previous_total},
+        )
+        crossed = cur.fetchall()
+        for maintenance_type, interval_hours in crossed:
+            cur.execute(
+                """
+                INSERT INTO maintenance_events
+                  (printer_id, maintenance_type, interval_hours, triggered_at_hours, status)
+                VALUES (%(id)s, %(type)s, %(interval)s, %(trigger)s, 'pending')
+                ON CONFLICT (printer_id, maintenance_type, interval_hours)
+                  WHERE status = 'pending'
+                DO NOTHING
+                """,
+                {
+                    "id": printer_id,
+                    "type": maintenance_type,
+                    "interval": interval_hours,
+                    "trigger": new_total,
+                },
+            )
+
+
 def finalize_job_analytics(
     conn: psycopg.Connection,
     job: dict[str, Any],
     outcome: str,
+    printer_id: str | None = None,
 ) -> None:
     start_time = job.get("startTime")
     if not start_time:
@@ -2027,6 +2134,11 @@ def finalize_job_analytics(
     filament_used = job.get("filamentUsed", 0)
     if not isinstance(filament_used, (int, float)):
         filament_used = 0
+
+    # Lifetime print-hour accrual + preventive-maintenance triggers. Done for both
+    # completed and failed outcomes — the hardware logged the runtime either way.
+    if printer_id:
+        accrue_print_hours_and_trigger_maintenance(conn, printer_id, duration_hours)
 
     with conn.cursor() as cur:
         cur.execute(
@@ -2404,7 +2516,8 @@ def collect_analytics_for_transition(
         outcome = "failed"
     else:
         outcome = "failed" if next_status == "error" else "completed"
-    finalize_job_analytics(conn, previous_job, outcome)
+    printer_id = next_printer.get("id") or previous_printer.get("id")
+    finalize_job_analytics(conn, previous_job, outcome, printer_id)
 
 
 # A heater counts as "at target" once it is within this many °C of the setpoint.

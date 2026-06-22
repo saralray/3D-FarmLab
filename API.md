@@ -86,7 +86,7 @@ Lists the available resources.
 ```json
 {
   "version": "v1",
-  "resources": ["printers", "queue", "analytics", "notifications", "slicer-keys", "audit-logs", "settings", "users", "admin-credential", "manager-requests"]
+  "resources": ["printers", "queue", "analytics", "notifications", "slicer-keys", "audit-logs", "settings", "users", "admin-credential", "manager-requests", "maintenance"]
 }
 ```
 
@@ -254,6 +254,26 @@ curl -H "X-Api-Key: $SRC_KEY" -X POST "$SRC/queue/delete" \
 |---------------|-------------|
 | `GET /analytics?days=7` | Daily analytics rollups. `days` defaults to `7`. |
 | `POST /analytics/reset` | Reset the daily analytics. |
+
+---
+
+### Maintenance — `/api/v1/maintenance`
+
+Preventive-maintenance parity. Printers accumulate `totalPrintHours` /
+`currentNozzleHours` as jobs finish; pending `maintenance_events` are auto-created
+when an interval is crossed (never duplicated while one is open), and a rolling
+`healthScore` (0–100) is recomputed every 5 minutes.
+
+| Method & path | Description |
+|---------------|-------------|
+| `GET /maintenance?printer=&status=&type=` | List maintenance events. Filters optional (`status` defaults to all). |
+| `GET /maintenance/summary` | Fleet aggregates: `{ printersRequiringMaintenance, overdueTasks, averageHealth, totalFleetHours, printerCount }`. |
+| `GET /maintenance/printer/:printerId` | Per-printer summary (hours, health, pending/completed tasks, `nextService`). |
+| `POST /maintenance/:eventId/complete` | Mark a pending task completed. Body `{ notes? }`. Stamps completion hours/time, advances `lastMaintenanceAt`, and resets nozzle hours for a nozzle service. `404` if not pending. |
+
+The admin-configurable global default intervals live in **app_settings** under the
+key `maintenance_default_intervals` (array of `{ type, intervalHours, description }`),
+reachable via the generic `settings` resource (`GET/PUT /api/v1/settings/maintenance_default_intervals`).
 
 ---
 
@@ -491,10 +511,10 @@ classified below requires an admin session.
 
 | Class | Who | Examples |
 | --- | --- | --- |
-| **public read** | anyone | `GET /api/printers`, `GET /api/queue`, `GET /api/analytics/daily`, `GET /api/cameras/health`, branding/layout reads |
+| **public read** | anyone | `GET /api/printers`, `GET /api/queue`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/summary`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, branding/layout reads |
 | **admin read** | admin only | `GET /api/users`, `GET /api/slicer-keys`, `GET /api/audit-logs`, `GET /api/notifications/*`, `GET /api/manager/requests`, `GET /api/settings/saml` |
 | **public mutation** | anyone | `POST /api/queue/submit` (student intake), `POST /api/manager/request`, the auth endpoints above |
-| **operator** | operator or admin | `POST /api/printers` (create/edit/reorder), `POST /api/printers/:id/command`, `POST /api/queue/:id/printed` |
+| **operator** | operator or admin | `POST /api/printers` (create/edit/reorder), `POST /api/printers/:id/command`, `POST /api/queue/:id/printed`, `POST /api/maintenance/:id/complete`, `POST /api/maintenance/notifications/read` |
 | **authed** | any session | `POST /api/audit-logs` (actor is taken from the session, not the body) |
 | **admin** | admin only | `DELETE /api/printers/:id`, `DELETE /api/queue/:id`, `/api/queue/reset`, `/api/analytics/daily/reset`, all `/api/users/*` writes, all `/api/slicer-keys` writes, `/api/notifications/*` writes, `/api/settings/*` writes, manager request approve/deny/delete |
 
@@ -514,6 +534,26 @@ Denials return `401` (no/expired session) or `403` (insufficient role).
 > POST and the CORS manager-request API still work), nor to the key-gated
 > `/api/v1` surface. Requests with no `Origin`/`Referer` (curl, server-to-server)
 > are allowed — use `/api/v1` with an API key for automation.
+
+### Maintenance (frontend `/api/*`)
+
+Cookieless, like the rest of the frontend surface (reads public; the complete /
+mark-read writes are operator-or-admin; interval config is admin).
+
+| Method & path | Description |
+|---------------|-------------|
+| `GET /api/printers/:id/maintenance` | Per-printer summary: `{ printerId, totalHours, nozzleHours, healthScore, healthStatus, lastMaintenanceAt, pendingTasks[], completedTasks[], nextService:{ type, intervalHours, remainingHours } }`. Pending tasks carry an `overdue` flag. |
+| `GET /api/maintenance?printer=&status=&type=` | List maintenance events. `status` defaults to `pending`. |
+| `POST /api/maintenance/:id/complete` | Mark a pending task done. Body `{ notes? }`. |
+| `GET /api/maintenance/summary` | Fleet widget aggregates (`printersRequiringMaintenance`, `overdueTasks`, `averageHealth`, `totalFleetHours`, `printerCount`). |
+| `GET /api/maintenance/notifications[?unread=true]` | In-app maintenance notifications for the bell. |
+| `POST /api/maintenance/notifications/read` | Mark notifications read. Body `{ ids? }` (all unread when omitted). |
+| `GET /api/settings/maintenance-intervals` | Global default service intervals (array of `{ type, intervalHours, description }`). |
+| `PUT /api/settings/maintenance-intervals` | Replace the default intervals (admin). Body is the array, or `{ intervals: [...] }`. New printers seed from this; existing printers are backfilled by the worker. |
+
+`healthScore` deductions: lubrication overdue −5, nozzle hours >1000 −10, any
+overdue task −15, print failure rate >10% −10 (clamped 0–100). Status bands:
+90–100 Excellent, 70–89 Good, 50–69 Warning, 0–49 Service Required.
 
 ---
 

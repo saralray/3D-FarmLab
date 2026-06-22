@@ -9,6 +9,7 @@ import {
   Settings,
   ClipboardList,
   ScrollText,
+  Wrench,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { NotificationBell } from './NotificationBell';
@@ -16,6 +17,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { PUBLIC_VIEWER_MODE } from '../lib/runtimeConfig';
+import { isReadOnlyRole } from '../lib/usersApi';
 
 interface TabConfig {
   path: string;
@@ -29,6 +31,9 @@ const primaryTabs: TabConfig[] = [
   { path: '/analytics', label: 'Analytics', icon: BarChart3 },
 ];
 
+// Operator/admin-only tab, appended for staff sessions (see StaffRoute).
+const maintenanceTab: TabConfig = { path: '/maintenance', label: 'Maintenance', icon: Wrench };
+
 /**
  * Touch-friendly bottom navigation shown on tablet/phone widths (below `lg`).
  * The desktop sidebar (`Navigation`) is hidden at the same breakpoint.
@@ -41,6 +46,9 @@ export function BottomTabBar() {
 
   const isActive = (path: string) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
+
+  const canSeeMaintenance = !PUBLIC_VIEWER_MODE && !!user && !isReadOnlyRole(user.role);
+  const visibleTabs = canSeeMaintenance ? [...primaryTabs, maintenanceTab] : primaryTabs;
 
   const adminNavItems =
     !PUBLIC_VIEWER_MODE && user?.role === 'admin'
@@ -71,7 +79,7 @@ export function BottomTabBar() {
         className="fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)] dark:border-gray-700 dark:bg-gray-900 lg:hidden"
         aria-label="Primary"
       >
-        {primaryTabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <Link key={tab.path} to={tab.path} className={tabClass(isActive(tab.path))}>
             <tab.icon className="size-6" />
             <span>{tab.label}</span>

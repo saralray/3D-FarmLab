@@ -59,6 +59,13 @@ export interface Printer {
   // per profile (Bambu HMS faults, Moonraker print error, or an unreachable
   // connection). Absent/empty when the printer is healthy.
   errorMessage?: string;
+  // Preventive-maintenance accounting (see lib/maintenanceApi). totalPrintHours is
+  // lifetime accrued print time; currentNozzleHours resets on a nozzle service;
+  // healthScore (0-100) is recomputed by the web worker.
+  totalPrintHours?: number;
+  currentNozzleHours?: number;
+  healthScore?: number;
+  lastMaintenanceAt?: string | null;
 }
 
 export interface PrintJob {

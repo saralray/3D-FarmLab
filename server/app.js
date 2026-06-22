@@ -59,6 +59,21 @@ import {
   touchSlicerApiKey,
   upsertPrinter,
   upsertQueueJobs,
+  getMaintenanceDefaultIntervals,
+  setMaintenanceDefaultIntervals,
+  listMaintenanceEvents,
+  getPrinterMaintenance,
+  completeMaintenanceEvent,
+  getMaintenanceSummary,
+  listMaintenanceNotifications,
+  markMaintenanceNotificationsRead,
+  getMaintenanceWorkerData,
+  bulkUpdateHealthScores,
+  backfillAllMaintenanceSchedules,
+  createPendingMaintenanceEvent,
+  createMaintenanceNotification,
+  recalcHealthScore,
+  healthStatusFromScore,
 } from './postgres.js';
 import { verifySlicerGrant } from './slicerGrant.js';
 import {
@@ -1080,6 +1095,8 @@ function isOperatorMutation(method, pathname) {
   if (pathname.startsWith('/api/printers/') && pathname.endsWith('/command') && method === 'POST') return true;
   if (pathname.startsWith('/api/queue/') && pathname.endsWith('/printed') && method === 'POST') return true;
   if (pathname === '/api/queue' && method === 'POST') return true;
+  if (pathname.startsWith('/api/maintenance/') && pathname.endsWith('/complete') && method === 'POST') return true;
+  if (pathname === '/api/maintenance/notifications/read' && method === 'POST') return true;
   return false;
 }
 
@@ -2049,6 +2066,7 @@ const DATA_API_RESOURCES = [
   'users',
   'admin-credential',
   'manager-requests',
+  'maintenance',
 ];
 
 function extractApiKey(req) {
@@ -2150,6 +2168,8 @@ async function handleDataApi(req, res, requestUrl) {
       return handleDataApiAdminCredential(req, res, { apiKey, method, id });
     case 'manager-requests':
       return handleDataApiManagerRequests(req, res, { apiKey, method, id, sub });
+    case 'maintenance':
+      return handleDataApiMaintenance(req, res, { apiKey, method, id, sub, requestUrl });
     default:
       sendJson(res, 404, { error: `Unknown resource '${entity}'.`, resources: DATA_API_RESOURCES });
       return true;
@@ -2453,6 +2473,52 @@ async function handleDataApiAnalytics(req, res, { apiKey, method, id, requestUrl
     await resetDailyAnalytics();
     auditDataApi(req, apiKey, 'analytics.reset', null);
     sendEmpty(res);
+    return true;
+  }
+  return dataApiMethodNotAllowed(res);
+}
+
+// maintenance: preventive-maintenance parity over the key-gated API.
+//   GET  /api/v1/maintenance[?printer=&status=&type=]  -> list events
+//   GET  /api/v1/maintenance/summary                   -> fleet aggregates
+//   GET  /api/v1/maintenance/printer/:printerId        -> per-printer summary
+//   POST /api/v1/maintenance/:eventId/complete { notes } -> complete a task
+//   GET/PUT /api/v1/settings/maintenance-intervals is handled under `settings`.
+async function handleDataApiMaintenance(req, res, { apiKey, method, id, sub, requestUrl }) {
+  if (!id) {
+    if (method === 'GET') {
+      sendJson(res, 200, await listMaintenanceEvents({
+        printerId: requestUrl.searchParams.get('printer'),
+        status: requestUrl.searchParams.get('status'),
+        maintenanceType: requestUrl.searchParams.get('type'),
+      }));
+      return true;
+    }
+    return dataApiMethodNotAllowed(res);
+  }
+  if (id === 'summary' && method === 'GET') {
+    sendJson(res, 200, await getMaintenanceSummary());
+    return true;
+  }
+  if (id === 'printer' && sub && method === 'GET') {
+    const summary = await getPrinterMaintenance(sub);
+    if (!summary) {
+      sendJson(res, 404, { error: 'Printer not found' });
+      return true;
+    }
+    sendJson(res, 200, summary);
+    return true;
+  }
+  if (sub === 'complete' && method === 'POST') {
+    const body = await readJsonBody(req);
+    const notes = typeof body?.notes === 'string' ? body.notes.trim() || null : null;
+    const event = await completeMaintenanceEvent(id, notes);
+    if (!event) {
+      sendJson(res, 404, { error: 'Pending maintenance task not found' });
+      return true;
+    }
+    auditDataApi(req, apiKey, 'maintenance.complete', id, { notes });
+    sendJson(res, 200, event);
     return true;
   }
   return dataApiMethodNotAllowed(res);
@@ -3054,6 +3120,91 @@ async function handleApi(req, res, requestUrl) {
     );
     sendJson(res, 200, getCameraHealth(id), 'no-store');
     return true;
+  }
+
+  // Per-printer maintenance summary. Must precede the generic /api/printers/:id
+  // GET below so the longer path isn't swallowed by it.
+  if (
+    requestUrl.pathname.startsWith('/api/printers/') &&
+    requestUrl.pathname.endsWith('/maintenance') &&
+    req.method === 'GET'
+  ) {
+    const id = decodeURIComponent(
+      requestUrl.pathname.slice('/api/printers/'.length, -'/maintenance'.length),
+    );
+    const summary = await getPrinterMaintenance(id);
+    if (!summary) {
+      sendJson(res, 404, { error: 'Printer not found' });
+      return true;
+    }
+    sendJson(res, 200, summary, 'no-store');
+    return true;
+  }
+
+  // Maintenance fleet-widget aggregates.
+  if (requestUrl.pathname === '/api/maintenance/summary' && req.method === 'GET') {
+    sendJson(res, 200, await getMaintenanceSummary(), 'no-store');
+    return true;
+  }
+
+  // In-app maintenance notifications (NotificationBell feed).
+  if (requestUrl.pathname === '/api/maintenance/notifications' && req.method === 'GET') {
+    const unreadOnly = requestUrl.searchParams.get('unread') === 'true';
+    sendJson(res, 200, await listMaintenanceNotifications({ unreadOnly }), 'no-store');
+    return true;
+  }
+  if (requestUrl.pathname === '/api/maintenance/notifications/read' && req.method === 'POST') {
+    const body = await readJsonBody(req);
+    await markMaintenanceNotificationsRead(Array.isArray(body?.ids) ? body.ids : null);
+    sendEmpty(res);
+    return true;
+  }
+
+  // Mark a maintenance task completed (operator/admin).
+  if (
+    requestUrl.pathname.startsWith('/api/maintenance/') &&
+    requestUrl.pathname.endsWith('/complete') &&
+    req.method === 'POST'
+  ) {
+    const id = decodeURIComponent(
+      requestUrl.pathname.slice('/api/maintenance/'.length, -'/complete'.length),
+    );
+    const body = await readJsonBody(req);
+    const notes = typeof body?.notes === 'string' ? body.notes.trim() || null : null;
+    const event = await completeMaintenanceEvent(id, notes);
+    if (!event) {
+      sendJson(res, 404, { error: 'Pending maintenance task not found' });
+      return true;
+    }
+    sendJson(res, 200, event);
+    return true;
+  }
+
+  // List maintenance tasks with optional printer / status / type filters.
+  if (requestUrl.pathname === '/api/maintenance' && req.method === 'GET') {
+    const events = await listMaintenanceEvents({
+      printerId: requestUrl.searchParams.get('printer'),
+      status: requestUrl.searchParams.get('status') || 'pending',
+      maintenanceType: requestUrl.searchParams.get('type'),
+    });
+    sendJson(res, 200, events, 'no-store');
+    return true;
+  }
+
+  // Global default maintenance intervals (admin-configurable; GET is public read,
+  // PUT is admin-gated by the /api/settings/ rule in isAdminMutation).
+  if (requestUrl.pathname === '/api/settings/maintenance-intervals') {
+    if (req.method === 'GET') {
+      sendJson(res, 200, await getMaintenanceDefaultIntervals());
+      return true;
+    }
+    if (req.method === 'PUT') {
+      const body = await readJsonBody(req);
+      const intervals = Array.isArray(body) ? body : body?.intervals;
+      const saved = await setMaintenanceDefaultIntervals(intervals);
+      sendJson(res, 200, saved);
+      return true;
+    }
   }
 
   if (requestUrl.pathname.startsWith('/api/printers/') && req.method === 'DELETE') {
@@ -4759,6 +4910,135 @@ setInterval(() => {
     logger.error('expired-session sweep failed', error);
   });
 }, 60 * 60 * 1000).unref();
+
+// ---------------------------------------------------------------------------
+// Preventive-maintenance background worker
+// ---------------------------------------------------------------------------
+// Runs fleet-wide every MAINTENANCE_WORKER_INTERVAL_MS (default 5 min). The poller
+// is the primary path for hour accrual + event creation (it sees job transitions);
+// this worker is the single, un-sharded place that recomputes health scores and
+// acts as a defensive backstop: it backfills schedules for pre-existing printers,
+// creates any pending event the poller might have missed, and raises in-app
+// notifications. Everything is idempotent (partial unique indexes), so re-running
+// every 5 minutes never duplicates work.
+const MAINTENANCE_WORKER_INTERVAL_MS = (() => {
+  const raw = Number.parseInt(process.env.MAINTENANCE_WORKER_INTERVAL_MS ?? '', 10);
+  return Number.isFinite(raw) && raw >= 10000 ? raw : 5 * 60 * 1000;
+})();
+
+function maintenanceOverdueGrace(intervalHours) {
+  return Math.max((Number(intervalHours) || 0) * 0.1, 10);
+}
+
+async function runMaintenanceWorkerPass() {
+  // Seed schedules for any printer that predates this feature (set-based, cheap).
+  await backfillAllMaintenanceSchedules();
+
+  const { printers, schedules, pending, completedCounts } = await getMaintenanceWorkerData();
+
+  // Index the bulk reads by printer for an O(1) join in JS.
+  const schedulesByPrinter = new Map();
+  for (const s of schedules) {
+    if (!schedulesByPrinter.has(s.printerId)) schedulesByPrinter.set(s.printerId, []);
+    schedulesByPrinter.get(s.printerId).push(s);
+  }
+  const pendingByPrinter = new Map();
+  for (const e of pending) {
+    if (!pendingByPrinter.has(e.printerId)) pendingByPrinter.set(e.printerId, []);
+    pendingByPrinter.get(e.printerId).push(e);
+  }
+  const completedKey = (printerId, type, interval) => `${printerId}|${type}|${interval}`;
+  const completedMap = new Map();
+  for (const c of completedCounts) {
+    completedMap.set(completedKey(c.printerId, c.maintenanceType, c.intervalHours), Number(c.count) || 0);
+  }
+
+  const healthUpdates = [];
+
+  for (const printer of printers) {
+    const totalHours = Number(printer.totalPrintHours) || 0;
+    const printerSchedules = schedulesByPrinter.get(printer.id) || [];
+    const pendingList = (pendingByPrinter.get(printer.id) || []).slice();
+    const pendingSet = new Set(pendingList.map((e) => `${e.maintenanceType}|${e.intervalHours}`));
+
+    // Backstop: create any pending event the printer is due for but doesn't have.
+    for (const s of printerSchedules) {
+      const interval = Number(s.intervalHours) || 0;
+      if (interval <= 0) continue;
+      const servicesExpected = Math.floor(totalHours / interval);
+      if (servicesExpected < 1) continue;
+      const servicesDone = completedMap.get(completedKey(printer.id, s.maintenanceType, interval)) || 0;
+      if (servicesExpected > servicesDone && !pendingSet.has(`${s.maintenanceType}|${interval}`)) {
+        const triggeredAtHours = (servicesDone + 1) * interval;
+        const created = await createPendingMaintenanceEvent({
+          printerId: printer.id,
+          maintenanceType: s.maintenanceType,
+          intervalHours: interval,
+          triggeredAtHours,
+        });
+        if (created) {
+          pendingList.push({ maintenanceType: s.maintenanceType, intervalHours: interval, triggeredAtHours });
+          pendingSet.add(`${s.maintenanceType}|${interval}`);
+        }
+      }
+    }
+
+    // Classify pending tasks as due / overdue from current hours.
+    const overduePending = pendingList.filter(
+      (e) => totalHours >= (Number(e.triggeredAtHours) || 0) + maintenanceOverdueGrace(e.intervalHours),
+    );
+    const lubricationOverdue = overduePending.some((e) => /lubric/i.test(e.maintenanceType));
+    const nozzleOverdue = (Number(printer.currentNozzleHours) || 0) > 1000;
+    const anyTaskOverdue = overduePending.length > 0;
+    const highFailureRate = 100 - (Number(printer.successRate) || 0) > 10;
+    const score = recalcHealthScore({ lubricationOverdue, nozzleOverdue, anyTaskOverdue, highFailureRate });
+
+    if (score !== Number(printer.healthScore)) {
+      healthUpdates.push({ id: printer.id, healthScore: score });
+    }
+
+    // Notifications (deduped to one open row per printer+kind by the DB index).
+    if (anyTaskOverdue) {
+      await createMaintenanceNotification({
+        printerId: printer.id,
+        kind: 'overdue',
+        title: `${printer.name}: maintenance overdue`,
+        body: overduePending.map((e) => e.maintenanceType).join(', '),
+      });
+    } else if (pendingList.length > 0) {
+      await createMaintenanceNotification({
+        printerId: printer.id,
+        kind: 'due',
+        title: `${printer.name}: maintenance due`,
+        body: pendingList.map((e) => e.maintenanceType).join(', '),
+      });
+    }
+    if (score < 70) {
+      await createMaintenanceNotification({
+        printerId: printer.id,
+        kind: 'health',
+        title: `${printer.name}: health ${score} (${healthStatusFromScore(score)})`,
+        body: 'Printer health has dropped below 70.',
+      });
+    }
+  }
+
+  await bulkUpdateHealthScores(healthUpdates);
+}
+
+let maintenanceWorkerRunning = false;
+function scheduleMaintenanceWorker() {
+  setInterval(() => {
+    if (maintenanceWorkerRunning) return; // never overlap passes
+    maintenanceWorkerRunning = true;
+    runMaintenanceWorkerPass()
+      .catch((error) => logger.error('maintenance worker pass failed', error))
+      .finally(() => {
+        maintenanceWorkerRunning = false;
+      });
+  }, MAINTENANCE_WORKER_INTERVAL_MS).unref();
+}
+scheduleMaintenanceWorker();
 
 createServer(handleRequest).listen(port, host, () => {
   logger.info('Print Farm server listening', { host, port });

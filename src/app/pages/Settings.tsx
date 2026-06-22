@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Bell, Check, Copy, Image as ImageIcon, KeyRound, MonitorCheck, Settings as SettingsIcon, Shield, Trash2, Users, X } from 'lucide-react';
+import { Bell, Check, Copy, Image as ImageIcon, KeyRound, MonitorCheck, Settings as SettingsIcon, Shield, Trash2, Users, Wrench, X } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -22,6 +22,7 @@ import { Checkbox } from '../components/ui/checkbox';
 import { Switch } from '../components/ui/switch';
 import { buttonVariants } from '../components/ui/button';
 import { cn } from '../components/ui/utils';
+import { MaintenanceIntervalsSettings } from '../components/MaintenanceIntervalsSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { ADMIN_USERNAME } from '../lib/runtimeConfig';
 import { Printer, PrinterProfile } from '../types';
@@ -82,6 +83,7 @@ const SETTINGS_TABS = [
   { value: 'notifications', label: 'Notifications', icon: Bell },
   { value: 'slicer-upload', label: 'API Keys', icon: KeyRound },
   { value: 'managers', label: 'Managers', icon: MonitorCheck },
+  { value: 'maintenance', label: 'Maintenance', icon: Wrench },
   { value: 'sign-in', label: 'Sign-in', icon: Shield },
 ] as const;
 
@@ -1866,6 +1868,10 @@ export function Settings() {
                 )}
             </div>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="maintenance">
+          <MaintenanceIntervalsSettings />
         </TabsContent>
 
         <TabsContent value="sign-in">

@@ -54,6 +54,16 @@ ALTER TABLE printers ADD COLUMN IF NOT EXISTS temperature_chamber DOUBLE PRECISI
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS chamber_target DOUBLE PRECISION;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS air_filter_on BOOLEAN;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS error_message TEXT;
+-- Preventive-maintenance accounting. total_print_hours is the printer's lifetime
+-- accumulated print time (hours), current_nozzle_hours resets when the nozzle is
+-- serviced, last_maintenance_at is the timestamp of the most recently completed
+-- maintenance event, and health_score (0-100) is a rolling fitness figure the
+-- 5-minute web worker recomputes. The poller accrues the hour columns when a job
+-- finishes (finalize_job_analytics); the web side owns health_score.
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS total_print_hours DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS current_nozzle_hours DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS last_maintenance_at TIMESTAMPTZ;
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS health_score INTEGER NOT NULL DEFAULT 100;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -210,6 +220,67 @@ CREATE TABLE IF NOT EXISTS poller_health (
   rows_written INTEGER NOT NULL DEFAULT 0,
   refresh_failures INTEGER NOT NULL DEFAULT 0
 );
+-- Preventive maintenance: per-printer service schedules. Each printer is seeded
+-- (seedMaintenanceSchedules) with a set of interval-based tasks derived from the
+-- global default-intervals app_setting. interval_hours is the print-hour cadence
+-- at which the task recurs; enabled lets an operator silence a task without
+-- deleting it. The unique key makes seeding/backfill idempotent.
+CREATE TABLE IF NOT EXISTS maintenance_schedules (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  printer_id TEXT NOT NULL,
+  maintenance_type TEXT NOT NULL,
+  interval_hours DOUBLE PRECISION NOT NULL,
+  description TEXT,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS maintenance_schedules_printer_idx
+  ON maintenance_schedules (printer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS maintenance_schedules_unique_idx
+  ON maintenance_schedules (printer_id, maintenance_type, interval_hours);
+-- One generated maintenance task. A pending event is created when total_print_hours
+-- crosses an interval multiple; status moves to 'completed' when an operator marks
+-- it done. triggered_at_hours is the printer's total hours at creation;
+-- completed_at_hours the hours at completion. The PARTIAL UNIQUE INDEX below is the
+-- authoritative "no duplicate pending events" guard — a second create for the same
+-- (printer, type, interval) while one is still pending is a no-op (ON CONFLICT).
+CREATE TABLE IF NOT EXISTS maintenance_events (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  printer_id TEXT NOT NULL,
+  maintenance_type TEXT NOT NULL,
+  interval_hours DOUBLE PRECISION,
+  triggered_at_hours DOUBLE PRECISION,
+  completed_at_hours DOUBLE PRECISION,
+  status TEXT NOT NULL DEFAULT 'pending',
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS maintenance_events_pending_unique_idx
+  ON maintenance_events (printer_id, maintenance_type, interval_hours)
+  WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS maintenance_events_printer_status_idx
+  ON maintenance_events (printer_id, status);
+CREATE INDEX IF NOT EXISTS maintenance_events_status_created_idx
+  ON maintenance_events (status, created_at DESC);
+-- In-app maintenance notifications surfaced in the NotificationBell. kind is one of
+-- 'due' | 'overdue' | 'health' (level derives from it in the UI). The partial unique
+-- index keeps at most one unread row per (printer, kind) so the worker can re-run
+-- every 5 minutes without spamming duplicates while a condition persists.
+CREATE TABLE IF NOT EXISTS maintenance_notifications (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  printer_id TEXT,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT,
+  read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS maintenance_notifications_unread_idx
+  ON maintenance_notifications (read, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS maintenance_notifications_open_unique_idx
+  ON maintenance_notifications (printer_id, kind)
+  WHERE read = FALSE;
 -- Versioned migrations applied after this idempotent baseline (see MIGRATIONS).
 -- This baseline schema is the forward-only "version 0"; ordered migrations record
 -- their version here so each runs exactly once and the DB's schema level is visible.
@@ -391,7 +462,11 @@ function buildPrinterListSelect(includeSensitive = true) {
       'fanSpeeds', fan_speeds,
       'lightOn', light_on,
       'airFilterOn', air_filter_on,
-      'errorMessage', error_message
+      'errorMessage', error_message,
+      'totalPrintHours', ROUND(total_print_hours::numeric, 2),
+      'currentNozzleHours', ROUND(current_nozzle_hours::numeric, 2),
+      'healthScore', health_score,
+      'lastMaintenanceAt', last_maintenance_at
     )
   `;
 }
@@ -502,7 +577,11 @@ export async function getPrinterById(id) {
       'fanSpeeds', fan_speeds,
       'lightOn', light_on,
       'airFilterOn', air_filter_on,
-      'errorMessage', error_message
+      'errorMessage', error_message,
+      'totalPrintHours', ROUND(total_print_hours::numeric, 2),
+      'currentNozzleHours', ROUND(current_nozzle_hours::numeric, 2),
+      'healthScore', health_score,
+      'lastMaintenanceAt', last_maintenance_at
     ) AS printer
     FROM printers
     WHERE id = $1;
@@ -626,6 +705,13 @@ export async function upsertPrinter(printer) {
   `,
     [JSON.stringify(stored)],
   );
+
+  // Ensure the printer has its preventive-maintenance schedules (idempotent; the
+  // unique index makes a repeat a no-op). Best-effort: a seeding failure must not
+  // block creating/editing the printer.
+  if (printer?.id) {
+    await seedMaintenanceSchedules(printer.id).catch(() => {});
+  }
 }
 
 export async function deletePrinter(id) {
@@ -1406,6 +1492,474 @@ export async function setAppSetting(key, value) {
        SET value = EXCLUDED.value,
            updated_at = NOW();`,
     [key, JSON.stringify(value)],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Preventive maintenance
+// ---------------------------------------------------------------------------
+
+// app_settings key holding the admin-configurable global default service
+// intervals that seed every printer's maintenance_schedules.
+const MAINTENANCE_INTERVALS_KEY = 'maintenance_default_intervals';
+
+// The shipped default service plan (the spec's 50/100/250/500/1000/2000h tasks).
+// maintenance_type is the stable identity used for dedup/nozzle-reset detection;
+// description is the human-readable checklist. Admins can override the whole list
+// in Settings -> Maintenance; existing printers are backfilled by the worker.
+export const DEFAULT_MAINTENANCE_INTERVALS = [
+  { type: 'Basic Inspection', intervalHours: 50, description: 'Basic inspection; clean build plate; inspect nozzle' },
+  { type: 'Extruder & Fans', intervalHours: 100, description: 'Clean extruder gears; check fans; inspect belts' },
+  { type: 'Lubrication', intervalHours: 250, description: 'Lubricate rods / rails; check screws' },
+  { type: 'Deep Clean', intervalHours: 500, description: 'Deep clean toolhead; inspect wiring' },
+  { type: 'Nozzle Service', intervalHours: 1000, description: 'Nozzle inspection / replacement' },
+  { type: 'Full Service', intervalHours: 2000, description: 'Full maintenance service' },
+];
+
+// A pending event counts as "overdue" once the printer has run this far past the
+// hours at which the task was triggered without it being completed (10% of the
+// interval, floored at 10h). Kept identical across the worker, the API summary,
+// and the badge logic so "due" vs "overdue" means the same thing everywhere.
+function overdueGraceHours(intervalHours) {
+  return Math.max((Number(intervalHours) || 0) * 0.1, 10);
+}
+
+// True when the completed task should zero current_nozzle_hours (the 1000h nozzle
+// inspection/replacement, or any task whose type mentions the nozzle).
+function isNozzleResetType(type, intervalHours) {
+  return Number(intervalHours) === 1000 || /nozzle/i.test(String(type || ''));
+}
+
+// Validate/normalize an admin-supplied interval list; falls back to the shipped
+// defaults when the stored value is missing or malformed.
+function normalizeIntervals(value) {
+  if (!Array.isArray(value)) return DEFAULT_MAINTENANCE_INTERVALS;
+  const cleaned = value
+    .map((row) => ({
+      type: String(row?.type ?? '').trim(),
+      intervalHours: Number(row?.intervalHours),
+      description: String(row?.description ?? '').trim(),
+    }))
+    .filter((row) => row.type && Number.isFinite(row.intervalHours) && row.intervalHours > 0);
+  return cleaned.length > 0 ? cleaned : DEFAULT_MAINTENANCE_INTERVALS;
+}
+
+export async function getMaintenanceDefaultIntervals() {
+  const stored = await getAppSetting(MAINTENANCE_INTERVALS_KEY);
+  return normalizeIntervals(stored);
+}
+
+export async function setMaintenanceDefaultIntervals(intervals) {
+  const normalized = normalizeIntervals(intervals);
+  await setAppSetting(MAINTENANCE_INTERVALS_KEY, normalized);
+  return normalized;
+}
+
+// Seed a single printer's schedules from the global defaults. Idempotent: the
+// unique (printer_id, type, interval) index makes a repeat run a no-op, so this is
+// safe to call on every upsertPrinter.
+export async function seedMaintenanceSchedules(printerId) {
+  const intervals = await getMaintenanceDefaultIntervals();
+  await query(
+    `INSERT INTO maintenance_schedules (printer_id, maintenance_type, interval_hours, description)
+     SELECT $1, d.type, d.interval_hours, d.description
+     FROM jsonb_to_recordset($2::jsonb)
+       AS d(type text, interval_hours double precision, description text)
+     ON CONFLICT (printer_id, maintenance_type, interval_hours) DO NOTHING;`,
+    [printerId, JSON.stringify(intervals.map((i) => ({ type: i.type, interval_hours: i.intervalHours, description: i.description })))],
+  );
+}
+
+// Set-based backfill across the whole fleet (worker path) — seeds any printer
+// that predates this feature without a per-printer round trip.
+export async function backfillAllMaintenanceSchedules() {
+  const intervals = await getMaintenanceDefaultIntervals();
+  await query(
+    `INSERT INTO maintenance_schedules (printer_id, maintenance_type, interval_hours, description)
+     SELECT p.id, d.type, d.interval_hours, d.description
+     FROM printers p
+     CROSS JOIN jsonb_to_recordset($1::jsonb)
+       AS d(type text, interval_hours double precision, description text)
+     ON CONFLICT (printer_id, maintenance_type, interval_hours) DO NOTHING;`,
+    [JSON.stringify(intervals.map((i) => ({ type: i.type, interval_hours: i.intervalHours, description: i.description })))],
+  );
+}
+
+export async function listMaintenanceSchedules(printerId) {
+  await ensureSchema();
+  const result = await query(
+    `SELECT id,
+            printer_id   AS "printerId",
+            maintenance_type AS "maintenanceType",
+            interval_hours AS "intervalHours",
+            description,
+            enabled
+     FROM maintenance_schedules
+     WHERE printer_id = $1
+     ORDER BY interval_hours ASC;`,
+    [printerId],
+  );
+  return result.rows;
+}
+
+// Create a pending event, relying on the partial unique index to silently no-op a
+// duplicate while one is still pending. Returns the created row, or null when an
+// open event already existed.
+export async function createPendingMaintenanceEvent({ printerId, maintenanceType, intervalHours, triggeredAtHours }) {
+  await ensureSchema();
+  const result = await query(
+    `INSERT INTO maintenance_events
+       (printer_id, maintenance_type, interval_hours, triggered_at_hours, status)
+     VALUES ($1, $2, $3, $4, 'pending')
+     ON CONFLICT (printer_id, maintenance_type, interval_hours) WHERE status = 'pending'
+     DO NOTHING
+     RETURNING id;`,
+    [printerId, maintenanceType, intervalHours, triggeredAtHours],
+  );
+  return result.rows[0] ?? null;
+}
+
+function maintenanceEventSelect() {
+  return `
+    id,
+    printer_id AS "printerId",
+    maintenance_type AS "maintenanceType",
+    interval_hours AS "intervalHours",
+    triggered_at_hours AS "triggeredAtHours",
+    completed_at_hours AS "completedAtHours",
+    status,
+    notes,
+    created_at AS "createdAt",
+    completed_at AS "completedAt"
+  `;
+}
+
+// List events with optional printer / status / type filters. Backed by the
+// (printer_id, status) and (status, created_at) indexes.
+export async function listMaintenanceEvents({ printerId = null, status = null, maintenanceType = null, limit = 500 } = {}) {
+  await ensureSchema();
+  const conditions = [];
+  const params = [];
+  if (printerId) {
+    params.push(printerId);
+    conditions.push(`printer_id = $${params.length}`);
+  }
+  if (status) {
+    params.push(status);
+    conditions.push(`status = $${params.length}`);
+  }
+  if (maintenanceType) {
+    params.push(maintenanceType);
+    conditions.push(`maintenance_type = $${params.length}`);
+  }
+  params.push(Math.min(Math.max(Number(limit) || 500, 1), 5000));
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const result = await query(
+    `SELECT ${maintenanceEventSelect()}
+     FROM maintenance_events
+     ${where}
+     ORDER BY (status = 'pending') DESC, created_at DESC
+     LIMIT $${params.length};`,
+    params,
+  );
+  return result.rows;
+}
+
+// Bumps both hour counters atomically and returns the before/after totals so the
+// caller can detect interval crossings. Used by the web worker; the poller does the
+// equivalent inline in finalize_job_analytics.
+export async function addPrintHours(printerId, hours) {
+  await ensureSchema();
+  const result = await query(
+    `UPDATE printers
+        SET total_print_hours = total_print_hours + $2,
+            current_nozzle_hours = current_nozzle_hours + $2
+      WHERE id = $1
+      RETURNING total_print_hours AS "totalPrintHours",
+                total_print_hours - $2 AS "previousTotalPrintHours",
+                current_nozzle_hours AS "currentNozzleHours";`,
+    [printerId, Number(hours) || 0],
+  );
+  return result.rows[0] ?? null;
+}
+
+// Mark an event completed: stamp completion hours/time, advance the printer's
+// last_maintenance_at, and zero current_nozzle_hours when a nozzle service was
+// done. Returns the updated event, or null when the id was unknown or not pending.
+export async function completeMaintenanceEvent(id, notes = null) {
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const updated = await client.query(
+      // RETURNING is table-qualified (e.*) because this UPDATE ... FROM joins
+      // printers, which also has an `id` column (otherwise "id" is ambiguous).
+      `UPDATE maintenance_events e
+          SET status = 'completed',
+              completed_at = NOW(),
+              completed_at_hours = p.total_print_hours,
+              notes = $2
+         FROM printers p
+        WHERE e.id = $1
+          AND e.status = 'pending'
+          AND p.id = e.printer_id
+        RETURNING
+          e.id,
+          e.printer_id AS "printerId",
+          e.maintenance_type AS "maintenanceType",
+          e.interval_hours AS "intervalHours",
+          e.triggered_at_hours AS "triggeredAtHours",
+          e.completed_at_hours AS "completedAtHours",
+          e.status,
+          e.notes,
+          e.created_at AS "createdAt",
+          e.completed_at AS "completedAt";`,
+      [id, notes],
+    );
+    const event = updated.rows[0];
+    if (!event) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    const resetNozzle = isNozzleResetType(event.maintenanceType, event.intervalHours);
+    await client.query(
+      `UPDATE printers
+          SET last_maintenance_at = NOW()
+              ${resetNozzle ? ', current_nozzle_hours = 0' : ''}
+        WHERE id = $1;`,
+      [event.printerId],
+    );
+    await client.query('COMMIT');
+    return event;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// Pure health-score calculator (clamped 0-100), shared by the worker and the
+// per-printer summary so the dashboard and the stored score never disagree.
+export function recalcHealthScore({ lubricationOverdue, nozzleOverdue, anyTaskOverdue, highFailureRate }) {
+  let score = 100;
+  if (lubricationOverdue) score -= 5;
+  if (nozzleOverdue) score -= 10;
+  if (anyTaskOverdue) score -= 15;
+  if (highFailureRate) score -= 10;
+  return Math.max(0, Math.min(100, score));
+}
+
+export function healthStatusFromScore(score) {
+  if (score >= 90) return 'Excellent';
+  if (score >= 70) return 'Good';
+  if (score >= 50) return 'Warning';
+  return 'Service Required';
+}
+
+// Decorate a pending event with due/overdue state from the printer's current
+// hours. Shared by every read path so a task's urgency is computed one way.
+function classifyPendingEvent(event, totalHours) {
+  const grace = overdueGraceHours(event.intervalHours);
+  const overdue = Number(totalHours) >= Number(event.triggeredAtHours ?? 0) + grace;
+  return { ...event, overdue };
+}
+
+// Per-printer maintenance summary for GET /api/printers/:id/maintenance. Computes
+// next_service from the schedules, classifies pending/completed tasks, and derives
+// the live health score/status.
+export async function getPrinterMaintenance(printerId) {
+  await ensureSchema();
+  const printerResult = await query(
+    `SELECT id, name,
+            total_print_hours AS "totalPrintHours",
+            current_nozzle_hours AS "currentNozzleHours",
+            success_rate AS "successRate",
+            health_score AS "healthScore",
+            last_maintenance_at AS "lastMaintenanceAt"
+     FROM printers WHERE id = $1;`,
+    [printerId],
+  );
+  const printer = printerResult.rows[0];
+  if (!printer) return null;
+
+  const [schedules, events] = await Promise.all([
+    listMaintenanceSchedules(printerId),
+    listMaintenanceEvents({ printerId, limit: 500 }),
+  ]);
+
+  const totalHours = Number(printer.totalPrintHours) || 0;
+  const pending = events
+    .filter((e) => e.status === 'pending')
+    .map((e) => classifyPendingEvent(e, totalHours));
+  const completed = events.filter((e) => e.status === 'completed');
+
+  // next_service: the schedule whose next interval multiple is soonest.
+  let nextService = null;
+  for (const s of schedules) {
+    if (!s.enabled) continue;
+    const interval = Number(s.intervalHours) || 0;
+    if (interval <= 0) continue;
+    const nextMultiple = (Math.floor(totalHours / interval) + 1) * interval;
+    const remaining = Math.max(0, nextMultiple - totalHours);
+    if (!nextService || remaining < nextService.remainingHours) {
+      nextService = { type: s.maintenanceType, intervalHours: interval, remainingHours: remaining };
+    }
+  }
+
+  const lubricationOverdue = pending.some((e) => e.overdue && /lubric/i.test(e.maintenanceType));
+  const nozzleOverdue = (Number(printer.currentNozzleHours) || 0) > 1000;
+  const anyTaskOverdue = pending.some((e) => e.overdue);
+  const highFailureRate = 100 - (Number(printer.successRate) || 0) > 10;
+  const healthScore = recalcHealthScore({ lubricationOverdue, nozzleOverdue, anyTaskOverdue, highFailureRate });
+
+  return {
+    printerId: printer.id,
+    printerName: printer.name,
+    totalHours: Math.round(totalHours * 100) / 100,
+    nozzleHours: Math.round((Number(printer.currentNozzleHours) || 0) * 100) / 100,
+    healthScore,
+    healthStatus: healthStatusFromScore(healthScore),
+    lastMaintenanceAt: printer.lastMaintenanceAt,
+    pendingTasks: pending,
+    completedTasks: completed,
+    nextService,
+  };
+}
+
+// Fleet-wide widget aggregates as single indexed queries (kept cheap at scale).
+export async function getMaintenanceSummary() {
+  await ensureSchema();
+  const result = await query(
+    `WITH pending AS (
+       SELECT e.printer_id,
+              bool_or(p.total_print_hours
+                      >= e.triggered_at_hours + GREATEST(e.interval_hours * 0.1, 10)) AS has_overdue,
+              count(*) AS pending_count,
+              count(*) FILTER (
+                WHERE p.total_print_hours
+                      >= e.triggered_at_hours + GREATEST(e.interval_hours * 0.1, 10)
+              ) AS overdue_count
+       FROM maintenance_events e
+       JOIN printers p ON p.id = e.printer_id
+       WHERE e.status = 'pending'
+       GROUP BY e.printer_id
+     )
+     SELECT
+       (SELECT count(*) FROM pending WHERE pending_count > 0) AS printers_requiring_maintenance,
+       (SELECT COALESCE(sum(overdue_count), 0) FROM pending) AS overdue_tasks,
+       (SELECT COALESCE(round(avg(health_score)), 0) FROM printers) AS average_health,
+       (SELECT COALESCE(round(sum(total_print_hours)::numeric, 2), 0) FROM printers) AS total_fleet_hours,
+       (SELECT count(*) FROM printers) AS printer_count;`,
+  );
+  const row = result.rows[0] || {};
+  return {
+    printersRequiringMaintenance: Number(row.printers_requiring_maintenance) || 0,
+    overdueTasks: Number(row.overdue_tasks) || 0,
+    averageHealth: Number(row.average_health) || 0,
+    totalFleetHours: Number(row.total_fleet_hours) || 0,
+    printerCount: Number(row.printer_count) || 0,
+  };
+}
+
+export async function listMaintenanceNotifications({ unreadOnly = false, limit = 100 } = {}) {
+  await ensureSchema();
+  const params = [];
+  let where = '';
+  if (unreadOnly) {
+    where = 'WHERE read = FALSE';
+  }
+  params.push(Math.min(Math.max(Number(limit) || 100, 1), 500));
+  const result = await query(
+    `SELECT id, printer_id AS "printerId", kind, title, body, read,
+            created_at AS "createdAt"
+     FROM maintenance_notifications
+     ${where}
+     ORDER BY created_at DESC
+     LIMIT $${params.length};`,
+    params,
+  );
+  return result.rows;
+}
+
+// Insert an unread notification, de-duped to one open row per (printer, kind) via
+// the partial unique index — a persistent condition won't spam the bell.
+export async function createMaintenanceNotification({ printerId = null, kind, title, body = null }) {
+  await ensureSchema();
+  const result = await query(
+    `INSERT INTO maintenance_notifications (printer_id, kind, title, body)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (printer_id, kind) WHERE read = FALSE
+     DO NOTHING
+     RETURNING id;`,
+    [printerId, kind, title, body],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function markMaintenanceNotificationsRead(ids = null) {
+  await ensureSchema();
+  if (Array.isArray(ids) && ids.length > 0) {
+    await query('UPDATE maintenance_notifications SET read = TRUE WHERE id = ANY($1);', [ids]);
+  } else {
+    await query('UPDATE maintenance_notifications SET read = TRUE WHERE read = FALSE;');
+  }
+}
+
+// Bulk fleet snapshot for the 5-minute worker: printers, their enabled schedules,
+// open pending events, and completed-event counts per (printer, type, interval).
+// Three set-based queries joined in JS — avoids a per-printer round trip so the
+// pass stays cheap with thousands of printers.
+export async function getMaintenanceWorkerData() {
+  await ensureSchema();
+  const [printers, schedules, pending, completed] = await Promise.all([
+    query(
+      `SELECT id, name,
+              total_print_hours AS "totalPrintHours",
+              current_nozzle_hours AS "currentNozzleHours",
+              success_rate AS "successRate",
+              health_score AS "healthScore"
+       FROM printers;`,
+    ),
+    query(
+      `SELECT printer_id AS "printerId", maintenance_type AS "maintenanceType",
+              interval_hours AS "intervalHours"
+       FROM maintenance_schedules
+       WHERE enabled = TRUE;`,
+    ),
+    query(
+      `SELECT printer_id AS "printerId", maintenance_type AS "maintenanceType",
+              interval_hours AS "intervalHours", triggered_at_hours AS "triggeredAtHours"
+       FROM maintenance_events WHERE status = 'pending';`,
+    ),
+    query(
+      `SELECT printer_id AS "printerId", maintenance_type AS "maintenanceType",
+              interval_hours AS "intervalHours", count(*)::int AS count
+       FROM maintenance_events WHERE status = 'completed'
+       GROUP BY 1, 2, 3;`,
+    ),
+  ]);
+  return {
+    printers: printers.rows,
+    schedules: schedules.rows,
+    pending: pending.rows,
+    completedCounts: completed.rows,
+  };
+}
+
+// Bulk-write recomputed health scores. Accepts [{ id, healthScore }]; a single
+// UPDATE ... FROM unnest keeps it to one round trip.
+export async function bulkUpdateHealthScores(updates) {
+  await ensureSchema();
+  if (!Array.isArray(updates) || updates.length === 0) return;
+  const ids = updates.map((u) => u.id);
+  const scores = updates.map((u) => Math.max(0, Math.min(100, Math.round(Number(u.healthScore) || 0))));
+  await query(
+    `UPDATE printers p
+        SET health_score = v.score
+       FROM unnest($1::text[], $2::int[]) AS v(id, score)
+      WHERE p.id = v.id AND p.health_score IS DISTINCT FROM v.score;`,
+    [ids, scores],
   );
 }
 

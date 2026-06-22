@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Navigation } from '../components/Navigation';
 import { BottomTabBar } from '../components/BottomTabBar';
 import { PrinterStatusNotifier } from '../components/PrinterStatusNotifier';
+import { MaintenanceNotifier } from '../components/MaintenanceNotifier';
 import { useSidebar } from '../contexts/SidebarContext';
 import { PrintersProvider } from '../contexts/PrintersContext';
 import { PrinterEventsProvider } from '../contexts/PrinterEventsContext';
@@ -44,6 +45,7 @@ export function Root() {
       </main>
       <BottomTabBar />
       <PrinterStatusNotifier />
+      <MaintenanceNotifier />
     </div>
     </PrinterEventsProvider>
     </PrintersProvider>

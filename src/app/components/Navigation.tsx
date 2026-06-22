@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { LayoutDashboard, List, BarChart3, LogOut, Settings, ClipboardList, ScrollText, Music } from 'lucide-react';
+import { LayoutDashboard, List, BarChart3, LogOut, Settings, ClipboardList, ScrollText, Music, Wrench } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { NotificationBell } from './NotificationBell';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
 import { PUBLIC_VIEWER_MODE } from '../lib/runtimeConfig';
+import { isReadOnlyRole } from '../lib/usersApi';
 import { useBrandingSettings } from '../lib/settingsApi';
 import { Logo } from './Logo';
 import { useSidebar } from '../contexts/SidebarContext';
@@ -58,10 +59,14 @@ export function Navigation() {
   // needs an image URL — use the uploaded logo or fall back to the bundled mark.
   const logoMaskUrl = logoDataUrl || stemlabLogo;
 
+  // Maintenance is an operator/admin tool — hidden from the public viewer and from
+  // read-only (viewer/student) sessions, matching the StaffRoute guard.
+  const canSeeMaintenance = !PUBLIC_VIEWER_MODE && !!user && !isReadOnlyRole(user.role);
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/queue', label: 'Queue', icon: List },
     { path: '/analytics', label: 'Analytics', icon: BarChart3 },
+    ...(canSeeMaintenance ? [{ path: '/maintenance', label: 'Maintenance', icon: Wrench }] : []),
   ];
   const adminNavItems = !PUBLIC_VIEWER_MODE && user?.role === 'admin'
     ? [
