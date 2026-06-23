@@ -1928,7 +1928,11 @@ export function PrinterDetail() {
                 <Wrench className="size-4 mt-0.5 text-gray-400" />
                 <div className="flex-1">
                   <div className="text-sm text-gray-600 dark:text-gray-400">Last Maintenance</div>
-                  <div className="font-medium dark:text-white">{printer.lastMaintenance}</div>
+                  <div className="font-medium dark:text-white">
+                    {printer.lastMaintenanceAt
+                      ? new Date(printer.lastMaintenanceAt).toLocaleString()
+                      : printer.lastMaintenance}
+                  </div>
                 </div>
               </div>
               <div className="flex items-start gap-2">

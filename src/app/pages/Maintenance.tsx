@@ -124,7 +124,7 @@ export function Maintenance() {
   }, [refresh]);
 
   const printerName = (id: string) => printerById.get(id)?.name ?? id;
-  const printerHours = (id: string) => Number(printerById.get(id)?.totalPrintHours ?? 0);
+  const printerHours = (id: string) => Number(printerById.get(id)?.totalPrintTime ?? 0);
 
   // Pending tasks split into overdue (red) and due (yellow), overdue first.
   const classified = useMemo(() => {
@@ -265,7 +265,7 @@ export function Maintenance() {
                       </Badge>
                     </td>
                     <td className="px-4 py-2 text-gray-600 dark:text-gray-300">
-                      {formatMaxTwoDecimals(Number(printer.totalPrintHours ?? 0))}h
+                      {formatMaxTwoDecimals(Number(printer.totalPrintTime ?? 0))}h
                     </td>
                     <td className="px-4 py-2 text-gray-600 dark:text-gray-300">
                       <span>{formatMaxTwoDecimals(Number(printer.currentNozzleHours ?? 0))}h</span>
