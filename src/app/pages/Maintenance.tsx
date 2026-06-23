@@ -35,6 +35,7 @@ import {
   type MaintenanceSummary,
   type HealthStatus,
 } from '../lib/maintenanceApi';
+import { getPrinterNozzleCount } from '../lib/printerProfiles';
 
 const REFRESH_INTERVAL_MS = 15000;
 
@@ -267,7 +268,13 @@ export function Maintenance() {
                       {formatMaxTwoDecimals(Number(printer.totalPrintHours ?? 0))}h
                     </td>
                     <td className="px-4 py-2 text-gray-600 dark:text-gray-300">
-                      {formatMaxTwoDecimals(Number(printer.currentNozzleHours ?? 0))}h
+                      <span>{formatMaxTwoDecimals(Number(printer.currentNozzleHours ?? 0))}h</span>
+                      {(() => {
+                        const n = getPrinterNozzleCount(printer);
+                        return n > 1 ? (
+                          <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">({n} nozzles)</span>
+                        ) : null;
+                      })()}
                     </td>
                     <td className="px-4 py-2 text-gray-600 dark:text-gray-300">
                       {formatDate(printer.lastMaintenanceAt ?? null)}

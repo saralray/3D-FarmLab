@@ -338,7 +338,27 @@ export function normalizePrinter(printer: Partial<Printer>, index: number): Prin
     lightOn: printer.lightOn,
     airFilterOn: printer.airFilterOn,
     errorMessage: printer.errorMessage,
+    totalPrintHours: printer.totalPrintHours,
+    currentNozzleHours: printer.currentNozzleHours,
+    healthScore: printer.healthScore,
+    lastMaintenanceAt: printer.lastMaintenanceAt,
   };
+}
+
+// How many nozzles a printer has, derived from the actual nozzleTemperatures
+// array when available (poller fills it per profile), or a profile-based
+// fallback for printers not yet polled.
+const PROFILE_DEFAULT_NOZZLE_COUNT: Partial<Record<PrinterProfile, number>> = {
+  snapmaker_u1: 4,
+  bambulab_h2d: 2,
+  bambulab_h2c: 2,
+};
+
+export function getPrinterNozzleCount(printer: Partial<Printer>): number {
+  if (printer.nozzleTemperatures && printer.nozzleTemperatures.length > 0) {
+    return printer.nozzleTemperatures.length;
+  }
+  return PROFILE_DEFAULT_NOZZLE_COUNT[printer.profile as PrinterProfile] ?? 1;
 }
 
 export function readStoredPrinters(fallbackPrinters: Printer[]): Printer[] {
