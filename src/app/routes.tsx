@@ -1,6 +1,7 @@
 import { ReactNode, Suspense, lazy } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router';
 import { Root } from './pages/Root';
+import { ErrorPage } from './pages/ErrorPage';
 import { AdminRoute, ProtectedRoute, StaffRoute } from './components/ProtectedRoute';
 
 const Dashboard = lazy(() =>
@@ -50,6 +51,7 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: withSuspense(<Login />),
+    errorElement: <ErrorPage />,
   },
   // Legacy entry point: the app used to live at /admin, and home-screen apps
   // installed before the move still launch that path. Redirect it to /login so
@@ -57,10 +59,12 @@ export const router = createBrowserRouter([
   {
     path: '/admin',
     element: <Navigate to="/login" replace />,
+    errorElement: <ErrorPage />,
   },
   {
     path: '/request',
     element: withSuspense(<PrintRequest />),
+    errorElement: <ErrorPage />,
   },
   {
     path: '/',
@@ -69,6 +73,7 @@ export const router = createBrowserRouter([
         <Root />
       </ProtectedRoute>
     ),
+    errorElement: <ErrorPage />,
     children: [
       { index: true, element: withSuspense(<Dashboard />) },
       { path: 'printer/:id', element: withSuspense(<PrinterDetail />) },
