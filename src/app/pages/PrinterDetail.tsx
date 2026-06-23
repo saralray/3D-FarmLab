@@ -33,6 +33,8 @@ import {
   ArrowUpFromLine,
   Pencil,
   AlertCircle,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   MOTION_STEP_OPTIONS,
@@ -395,6 +397,7 @@ export function PrinterDetail() {
   // Shared card layout for every printer detail page; admins reorder it by drag.
   const [cardLayout, setCardLayout] = useState<CardLayout>(DEFAULT_CARD_LAYOUT);
   const [isLayoutEditing, setIsLayoutEditing] = useState(false);
+  const [showCredential, setShowCredential] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -1917,10 +1920,32 @@ export function PrinterDetail() {
                 <div className="flex items-start gap-2">
                   <KeyRound className="size-4 mt-0.5 text-gray-400" />
                   <div className="flex-1">
-                    <div className="text-sm text-gray-600 dark:text-gray-400">API Key Header</div>
-                    <div className="font-medium dark:text-white">
-                      {printer.apiKeyHeader ? 'Configured' : 'Not configured'}
+                    <div className="text-sm text-gray-600 dark:text-gray-400">
+                      {PRINTER_PROFILES[printer.profile]?.credentialLabel ?? 'API Key Header'}
                     </div>
+                    {user?.role === 'admin' && printer.apiKeyHeader ? (
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium font-mono dark:text-white break-all">
+                          {showCredential ? printer.apiKeyHeader : '••••••••'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowCredential((v) => !v)}
+                          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 flex-shrink-0"
+                          aria-label={showCredential ? 'Hide credential' : 'Show credential'}
+                        >
+                          {showCredential ? (
+                            <EyeOff className="size-4" />
+                          ) : (
+                            <Eye className="size-4" />
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="font-medium dark:text-white">
+                        {printer.apiKeyHeader ? 'Configured' : 'Not configured'}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
