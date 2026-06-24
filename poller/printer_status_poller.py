@@ -269,6 +269,11 @@ BAMBU_STATE_MAP = {
 }
 
 
+class PrinterOfflineError(Exception):
+    """Raised when a printer is unreachable for an expected reason (no MQTT report,
+    connection refused, etc.). Treated as a normal offline transition, not an error."""
+
+
 def db_url() -> str:
     url = os.getenv("DATABASE_URL", "")
     if not url:
@@ -1912,7 +1917,7 @@ def fetch_bambu_status(printer: dict[str, Any]) -> dict[str, Any]:
     print_data = client.latest_report()
     if print_data is None:
         # No fresh MQTT report — let the caller apply the offline grace period.
-        raise RuntimeError("No recent MQTT report from Bambu printer")
+        raise PrinterOfflineError("No recent MQTT report from Bambu printer")
 
     gcode_state = print_data.get("gcode_state")
     status = map_bambu_state(gcode_state)
@@ -2833,7 +2838,15 @@ def compute_next_printer(printer: dict[str, Any]) -> tuple[dict[str, Any], bool]
         # the reason it's unreachable; during the grace window keep the last-known
         # state untouched so a single transient blip doesn't flash an error.
         if fallback.get("status") == "offline":
-            fallback["errorMessage"] = (str(error).strip() or "Printer unreachable")[:500]
+            _expected_offline = (
+                PrinterOfflineError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            )
+            if isinstance(error, _expected_offline):
+                fallback["errorMessage"] = None
+            else:
+                fallback["errorMessage"] = (str(error).strip() or "Printer unreachable")[:500]
         return fallback, True
 
 
