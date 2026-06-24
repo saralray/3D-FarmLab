@@ -1457,12 +1457,19 @@ function buildQueueAddedEmbed(job) {
 }
 
 // Discord only speaks the message `content` aloud (embeds are never read by TTS),
-// so derive a short spoken line from the embed's title. The description is
-// skipped on purpose — it holds the filename, which we don't want read aloud.
-function ttsContentForEmbed(embed) {
-  const title = typeof embed?.title === 'string' ? embed.title.trim() : '';
-  // Discord ignores tts when content is blank, so always fall back to a spoken line.
-  return (title || 'Print farm notification').slice(0, 2000);
+// and it always prepends the webhook's author name ("<name> said ..."), so make
+// the spoken line carry the useful submission details — who submitted and how
+// many files — rather than a generic title. The filename/URL are skipped on
+// purpose so they aren't read aloud.
+function ttsContentForJob(job) {
+  const submitter = (job?.submitterName || '').trim();
+  const count = Number(job?.fileCount ?? 1) || 1;
+  const filePart = `${count} file${count === 1 ? '' : 's'}`;
+  const spoken = submitter
+    ? `New print request from ${submitter}, ${filePart}`
+    : `New print request, ${filePart}`;
+  // Discord ignores tts when content is blank, so always return a non-empty line.
+  return spoken.slice(0, 2000);
 }
 
 // A webhook with events === null receives every event (historical default); an
@@ -1504,7 +1511,7 @@ async function sendQueueAddedNotifications(jobs) {
                 ? {
                     username: webhook.name || 'PrintFarm Bot',
                     tts: true,
-                    content: ttsContentForEmbed(embed),
+                    content: ttsContentForJob(job),
                   }
                 : {
                     username: webhook.name || 'PrintFarm Bot',

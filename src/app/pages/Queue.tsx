@@ -102,15 +102,21 @@ export function Queue() {
     }
 
     let downloadUrl = job.stlFileUrl;
+    // Same-origin files (our own `/api/queue/:id/file` endpoint, which sends
+    // `Content-Disposition: attachment`) can download in place via the `download`
+    // attribute. External links (e.g. Google Drive) are cross-origin and must
+    // open in a new tab instead.
+    let isSameOrigin = false;
 
     try {
-      const parsedUrl = new URL(job.stlFileUrl);
+      const parsedUrl = new URL(job.stlFileUrl, window.location.origin);
+      isSameOrigin = parsedUrl.origin === window.location.origin;
       const directFileId =
         parsedUrl.searchParams.get('id') ||
         parsedUrl.pathname.match(/\/file\/d\/([^/]+)/)?.[1] ||
         parsedUrl.pathname.match(/\/d\/([^/]+)/)?.[1];
 
-      if (directFileId) {
+      if (directFileId && !isSameOrigin) {
         downloadUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(directFileId)}`;
       }
     } catch {
@@ -119,8 +125,14 @@ export function Queue() {
 
     const anchor = document.createElement('a');
     anchor.href = downloadUrl;
-    anchor.target = '_blank';
-    anchor.rel = 'noopener noreferrer';
+    if (isSameOrigin) {
+      // `download` keeps the navigation in-document so an installed PWA triggers
+      // a real download instead of spawning a new standalone app window.
+      anchor.download = '';
+    } else {
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+    }
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
