@@ -266,6 +266,11 @@ async function uploadToBambu(printer, file) {
   // before resolving, which confirms the file is flushed to the SD card. An H2D
   // can take 30+ s to send that 226 after the data channel closes; resolving the
   // print command before the file is fully written triggers SD read errors.
+  //
+  // The FTP and MQTT stages are wrapped separately so a failure says *which* step
+  // broke (and on which profile): H2-series firmware restricts FTP file access, so
+  // a failed STOR here vs. a rejected print command are different fixes. The slicer
+  // surfaces this text verbatim, and handleUpload writes it to the audit log.
   const ftp = new FtpClient(60000);
   try {
     await ftp.access({
@@ -278,11 +283,22 @@ async function uploadToBambu(printer, file) {
     });
     // Upload to the root directory so `ftp://<filename>` resolves on the printer.
     await ftp.uploadFrom(Readable.from(file.buffer), remoteName);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`FTP upload to ${printer.profile} failed: ${detail}`);
   } finally {
     ftp.close();
   }
 
-  await publishBambuPrint(printer, serial, remoteName);
+  try {
+    await publishBambuPrint(printer, serial, remoteName);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    // The file is already on the SD card; only the auto-start command failed.
+    throw new Error(
+      `File uploaded to ${printer.profile} but the print command failed: ${detail}`,
+    );
+  }
 
   // Record the slicer's filament estimate so the poller can show real per-job
   // usage. Bambu's MQTT report has no filament figure and H2 firmware blocks FTP
@@ -429,18 +445,36 @@ async function handleUpload(req, res, printerId) {
     return;
   }
 
-  if (printer.profile === 'snapmaker_u1') {
-    await uploadToMoonraker(printer, file);
-  } else if (
-    printer.profile === 'bambulab_a1_mini' ||
-    printer.profile === 'bambulab_h2s' ||
-    printer.profile === 'bambulab_h2d' ||
-    printer.profile === 'bambulab_h2c'
-  ) {
-    await uploadToBambu(printer, file);
-  } else {
-    sendJson(res, 415, { error: `Upload is not supported for printer profile "${printer.profile}"` });
-    return;
+  try {
+    if (printer.profile === 'snapmaker_u1') {
+      await uploadToMoonraker(printer, file);
+    } else if (
+      printer.profile === 'bambulab_a1_mini' ||
+      printer.profile === 'bambulab_h2s' ||
+      printer.profile === 'bambulab_h2d' ||
+      printer.profile === 'bambulab_h2c'
+    ) {
+      await uploadToBambu(printer, file);
+    } else {
+      sendJson(res, 415, { error: `Upload is not supported for printer profile "${printer.profile}"` });
+      return;
+    }
+  } catch (error) {
+    // Record the exact failure (stage + profile, from uploadToBambu/uploadToMoonraker)
+    // so an operator can diagnose a failed slicer push from the dashboard audit log,
+    // then re-throw for the top-level handler to return it to the slicer.
+    const detail = error instanceof Error ? error.message : String(error);
+    audit({
+      actorName: key.name,
+      actorUsername: `slicer-key:${key.name}`,
+      actorRole: 'operator',
+      action: 'slicer.upload_failed',
+      target: printer.name,
+      details: { keyName: key.name, filename: file.filename, printerId: printer.id, profile: printer.profile, error: detail },
+      source: 'slicer',
+      ip,
+    });
+    throw error;
   }
 
   // A successful slicer upload counts as the key actor performing the print.
