@@ -881,6 +881,7 @@ export type FilamentMaterial = (typeof FILAMENT_MATERIALS)[number];
 // The field is free-text (any brand is allowed); these just populate a datalist.
 export const FILAMENT_VENDORS = [
   'Bambu Lab',
+  'Snapmaker',
   'Polymaker',
   'eSUN',
   'Hatchbox',
