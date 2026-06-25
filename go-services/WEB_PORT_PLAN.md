@@ -69,6 +69,21 @@ go-services/
   sub-ms truncation (node-postgres floors micros→ms). `getPrinterMaintenance`'s
   next-service / overdue / health-score computation is reproduced in Go with the same
   float arithmetic. Mutations (mark-read, complete, intervals PUT) remain Phase 4.
+- **Phase 3 — done & verified.** Sessions & auth: cookie parse/issue (`pf_session`,
+  SameSite=Lax), `internal/pwcrypto` (scrypt derive/verify + legacy sha256, wire
+  format identical to app.js), session DB store, the default-deny gate
+  (`authorizeFrontendApi` / `classifyApiRequest` / `isSensitiveRead` / admin/operator
+  matrices) + CSRF same-origin check, and the endpoints `GET /api/auth/{session,
+  providers}`, `POST /api/auth/{login,logout}`, `GET|POST|PUT /api/admin/credential`,
+  `POST /api/admin/credential/verify`, `POST /api/users/verify`. `isPrivileged(session)`
+  now drives the full-secrets printer path. Verified two ways: (1) the 20-case gate
+  matrix (401/403/public, CSRF) byte-identical vs the live Node server; (2) a full
+  happy-path flow (login → session → privileged unredacted printers → logout →
+  re-redaction) byte-identical vs Node on a throwaway DB — incl. an admin credential
+  set as scrypt by Node and verified by Go (cross-runtime KDF compatibility). Redis
+  session caching + login throttle are omitted (disabled deployment; Node falls back
+  to the same Postgres path). Remaining: SSO grant `/api/auth/verify`, slicer-token,
+  and the SAML endpoints (Phase 8).
 
 ## Phased plan (each phase build + parity-verify + commit)
 

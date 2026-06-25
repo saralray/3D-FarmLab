@@ -233,6 +233,23 @@ func getAppSetting(ctx context.Context, key string) (json.RawMessage, error) {
 	return data, nil
 }
 
+// setAppSetting mirrors server/postgres.js setAppSetting: upsert the JSON value
+// (stored as the JSONB column).
+func setAppSetting(ctx context.Context, key string, value any) error {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	_, err = dbPool.Exec(ctx,
+		`INSERT INTO app_settings (key, value, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE
+       SET value = EXCLUDED.value,
+           updated_at = NOW();`,
+		key, string(encoded))
+	return err
+}
+
 func isJSONNull(b json.RawMessage) bool {
 	return len(b) == 0 || string(b) == "null"
 }

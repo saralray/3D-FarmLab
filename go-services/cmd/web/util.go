@@ -1,10 +1,22 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"math"
 	"strconv"
 	"strings"
 )
+
+// randomBase64URL mirrors randomBytes(n).toString('base64url'): n random bytes,
+// URL-safe base64, no padding.
+func randomBase64URL(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
 
 func itoa(i int) string { return strconv.Itoa(i) }
 

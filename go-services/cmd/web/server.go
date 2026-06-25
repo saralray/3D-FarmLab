@@ -52,6 +52,14 @@ func marshalJSON(payload any) []byte {
 	return bytes.TrimRight(buf.Bytes(), "\n")
 }
 
+// sendEmpty mirrors sendEmpty in app.js: a no-body response (default 204).
+func sendEmpty(w http.ResponseWriter, status int) {
+	if status == 0 {
+		status = http.StatusNoContent
+	}
+	w.WriteHeader(status)
+}
+
 func sendJSON(w http.ResponseWriter, status int, payload any, cacheControl string) {
 	if cacheControl == "" {
 		cacheControl = "no-store"

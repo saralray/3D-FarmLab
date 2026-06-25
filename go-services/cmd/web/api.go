@@ -18,23 +18,40 @@ func handleAPI(w http.ResponseWriter, req *http.Request) bool {
 	}
 	ctx := req.Context()
 
+	// Lazily resolve (and memoize) the session, mirroring Node's req._session
+	// cache — public reads that never need it skip the DB lookup entirely.
+	var (
+		cachedSess  *sessionRow
+		sessFetched bool
+	)
+	sessFn := func() *sessionRow {
+		if !sessFetched {
+			cachedSess, _ = resolveSession(ctx, req)
+			sessFetched = true
+		}
+		return cachedSess
+	}
+
+	// Default-deny authorization gate (CSRF + role) for the cookie-authenticated
+	// frontend surface. The key-gated /api/v1 API authenticates itself separately.
+	if !authorizeFrontendApi(w, req, sessFn) {
+		return true
+	}
+
+	if handleAuthRoutes(w, req, sessFn) {
+		return true
+	}
+
 	switch {
 	// GET /api/printers — connection secrets only reach an operator/admin session;
 	// anonymous/viewer/student callers always get the redacted list. (The
 	// privileged path is wired once sessions land in Phase 3; until then every
 	// request is treated as non-privileged, matching an anonymous caller.)
 	case pathname == "/api/printers" && req.Method == http.MethodGet:
-		var (
-			data json.RawMessage
-			err  error
-		)
-		if isPrivilegedRequest(req) {
-			data, err = listPrintersJSON(ctx, true)
-		} else {
-			data, err = listPrintersJSON(ctx, false)
-		}
-		// listPrintersRedacted forces redaction regardless of viewer mode; the
-		// false branch above already passes includeSensitive=false.
+		// Connection secrets only reach an operator/admin session; everyone else
+		// gets the always-redacted list (listPrintersRedacted forces redaction
+		// regardless of viewer mode).
+		data, err := listPrintersJSON(ctx, isPrivileged(sessFn()))
 		respondStoreJSON(w, data, err, "")
 		return true
 
@@ -72,15 +89,7 @@ func handleAPI(w http.ResponseWriter, req *http.Request) bool {
 	// Phase 3). Must come after the longer /camera/health suffix above.
 	case strings.HasPrefix(pathname, "/api/printers/") && req.Method == http.MethodGet:
 		id := decodePathSegment(pathname, "/api/printers/", "")
-		var (
-			data json.RawMessage
-			err  error
-		)
-		if isPrivilegedRequest(req) {
-			data, err = getPrinterByIdJSON(ctx, id, true)
-		} else {
-			data, err = getPrinterByIdJSON(ctx, id, false)
-		}
+		data, err := getPrinterByIdJSON(ctx, id, isPrivileged(sessFn()))
 		if err == nil && data == nil {
 			sendJSON(w, http.StatusNotFound, map[string]any{"error": "Printer not found"}, "")
 			return true
@@ -180,12 +189,9 @@ func handleAPI(w http.ResponseWriter, req *http.Request) bool {
 	return false
 }
 
-// isPrivilegedRequest reports whether the caller is an operator/admin session.
-// Sessions are not yet ported (Phase 3); until then every caller is treated as
-// non-privileged, which matches an anonymous request to the Node server.
-func isPrivilegedRequest(req *http.Request) bool {
-	_ = req
-	return false
+// isPrivileged reports whether a resolved session is operator/admin.
+func isPrivileged(sess *sessionRow) bool {
+	return sess != nil && isPrivilegedRole(sess.Role)
 }
 
 func decodePathSegment(pathname, prefix, suffix string) string {
