@@ -45,6 +45,22 @@ go-services/
     auth_sso.go    /api/auth/* providers, oauth, SAML
 ```
 
+## Status
+
+- **Phase 1 — done & verified.** Foundation at full parity (commit "web Go port phase 1").
+- **Phase 2 — done & verified** for the polled data reads + on-load settings reads
+  (`GET /api/printers`, `/api/printers/:id`, `/api/queue`, `/api/analytics/daily`,
+  `/api/cameras/health`, `/api/printers/:id/camera/health`, `/api/settings/{branding,
+  integrations,public-viewer,analytics-layout,printer-card-layout/:profile}`). Byte-
+  identical body + headers vs the live Node server across the matrix above. The
+  **maintenance reads** (`/api/maintenance*`, `/api/printers/:id/maintenance`,
+  `/api/settings/maintenance-intervals`) are split out as **Phase 2b** (still TODO).
+  Key parity mechanism: `jsCompact` re-serializes Postgres `json` output the way
+  Node's `JSON.parse`→`JSON.stringify` does (compact, JS-normalized numbers,
+  preserved key order); ordered structs reproduce object-literal key order where Go
+  maps would sort. The privileged (full-secrets) printer path is stubbed off until
+  sessions land in Phase 3 — every caller is currently treated as anonymous/redacted.
+
 ## Phased plan (each phase build + parity-verify + commit)
 
 1. **Foundation** — server, pgxpool, logger, X-Request-Id, setSecurityHeaders
@@ -52,7 +68,7 @@ go-services/
    `/metrics` (printfarm_web_* request metrics), static SPA serving from `/dist`.
 2. **Public reads** — `GET /api/printers` (+ viewer redaction), `GET /api/printers/:id`,
    `GET /api/queue`, `GET /api/analytics/daily`, `GET /api/cameras/health`,
-   `GET /api/maintenance*`, settings/branding/layout reads.
+   `GET /api/maintenance*` (→ Phase 2b), settings/branding/layout reads.
 3. **Sessions & auth** — `/api/auth/*` (login/logout/me), session cookie
    (SameSite=Lax), scrypt password verify (`pwcrypto`), role gate
    (`classifyApiRequest`), CSRF same-origin check, admin credential first-run.

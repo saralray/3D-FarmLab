@@ -39,3 +39,4 @@ __pycache__/
 # Go build artifacts (binaries written by `go build <pkg>`)
 /go-services/poller
 /go-services/exporter
+/go-services/web

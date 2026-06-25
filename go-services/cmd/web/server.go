@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -38,6 +39,19 @@ func (r *statusRecorder) Flush() {
 	}
 }
 
+// marshalJSON matches Node's JSON.stringify: no trailing newline and no HTML
+// escaping of <, >, & (Go's encoding/json escapes those by default; Node does
+// not), so byte-for-byte parity with the Node responses holds.
+func marshalJSON(payload any) []byte {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(payload); err != nil {
+		return []byte("null")
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n")
+}
+
 func sendJSON(w http.ResponseWriter, status int, payload any, cacheControl string) {
 	if cacheControl == "" {
 		cacheControl = "no-store"
@@ -45,7 +59,7 @@ func sendJSON(w http.ResponseWriter, status int, payload any, cacheControl strin
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", cacheControl)
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	_, _ = w.Write(marshalJSON(payload))
 }
 
 // handleRequest is the top-level dispatch, mirroring server/app.js handleRequest.
