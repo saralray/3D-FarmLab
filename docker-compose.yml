@@ -184,7 +184,9 @@ services:
   exporter:
     build:
       context: .
-      dockerfile: Dockerfile.exporter
+      dockerfile: Dockerfile.go
+      args:
+        SERVICE: exporter
     restart: unless-stopped
     depends_on:
       db:

@@ -42,7 +42,7 @@ Seven services orchestrated via Docker Compose:
 | `poller` | Python 3.12 + psycopg | Polls each printer every `PRINTER_POLL_INTERVAL_MS` ms, upserts state into `db` |
 | `slicer-proxy` | Node.js 20 | OctoPrint-compatible upload endpoint on `SLICER_PROXY_PORT` (default 8091); accepts sliced files from a slicer and auto-starts the print on the chosen printer. Authenticated with named API keys |
 | `nginx` | Nginx 1.27 | Reverse proxy on `HTTP_PORT` (default 8080), adds security headers |
-| `exporter` | Python 3.12 + prometheus-client | Read-only Prometheus exporter; serves `printfarm_*` metrics from `db` on `:9180/metrics` (internal only) |
+| `exporter` | Go 1.22 (`go-services/cmd/exporter`) | Read-only Prometheus exporter; serves `printfarm_*` metrics from `db` on `:9180/metrics` (internal only). Hand-rolled exposition writer (`go-services/internal/metrics`), no client library; distroless image (~4 MB RAM). Ported from the former Python service (`exporter/printfarm_exporter.py`, retained for reference) |
 | `prometheus` | Prometheus 2.55 | Scrapes `exporter`, stores the time series; not published on its own host port — nginx serves it under `/prometheus` on the main site (runs with `--web.route-prefix=/prometheus`) |
 
 **Request flow:**
