@@ -51,6 +51,23 @@ func handleAPI(w http.ResponseWriter, req *http.Request) bool {
 		sendJSON(w, http.StatusOK, idleCameraHealth(id), "no-store")
 		return true
 
+	// Per-printer maintenance summary. Must precede the generic /api/printers/:id
+	// GET below so the longer path isn't swallowed by it.
+	case strings.HasPrefix(pathname, "/api/printers/") &&
+		strings.HasSuffix(pathname, "/maintenance") && req.Method == http.MethodGet:
+		id := decodePathSegment(pathname, "/api/printers/", "/maintenance")
+		summary, err := getPrinterMaintenance(ctx, id)
+		if err != nil {
+			respondShaped(w, nil, err)
+			return true
+		}
+		if summary == nil {
+			sendJSON(w, http.StatusNotFound, map[string]any{"error": "Printer not found"}, "")
+			return true
+		}
+		sendJSON(w, http.StatusOK, summary, "no-store")
+		return true
+
 	// GET /api/printers/:id — redacted single read (privileged path lands in
 	// Phase 3). Must come after the longer /camera/health suffix above.
 	case strings.HasPrefix(pathname, "/api/printers/") && req.Method == http.MethodGet:
@@ -79,6 +96,52 @@ func handleAPI(w http.ResponseWriter, req *http.Request) bool {
 	case pathname == "/api/queue" && req.Method == http.MethodGet:
 		data, err := listQueueDataJSON(ctx)
 		respondStoreJSON(w, data, err, "")
+		return true
+
+	// Maintenance fleet-widget aggregates.
+	case pathname == "/api/maintenance/summary" && req.Method == http.MethodGet:
+		summary, err := getMaintenanceSummary(ctx)
+		if err != nil {
+			respondShaped(w, nil, err)
+			return true
+		}
+		sendJSON(w, http.StatusOK, summary, "no-store")
+		return true
+
+	// In-app maintenance notifications (NotificationBell feed).
+	case pathname == "/api/maintenance/notifications" && req.Method == http.MethodGet:
+		unreadOnly := req.URL.Query().Get("unread") == "true"
+		notes, err := listMaintenanceNotifications(ctx, unreadOnly, 100)
+		if err != nil {
+			respondShaped(w, nil, err)
+			return true
+		}
+		sendJSON(w, http.StatusOK, notes, "no-store")
+		return true
+
+	// List maintenance tasks with optional printer / status / type filters.
+	case pathname == "/api/maintenance" && req.Method == http.MethodGet:
+		q := req.URL.Query()
+		status := q.Get("status")
+		if status == "" {
+			status = "pending"
+		}
+		events, err := listMaintenanceEvents(ctx, q.Get("printer"), status, q.Get("type"), 500)
+		if err != nil {
+			respondShaped(w, nil, err)
+			return true
+		}
+		sendJSON(w, http.StatusOK, events, "no-store")
+		return true
+
+	// Global default maintenance intervals (GET is a public read).
+	case pathname == "/api/settings/maintenance-intervals" && req.Method == http.MethodGet:
+		intervals, err := getMaintenanceDefaultIntervals(ctx)
+		if err != nil {
+			respondShaped(w, nil, err)
+			return true
+		}
+		sendJSON(w, http.StatusOK, intervals, "")
 		return true
 
 	// Settings reads the SPA fetches on load. Writes (PUT) are gated/handled in a

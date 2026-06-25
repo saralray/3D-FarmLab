@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"math"
 	"net/url"
+	"strconv"
+	"strings"
 )
 
 // settings.go ports the read-side shaping helpers for the app_settings-backed
@@ -92,6 +94,10 @@ func toFloat(v any) (float64, bool) {
 		return n, true
 	case json.Number:
 		f, err := n.Float64()
+		return f, err == nil
+	case string:
+		// Node coerces with Number(string); a numeric string parses, others fail.
+		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
 		return f, err == nil
 	}
 	return 0, false

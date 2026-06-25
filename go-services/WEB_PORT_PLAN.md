@@ -60,6 +60,15 @@ go-services/
   preserved key order); ordered structs reproduce object-literal key order where Go
   maps would sort. The privileged (full-secrets) printer path is stubbed off until
   sessions land in Phase 3 — every caller is currently treated as anonymous/redacted.
+- **Phase 2b — done & verified.** Maintenance reads at parity (`GET /api/maintenance`,
+  `/api/maintenance/summary`, `/api/maintenance/notifications`, `/api/printers/:id/
+  maintenance`, `/api/settings/maintenance-intervals`). Unlike the json_build_object
+  reads, the Node maintenance fns return raw `pg` rows, so timestamptz arrives as a JS
+  `Date` and is emitted via `toISOString()` (ms + `Z`). The Go port scans typed columns
+  and formats with `jsISO`, verified byte-identical to `Date.toISOString()` including
+  sub-ms truncation (node-postgres floors micros→ms). `getPrinterMaintenance`'s
+  next-service / overdue / health-score computation is reproduced in Go with the same
+  float arithmetic. Mutations (mark-read, complete, intervals PUT) remain Phase 4.
 
 ## Phased plan (each phase build + parity-verify + commit)
 
