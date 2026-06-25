@@ -52,7 +52,7 @@ export function QueueItem({
                 {job.submitterName || job.filename}
               </div>
               <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {job.fileCount ?? 1} file{(job.fileCount ?? 1) === 1 ? '' : 's'}
+                {job.fileCount ?? 1} piece{(job.fileCount ?? 1) === 1 ? '' : 's'}
               </div>
             </div>
             
@@ -94,6 +94,33 @@ export function QueueItem({
                   title="Mark as printed"
                 >
                   <Check className="size-4 text-green-600" />
+                </Button>
+              )}
+              {canManage && job.submitterEmail && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const subject = `Your 3D Print Request — ${job.filename}`;
+                    const body = [
+                      `Hi ${job.submitterName || 'there'},`,
+                      '',
+                      `We have received your 3D print request for "${job.filename}" (${job.fileCount ?? 1} piece${(job.fileCount ?? 1) === 1 ? '' : 's'}).`,
+                      '',
+                      'Our staff will review and queue your job.',
+                      '',
+                      '— STEM Lab Print Farm',
+                    ].join('\n');
+                    window.open(
+                      `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(job.submitterEmail!)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
+                      '_blank',
+                      'noopener,noreferrer',
+                    );
+                  }}
+                  title={`Send email to ${job.submitterEmail}`}
+                >
+                  <Mail className="size-4 text-sky-500" />
                 </Button>
               )}
               {canDelete && (

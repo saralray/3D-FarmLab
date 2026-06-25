@@ -326,6 +326,14 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 2,
+    name: 'queue-jobs-photo-columns',
+    sql: `
+      ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS photo_content BYTEA;
+      ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS photo_mime TEXT;
+    `,
+  },
 ];
 
 // Advisory lock id for the migration run (distinct from the baseline's 90210), so

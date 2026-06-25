@@ -217,7 +217,7 @@ export function Queue() {
           <div className="text-3xl font-bold mt-1 dark:text-white">{availablePrinters}</div>
         </Card>
         <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <div className="text-sm text-gray-600 dark:text-gray-400">Total Files</div>
+          <div className="text-sm text-gray-600 dark:text-gray-400">Total Pieces</div>
           <div className="text-3xl font-bold mt-1 dark:text-white">{totalFiles}</div>
         </Card>
       </div>
