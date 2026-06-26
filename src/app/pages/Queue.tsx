@@ -3,7 +3,7 @@ import { PrintJob } from '../types';
 import { QueueItem } from '../components/QueueItem';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { List, ClipboardList, ChevronLeft, ChevronRight } from 'lucide-react';
+import { List, ClipboardList, ChevronLeft, ChevronRight, FileSpreadsheet } from 'lucide-react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { deleteQueueJob, fetchQueueJobs, markQueueJobAsPrinted, resetQueueJobStatuses } from '../lib/queueApi';
@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { usePrinters } from '../contexts/PrintersContext';
 import { isReadOnlyRole } from '../lib/usersApi';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { exportQueueToXlsx } from '../lib/xlsxExport';
 
 export function Queue() {
   const { user } = useAuth();
@@ -168,6 +169,13 @@ export function Queue() {
   const canManageQueue = user?.role === 'admin' || user?.role === 'operator';
   const canDeleteQueueJobs = user?.role === 'admin';
   const canDownloadQueueFiles = !isReadOnlyRole(user?.role);
+  const canExport = !isReadOnlyRole(user?.role);
+
+  const handleExportExcel = () => {
+    const date = new Date().toISOString().slice(0, 10);
+    exportQueueToXlsx(queue, history, `print-queue-${date}.xlsx`);
+    toast.success('Excel file downloaded');
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -185,6 +193,12 @@ export function Queue() {
               disabled={resetInFlight}
             >
               {resetInFlight ? 'Resetting...' : 'Reset Queue'}
+            </Button>
+          )}
+          {canExport && (
+            <Button variant="outline" onClick={handleExportExcel}>
+              <FileSpreadsheet className="size-4 mr-2" />
+              Export Excel
             </Button>
           )}
           <Button asChild variant="outline">

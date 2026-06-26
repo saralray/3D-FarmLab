@@ -50,6 +50,14 @@ export function Dashboard() {
     }
   }, [loadError]);
 
+  // Dismiss the printer-status error toast when navigating away so it doesn't
+  // linger visually on other pages (Queue, Analytics, etc.).
+  useEffect(() => {
+    return () => {
+      toast.dismiss('dashboard-load-printers-error');
+    };
+  }, []);
+
   const persistPrinterOrder = async (nextPrinters: Printer[]) => {
     await Promise.all(
       nextPrinters.map((printer, index) =>

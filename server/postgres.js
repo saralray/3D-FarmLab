@@ -1031,7 +1031,10 @@ export async function markQueueJobPrinted(id) {
     `
     UPDATE queue_jobs
     SET printed_status = 1,
-        updated_at = NOW()
+        updated_at = NOW(),
+        file_content = NULL,
+        file_mime = NULL,
+        file_size_bytes = 0
     WHERE id = $1
       AND deleted_at IS NULL;
   `,
