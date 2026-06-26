@@ -535,6 +535,10 @@ Denials return `401` (no/expired session) or `403` (insufficient role).
 > `/api/v1` surface. Requests with no `Origin`/`Referer` (curl, server-to-server)
 > are allowed — use `/api/v1` with an API key for automation.
 
+### Version endpoint
+
+`GET /api/version` — **public, no auth**. Returns `{ buildId: string }` where `buildId` is a 16-hex-char SHA-256 of `dist/index.html`, computed once at server startup. Changes on every new deploy. Cached `no-store`. The frontend polls this every 5 minutes and prompts users to reload when the value changes. Suppressed from access logs (treated as a quiet probe alongside `/healthz`).
+
 ### Maintenance (frontend `/api/*`)
 
 Cookieless, like the rest of the frontend surface (reads public; the complete /

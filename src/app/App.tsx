@@ -7,6 +7,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { SidebarProvider } from './contexts/SidebarContext';
 import { Toaster } from './components/ui/sonner';
 import defaultLogo from './assets/printer-logo.svg';
+import { useDeployDetector } from './lib/useDeployDetector';
 
 // Catches errors that escape all route-level boundaries (broken providers,
 // the router itself failing to mount, etc.). Uses no hooks or context since
@@ -114,6 +115,8 @@ class RootErrorBoundary extends Component<
 }
 
 export default function App() {
+  useDeployDetector();
+
   return (
     <RootErrorBoundary>
       <ThemeProvider>

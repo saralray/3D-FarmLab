@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Card } from '../components/ui/card';
 import {
   LineChart,
@@ -31,6 +31,7 @@ import {
   type AnalyticsCardId,
   type AnalyticsLayout,
 } from '../lib/analyticsLayoutApi';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 export function Analytics() {
   const { user } = useAuth();
@@ -41,33 +42,20 @@ export function Analytics() {
   const [isLayoutEditing, setIsLayoutEditing] = useState(false);
   const [layoutError, setLayoutError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let isCancelled = false;
-
-    const refreshAnalytics = async () => {
-      try {
-        const response = await fetch('/api/analytics/daily', { cache: 'no-store' });
-        if (!response.ok) {
-          throw new Error(`Analytics request failed with ${response.status}`);
-        }
-
-        const payload = await response.json();
-        if (!isCancelled && Array.isArray(payload)) {
-          setAnalyticsData(payload);
-        }
-      } catch {
-        // Leave the last good snapshot on screen if the refresh fails.
+  const refreshAnalytics = useCallback(async () => {
+    try {
+      const response = await fetch('/api/analytics/daily', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Analytics request failed with ${response.status}`);
       }
-    };
-
-    refreshAnalytics();
-    const interval = window.setInterval(refreshAnalytics, 10000);
-
-    return () => {
-      isCancelled = true;
-      window.clearInterval(interval);
-    };
+      const payload = await response.json();
+      if (Array.isArray(payload)) setAnalyticsData(payload);
+    } catch {
+      // Leave the last good snapshot on screen if the refresh fails.
+    }
   }, []);
+
+  useAutoRefresh(refreshAnalytics, 10_000);
 
   useEffect(() => {
     let isCancelled = false;

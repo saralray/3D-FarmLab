@@ -827,6 +827,10 @@ function analyzeSvgForTheme(rawSvg) {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, '..', 'dist');
+
+// Hash of dist/index.html, set once in assertProductionInputs(). Changes on
+// every new deploy so the frontend's version poll can prompt users to reload.
+let BUILD_ID = 'dev';
 const port = Number.parseInt(process.env.PORT || '5173', 10);
 const host = process.env.HOST || '0.0.0.0';
 const maxBodyBytes = Number.parseInt(process.env.MAX_BODY_BYTES || String(1024 * 1024), 10);
@@ -3217,6 +3221,11 @@ async function handleApi(req, res, requestUrl) {
     return true;
   }
 
+  if (requestUrl.pathname === '/api/version') {
+    sendJson(res, 200, { buildId: BUILD_ID }, 'no-store');
+    return true;
+  }
+
   if (await handleDataApi(req, res, requestUrl)) {
     return true;
   }
@@ -5262,7 +5271,7 @@ async function checkReadiness() {
 // LOG_HTTP=off disables access logging entirely. Probe/scrape endpoints are
 // always skipped from the sampled log.
 const LOG_HTTP_MODE = (process.env.LOG_HTTP || 'sample').toLowerCase();
-const QUIET_ROUTES = new Set(['healthz', 'readyz', 'metrics']);
+const QUIET_ROUTES = new Set(['healthz', 'readyz', 'metrics', 'version']);
 
 function logHttp(req, res, route, durationMs, requestId) {
   if (LOG_HTTP_MODE === 'off') {
@@ -5407,7 +5416,8 @@ async function assertProductionInputs() {
     throw new Error('DATABASE_URL is required.');
   }
 
-  await readFile(path.join(distDir, 'index.html'));
+  const indexHtml = await readFile(path.join(distDir, 'index.html'));
+  BUILD_ID = createHash('sha256').update(indexHtml).digest('hex').slice(0, 16);
 }
 
 await assertProductionInputs();

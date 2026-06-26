@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { PrintJob } from '../types';
 import { QueueItem } from '../components/QueueItem';
 import { Card } from '../components/ui/card';
@@ -10,6 +10,7 @@ import { deleteQueueJob, fetchQueueJobs, markQueueJobAsPrinted, resetQueueJobSta
 import { useAuth } from '../contexts/AuthContext';
 import { usePrinters } from '../contexts/PrintersContext';
 import { isReadOnlyRole } from '../lib/usersApi';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 export function Queue() {
   const { user } = useAuth();
@@ -21,32 +22,20 @@ export function Queue() {
 
   const HISTORY_PAGE_SIZE = 5;
 
-  useEffect(() => {
-    let active = true;
-
-    // Submissions come from the in-app /request form and are stored directly in
-    // the database, so the queue is just a cheap DB read polled on an interval.
-    const loadQueue = async () => {
-      try {
-        const jobs = await fetchQueueJobs();
-        if (active) {
-          setQueue(jobs.queue);
-          setHistory(jobs.history);
-          setHistoryPage(0);
-        }
-      } catch (error) {
-        console.error('Failed to load queue', error);
-      }
-    };
-
-    loadQueue();
-    const queueInterval = window.setInterval(loadQueue, 30000);
-
-    return () => {
-      active = false;
-      window.clearInterval(queueInterval);
-    };
+  // Submissions come from the in-app /request form and are stored directly in
+  // the database, so the queue is just a cheap DB read polled on an interval.
+  const loadQueue = useCallback(async () => {
+    try {
+      const jobs = await fetchQueueJobs();
+      setQueue(jobs.queue);
+      setHistory(jobs.history);
+      setHistoryPage(0);
+    } catch (error) {
+      console.error('Failed to load queue', error);
+    }
   }, []);
+
+  useAutoRefresh(loadQueue, 30_000);
 
   const handleRemove = async (jobId: string) => {
     try {

@@ -10,6 +10,7 @@ import {
 import { Printer } from '../types';
 import { fetchPrinters } from '../lib/printersApi';
 import { normalizePrinter } from '../lib/printerProfiles';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 // Single shared printer-list poll for the whole app. Previously the Dashboard,
 // Analytics, Queue, and the global PrinterStatusNotifier each ran their own
@@ -52,14 +53,10 @@ export function PrintersProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     isMountedRef.current = true;
-    refresh();
-    const interval = window.setInterval(refresh, POLL_INTERVAL_MS);
+    return () => { isMountedRef.current = false; };
+  }, []);
 
-    return () => {
-      isMountedRef.current = false;
-      window.clearInterval(interval);
-    };
-  }, [refresh]);
+  useAutoRefresh(refresh, POLL_INTERVAL_MS);
 
   return (
     <PrintersContext.Provider value={{ printers, loaded, error, refresh }}>

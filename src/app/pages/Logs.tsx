@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { RefreshCw, ScrollText, Search } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -14,6 +14,7 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { AuditLogEntry, fetchAuditLogs } from '../lib/auditApi';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 // Human-friendly label for each machine action key. Unknown keys fall back to
 // the raw key so a newly added action still renders something sensible.
@@ -79,21 +80,23 @@ export function Logs() {
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const hasData = useRef(false);
 
-  const loadLogs = async () => {
-    setIsLoading(true);
+  const loadLogs = useCallback(async () => {
     try {
-      setLogs(await fetchAuditLogs(500));
+      const entries = await fetchAuditLogs(500);
+      setLogs(entries);
+      hasData.current = true;
     } catch {
-      toast.error('Unable to load the activity log. Check the server and database connection.');
+      if (!hasData.current) {
+        toast.error('Unable to load the activity log. Check the server and database connection.');
+      }
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // only meaningful on first load; isLoading starts true
     }
-  };
-
-  useEffect(() => {
-    void loadLogs();
   }, []);
+
+  useAutoRefresh(loadLogs, 60_000);
 
   const filteredLogs = useMemo(() => {
     const term = search.trim().toLowerCase();

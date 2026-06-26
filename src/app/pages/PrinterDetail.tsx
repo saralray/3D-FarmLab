@@ -467,10 +467,15 @@ export function PrinterDetail() {
 
     refreshFromServer();
     const interval = window.setInterval(refreshFromServer, 10000);
+    const onVisible = () => { if (document.visibilityState === 'visible') void refreshFromServer(); };
+    window.addEventListener('online', refreshFromServer);
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       isCancelled = true;
       window.clearInterval(interval);
+      window.removeEventListener('online', refreshFromServer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [id]);
 
