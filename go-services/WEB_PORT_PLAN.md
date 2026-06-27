@@ -194,6 +194,44 @@ go-services/
   dance (Google/Microsoft `/start`+`/callback`) — separate from SAML; `/api/auth/providers`
   already reports their configured status (Phase 3). No `API.md` change (pure port).
 
+- **Phase 9 — done & verified.** The key-gated `/api/v1` data API (`cmd/web/dataapi.go` +
+  `cmd/web/store_dataapi.go`, port of `handleDataApi*` from app.js): X-Api-Key / Bearer auth
+  against `slicer_api_keys` (best-effort `last_used_at` stamp), the `printfarm_manage` scope
+  gate, and every resource — `printers` (list/get/upsert/delete + `/command` MQTT +
+  `/proxy/<path...>` HTTP passthrough + `/camera/{snapshot,stream,health}`, all delegating to
+  the Phase 6/7 `handlePrinterProxy`/hub with our own API creds stripped), `queue`
+  (list/upsert/printed/reset/delete + the migration routes export/import/bulk-delete and
+  per-job `GET|PUT /:id/file`), `analytics`, `maintenance`, `notifications`, `slicer-keys`,
+  `audit-logs`, `settings/<key>`, `users` (with `passwordHash`, like admin-credential),
+  `admin-credential`, and `manager-requests` (incl. approve minting a `printfarm_manage` key).
+  Mutations audit with `source='api'`. Connection secrets are **not** redacted here (reuses the
+  unredacted `listPrintersJSON(…, true)` / `getPrinterByIdJSON(…, true)`). Wired into `handleAPI`
+  before the cookie-session gate (which already exempts `/api/v1`). Verified Node vs Go against
+  two identical throwaway DBs (Node-dumped schema into the Go DB) across **~90 cases**: 33 reads
+  byte-identical (incl. queue export/file-stream, `manager-requests/:id` returning `key_secret`,
+  `settings/<key>`, `users` with hash, discovery root, 401/403/404 auth paths); 28
+  validation/no-state cases; success mutations with response + **full DB-state parity** on every
+  deterministic table (printers, queue_jobs, discord_webhooks, maintenance_events,
+  analytics_daily, app_settings) and structural parity on the random-id tables (staff_users,
+  slicer_api_keys, manager_requests); the audit trail identical (24 entries, ordered details,
+  `source='api'`); file-download headers byte-identical; camera health/validation byte-identical;
+  proxy connect-failure status-identical. **Two real bugs found & fixed:** (1) `markQueueJobPrinted`
+  must also clear `file_content`/`file_mime`/`file_size_bytes` (Node reclaims storage on
+  mark-printed; the Phase-4 port only set `printed_status`) — this also fixes the frontend
+  `POST /api/queue/:id/printed`; (2) the settings PUT stored the raw request bytes, so `1.50`
+  persisted un-normalized — now `jsCompact`-normalized before the jsonb write to match Node's
+  `JSON.parse`→store (`1.50`→`1.5`). Also made `recordAuditLog` marshal details without HTML
+  escaping (Node's `JSON.stringify`) so user-text details with `<>&` match. **Known edges**
+  (consistent with prior phases, not Phase-9-specific): an uncaught store error yields Node's
+  raw `error.message` vs Go's generic `Internal Server Error` (only reachable via input that
+  passes app-validation but violates a DB constraint, e.g. a printer upsert missing a NOT-NULL
+  column); MQTT/HTTP-upstream connect failures give library-specific 500 bodies (status parity
+  only); and an over-limit file PUT — Node's `readBodyBounded` `req.destroy()`s mid-stream so the
+  client sees a connection reset, while Go sends the intended clean `413` JSON (both reject and
+  store nothing). No `API.md` change (pure port of existing routes). The Node-web background
+  maintenance `setInterval` (app.js:5444) drifts `health_score`→100 over time and is not
+  request-path code — excluded from the state diff.
+
 ## Phased plan (each phase build + parity-verify + commit)
 
 1. **Foundation** — server, pgxpool, logger, X-Request-Id, setSecurityHeaders

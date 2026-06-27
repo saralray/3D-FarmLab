@@ -108,11 +108,11 @@ func recordAuditLog(ctx context.Context, e auditEntry) error {
 	}
 	var details *string
 	if e.Details != nil {
-		b, err := json.Marshal(e.Details)
-		if err == nil {
-			s := string(b)
-			details = &s
-		}
+		// marshalJSON (not json.Marshal) so details match Node's JSON.stringify:
+		// no HTML escaping of <>&. Callers that need multi-key order pass an
+		// ordered value (ojson / pre-encoded RawMessage); a map would be sorted.
+		s := string(marshalJSON(e.Details))
+		details = &s
 	}
 	_, err := dbPool.Exec(ctx,
 		`INSERT INTO audit_logs

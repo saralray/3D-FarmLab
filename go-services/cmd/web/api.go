@@ -18,6 +18,13 @@ func handleAPI(w http.ResponseWriter, req *http.Request) bool {
 	}
 	ctx := req.Context()
 
+	// Key-gated /api/v1 data API authenticates itself (X-Api-Key / Bearer) and is
+	// entirely separate from the cookie-session frontend surface — it runs before
+	// the default-deny gate, mirroring handleApi → handleDataApi in app.js.
+	if handleDataApi(ctx, w, req) {
+		return true
+	}
+
 	// Lazily resolve (and memoize) the session, mirroring Node's req._session
 	// cache — public reads that never need it skip the DB lookup entirely.
 	var (

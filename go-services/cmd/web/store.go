@@ -407,9 +407,14 @@ func derefStr(p *string) string {
 	return *p
 }
 
+// markQueueJobPrinted mirrors postgres.js: marking a job printed also clears the
+// stored model file (file_content/file_mime/file_size_bytes) to reclaim storage.
 func markQueueJobPrinted(ctx context.Context, id string) error {
 	_, err := dbPool.Exec(ctx,
-		`UPDATE queue_jobs SET printed_status = 1, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL;`, id)
+		`UPDATE queue_jobs
+		 SET printed_status = 1, updated_at = NOW(),
+		     file_content = NULL, file_mime = NULL, file_size_bytes = 0
+		 WHERE id = $1 AND deleted_at IS NULL;`, id)
 	return err
 }
 
