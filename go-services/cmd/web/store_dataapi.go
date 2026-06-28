@@ -344,6 +344,17 @@ func deleteSlicerApiKey(ctx context.Context, id string) error {
 	return err
 }
 
+// deleteSlicerApiKeysBySession drops any session-bound slicer key for a session
+// token (used by the slicer-token mint/revoke). A blank hash is a no-op, matching
+// the Node guard.
+func deleteSlicerApiKeysBySession(ctx context.Context, sessionTokenHash string) error {
+	if sessionTokenHash == "" {
+		return nil
+	}
+	_, err := dbPool.Exec(ctx, `DELETE FROM slicer_api_keys WHERE session_token_hash = $1;`, sessionTokenHash)
+	return err
+}
+
 func findSlicerApiKeyByHash(ctx context.Context, keyHash string) (*slicerKeyRecord, error) {
 	var rec slicerKeyRecord
 	var perms json.RawMessage

@@ -59,6 +59,12 @@ func handleAPI(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 
+	// Auth hand-off completers: slicer operator grant, session-bound slicer token,
+	// and the Google/Microsoft OAuth login dance.
+	if handleOAuthRoutes(ctx, w, req, sessFn) {
+		return true
+	}
+
 	if handleMutations(w, req, sessFn) {
 		return true
 	}

@@ -261,6 +261,42 @@ go-services/
   the Home-Assistant integration (`/api/settings/home-assistant/{,devices,rules,test}` + its engine
   timer). These must land before the Phase-11 compose cutover.
 
+- **Pre-cutover edges, part 1 (auth hand-off completers) — done & verified.** `cmd/web/oauth.go`,
+  ports of the slicer operator-grant verify (`slicerGrant.js`), the session-bound slicer-token
+  mint/revoke, and the OAuth (Google / Microsoft Entra ID) Authorization-Code login dance from
+  app.js. Routes: `POST /api/slicer-grant/verify` (verify the `SLICER_GRANT_SECRET`-HMAC grant →
+  issue an operator session → `{printerId}`); `POST|DELETE /api/auth/slicer-token` (mint/revoke a
+  `slicer_upload` key bound to the caller's session token hash — POST is idempotent, dropping any
+  prior session key first); and `GET /api/auth/(google|microsoft)/(config|start|callback)` — the
+  start hop signs a state token and 302s to the provider's consent screen (cloud-tenant **and**
+  on-prem AD FS `authority` modes for Microsoft, with `prompt=select_account` vs `login`), the
+  callback verifies state, exchanges the code at the provider's token endpoint, decodes the
+  id_token claims (`email` → `preferred_username` → `upn` fallback), enforces `allowedDomains` /
+  `email_verified`, and mints the same HMAC auth grant the SAML ACS uses (consumed by the existing
+  `POST /api/auth/verify`). Reuses the Phase-8 `ssoSign`/`signState`/`verifyState`/`mintAuthGrant`
+  helpers and adds `deleteSlicerApiKeysBySession` to the store. Wired into `handleAPI` after
+  `handleSSORoutes` (the SAML provider routes are claimed first; the `(google|microsoft)` match
+  excludes `saml` by construction). The gate already classified every path correctly (slicer-grant
+  verify = public, slicer-token = authed, the GET provider routes = public). Verified Node vs Go
+  across two identical throwaway DBs (`SLICER_GRANT_SECRET` shared, a seeded admin session cookie,
+  configs INSERTed identically): **slicer-grant** valid/expired/tampered/malformed/empty/
+  pid-not-string/exp-not-number all byte-identical (incl. the operator `Set-Cookie` shape);
+  **slicer-token** mint (201 `{id,key,permissions}` + DB row with matching name/permissions/
+  `session_token_hash`), re-mint idempotency (stays one row), revoke (204 + row cleared), the
+  no-session and method-not-allowed paths; **OAuth** `config`/`start` for both providers in all
+  three endpoint modes (Google, Microsoft cloud-tenant, Microsoft AD FS authority) — the authorize
+  redirect byte-identical down to query-param order, the `redirect_uri`, and `prompt`; and the
+  **callback** rejection paths (`not_configured`, `denied` for error/no-code/bad-state) plus the
+  full **token exchange** against a fake `authority` token endpoint with per-DB-signed state:
+  verified-allowed-domain, domain-not-allowed, unverified-email, `preferred_username` fallback +
+  name-defaults-to-email, no-email-claim, and `exchange_failed` (unreachable endpoint) — the
+  decoded grant **claims** (`provider`/`sub`/`email`/`name`/`role`) identical on both (the grant
+  signatures differ only because each DB auto-generates its own `oauth_signing_secret`). No new
+  deps; go directive stays 1.22.2. No `API.md` change (pure port of existing routes). **Still
+  deferred** (each its own subsystem, must land before the Phase-11 cutover): `PUT
+  /api/settings/branding` (SVG theme analysis), `/api/settings/favicon`, and the Home-Assistant
+  integration (`/api/settings/home-assistant/{,devices,rules,test}` + its engine timer).
+
 ## Phased plan (each phase build + parity-verify + commit)
 
 1. **Foundation** — server, pgxpool, logger, X-Request-Id, setSecurityHeaders
