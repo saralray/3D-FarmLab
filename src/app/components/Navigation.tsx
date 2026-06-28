@@ -24,6 +24,7 @@ export function Navigation() {
     navigate('/login');
   };
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const [formOpen, setFormOpen] = useState(false);
   const [logoWave, setLogoWave] = useState(false);
   const [musicSync, setMusicSync] = useState(false);
   const [musicSource, setMusicSource] = useState<AudioRgbSource | null>(null);
@@ -172,17 +173,22 @@ export function Navigation() {
               {!isCollapsed && <span className="ml-3 whitespace-nowrap">{item.label}</span>}
             </Link>
           ))}
-          <PrintRequestDialog>
-            <button
-              type="button"
-              className="flex w-full items-center rounded-lg px-4 py-3 text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
-            >
-              <ClipboardList className="size-5" />
-              {!isCollapsed && (
-                <span className="ml-3 whitespace-nowrap">ฟอร์มขอพิมพ์งาน</span>
-              )}
-            </button>
-          </PrintRequestDialog>
+          <a
+            href="/request"
+            onClick={(e) => {
+              if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                e.preventDefault();
+                setFormOpen(true);
+              }
+            }}
+            className="flex w-full items-center rounded-lg px-4 py-3 text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            <ClipboardList className="size-5" />
+            {!isCollapsed && (
+              <span className="ml-3 whitespace-nowrap">ฟอร์มขอพิมพ์งาน</span>
+            )}
+          </a>
+          <PrintRequestDialog open={formOpen} onOpenChange={setFormOpen} />
         </div>
       </div>
 

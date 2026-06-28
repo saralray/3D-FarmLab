@@ -31,8 +31,17 @@ function makeEntry(): FileEntry {
   return { id: nextId++, file: null, quantity: 1, notes: '', inputKey: nextId++ };
 }
 
-export function PrintRequestDialog({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+interface PrintRequestDialogProps {
+  children?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
+export function PrintRequestDialog({ children, open: controlledOpen, onOpenChange: controlledOnOpenChange }: PrintRequestDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [studentId, setStudentId] = useState('');
@@ -52,7 +61,11 @@ export function PrintRequestDialog({ children }: { children: React.ReactNode }) 
   };
 
   const handleOpenChange = (next: boolean) => {
-    setOpen(next);
+    if (isControlled) {
+      controlledOnOpenChange?.(next);
+    } else {
+      setInternalOpen(next);
+    }
     if (!next) {
       setSubmitted(false);
       resetForm();
@@ -145,7 +158,7 @@ export function PrintRequestDialog({ children }: { children: React.ReactNode }) 
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      {children && <DialogTrigger asChild>{children}</DialogTrigger>}
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

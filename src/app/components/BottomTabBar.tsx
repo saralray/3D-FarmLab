@@ -44,6 +44,7 @@ export function BottomTabBar() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
 
   const isActive = (path: string) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
@@ -138,16 +139,21 @@ export function BottomTabBar() {
                   <span className="ml-3 whitespace-nowrap">{item.label}</span>
                 </Link>
               ))}
-              <PrintRequestDialog>
-                <button
-                  type="button"
-                  onClick={() => setMoreOpen(false)}
-                  className="flex w-full items-center rounded-lg px-4 py-3 text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
-                >
-                  <ClipboardList className="size-5" />
-                  <span className="ml-3 whitespace-nowrap">ฟอร์มขอพิมพ์งาน</span>
-                </button>
-              </PrintRequestDialog>
+              <a
+                href="/request"
+                onClick={(e) => {
+                  if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                    e.preventDefault();
+                    setMoreOpen(false);
+                    setFormOpen(true);
+                  }
+                }}
+                className="flex w-full items-center rounded-lg px-4 py-3 text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                <ClipboardList className="size-5" />
+                <span className="ml-3 whitespace-nowrap">ฟอร์มขอพิมพ์งาน</span>
+              </a>
+              <PrintRequestDialog open={formOpen} onOpenChange={setFormOpen} />
             </div>
 
             <div className="flex items-center justify-between border-t border-gray-200 pt-4 dark:border-gray-700">
