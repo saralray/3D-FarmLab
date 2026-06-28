@@ -36,6 +36,11 @@ func main() {
 
 	initRedis()
 
+	// Background Home-Assistant automation engine (mirrors startHaAutomationEngine).
+	engineCtx, engineCancel := context.WithCancel(context.Background())
+	defer engineCancel()
+	startHaAutomationEngine(engineCtx)
+
 	srv := &http.Server{
 		Addr:    ":" + strconv.Itoa(webPort),
 		Handler: http.HandlerFunc(handleRequest),

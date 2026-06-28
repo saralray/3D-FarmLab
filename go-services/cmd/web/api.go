@@ -80,6 +80,12 @@ func handleAPI(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 
+	// Home-Assistant integration: config, test, devices, and automation-rule CRUD
+	// (all admin-gated by the classifier above).
+	if handleHomeAssistantRoutes(ctx, w, req) {
+		return true
+	}
+
 	// Public queue intake (multipart submit) and stored-model download.
 	if handleQueueIntake(w, req) {
 		return true

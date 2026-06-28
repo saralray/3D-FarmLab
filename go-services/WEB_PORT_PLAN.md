@@ -326,6 +326,41 @@ go-services/
   (pure port). **Last deferred subsystem before cutover:** the Home-Assistant integration
   (`/api/settings/home-assistant/{,devices,rules,test}` + its `evaluateHaRules` engine timer).
 
+- **Pre-cutover edges, part 3 (Home-Assistant integration) — done & verified.** `cmd/web/homeassistant.go`,
+  the full port of the HA subsystem from app.js. Routes (all admin-gated by the classifier):
+  `GET|PUT /api/settings/home-assistant` (config — GET returns `{baseUrl,enabled,hasToken}`, never
+  the token; PUT validates/normalizes the base URL — strips a trailing `/` and `/api` — encrypts
+  the token via the shared `secretCipher` and retains the existing token when none/blank is sent),
+  `POST …/test` (probes HA's `GET /api/`), `GET …/devices` (maps HA `GET /api/states` to
+  `{entities, groups}` — entities sorted by id, groups keyed by domain in first-appearance order),
+  and the automation-rule CRUD `GET|POST …/rules` + `PUT|DELETE …/rules/:id` (validate +
+  normalize both rule directions, create with id/createdAt, a bare `{enabled}` toggle vs a full
+  re-validating update, soft 404). Also ported the background **`evaluateHaRules` engine**
+  (`startHaAutomationEngine`, wired into `main.go` on a cancellable context): edge-triggered
+  printer→HA (`callHaService`) and HA→printer (`dispatchPrintControl` — Bambu MQTT / Moonraker
+  HTTP) rule firing with the same last-seen baseline-then-transition semantics, non-overlapping
+  cycles, default 15 s interval (`HA_AUTOMATION_INTERVAL_MS`, min 5 s). The **tricky parity work**
+  was the rule responses: a created rule is emitted in insertion order (`id, createdAt, …rule`)
+  but reads/updates echo the **jsonb-canonical** order Postgres stores (length-then-bytewise), and
+  `PUT` merges via `{...existing, ...override}` — so the port emits POST in struct order, reads via
+  the raw stored array, and re-implements the ordered spread-merge (`parseOrderedObject` +
+  `mergeOrdered`) over the canonical-ordered existing rule, normalizing numbers with `jsCompact` to
+  match `JSON.stringify`. Verified Node vs Go across two identical throwaway DBs (admin cookie +
+  same-origin, two fake HA servers for the reachable paths): **31 cases** — config GET, PUT
+  validation (non-string / bad-scheme), save + base-URL normalization + token retention (omitted /
+  blank), `test` not-configured / connected / non-200 `data.message`, `devices` not-configured /
+  the full sorted-entities + first-appearance-ordered groups payload, all **10 rule-validation
+  errors**, create (both directions), list, bare-enabled toggle, full update, the **direction-change
+  mongrel-merge** (both field-sets present in spread order), 404s, and delete — every response
+  byte-identical (incl. the jsonb-canonical key order on reads/updates), plus HA-config DB-state
+  parity. **Known divergences** (consistent with prior phases): an *unreachable*-HA `test`/`devices`
+  error carries a library-specific dial message (Node `fetch` vs Go `net/http`) — status/shape
+  match, text differs; entity sort uses Go bytewise vs Node `localeCompare` (identical for the
+  ASCII entity ids HA emits); and the engine itself isn't live-tested (needs a real HA + printers,
+  like the Node maintenance/HA timers). No new deps; go directive stays 1.22.2. No `API.md` change
+  (pure port). **All deferred pre-cutover edges are now landed — the remaining work is Phase 11
+  (the compose cutover to `Dockerfile.go`).**
+
 ## Phased plan (each phase build + parity-verify + commit)
 
 1. **Foundation** — server, pgxpool, logger, X-Request-Id, setSecurityHeaders
