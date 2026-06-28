@@ -70,7 +70,7 @@ function SummaryCard({
   tone: string;
 }) {
   return (
-    <Card className="p-4">
+    <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
       <div className="flex items-center gap-3">
         <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${tone}`}>
           <Icon className="size-5" />
@@ -152,9 +152,9 @@ export function Maintenance() {
 
   return (
     <div className="space-y-6 p-4 lg:p-6">
-      <div className="flex items-center gap-3">
-        <Wrench className="size-6 text-gray-700 dark:text-gray-300" />
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Maintenance</h1>
+      <div>
+        <h1 className="text-3xl font-bold mb-2 dark:text-white">Maintenance</h1>
+        <p className="text-gray-600 dark:text-gray-400">Fleet health, pending tasks, and maintenance history</p>
       </div>
 
       {/* Fleet summary widgets */}
@@ -186,7 +186,7 @@ export function Maintenance() {
       </div>
 
       {/* Pending / overdue tasks */}
-      <Card className="overflow-hidden p-0">
+      <Card className="overflow-hidden p-0 dark:bg-gray-800 dark:border-gray-700">
         <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
           <h2 className="font-medium text-gray-900 dark:text-gray-100">Pending &amp; Overdue Tasks</h2>
@@ -236,7 +236,7 @@ export function Maintenance() {
       </Card>
 
       {/* Per-printer health */}
-      <Card className="overflow-hidden p-0">
+      <Card className="overflow-hidden p-0 dark:bg-gray-800 dark:border-gray-700">
         <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <Gauge className="size-4 text-gray-600 dark:text-gray-400" />
           <h2 className="font-medium text-gray-900 dark:text-gray-100">Printer Health</h2>
@@ -297,7 +297,7 @@ export function Maintenance() {
       </Card>
 
       {/* Maintenance history */}
-      <Card className="overflow-hidden p-0">
+      <Card className="overflow-hidden p-0 dark:bg-gray-800 dark:border-gray-700">
         <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <History className="size-4 text-gray-600 dark:text-gray-400" />
           <h2 className="font-medium text-gray-900 dark:text-gray-100">Maintenance History</h2>
