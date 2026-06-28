@@ -297,6 +297,35 @@ go-services/
   /api/settings/branding` (SVG theme analysis), `/api/settings/favicon`, and the Home-Assistant
   integration (`/api/settings/home-assistant/{,devices,rules,test}` + its engine timer).
 
+- **Pre-cutover edges, part 2 (branding write + favicon) — done & verified.** `cmd/web/branding.go`,
+  ports of `PUT /api/settings/branding` and `GET /api/settings/favicon` from app.js. The PUT
+  validates/normalizes the logo / background / favicon data URLs (case-sensitive `data:image/...`
+  prefix checks, per-asset size caps → 413 with the exact Node messages, a 5.06 MB body cap → 413
+  "Request body is too large"), clamps `logoScale` to [0.5, 2] rounded to 2 dp, truncates
+  `siteName` to 120, and for SVG logos runs the full theme analysis (`sanitizeSvg` →
+  `normalizeSvgSize` → `analyzeSvgForTheme`): strips active-content vectors, drops root
+  width/height and synthesizes a `viewBox`, and — for a single-color ("monochrome") mark — swaps
+  every visible color (and a missing fill on the root) for `currentColor` so it follows the theme,
+  while genuine multi-color art is left untouched. The favicon GET decodes the stored data URL and
+  streams the raw image (`Content-Type` from the data URL, `Cache-Control: no-cache`), 404 when
+  none, 500 when malformed. The Node SVG regexes were ported to RE2 (no lookahead/backrefs needed;
+  the one `(?=[\s>])` lookahead on the width/height-stripping regex is unnecessary because the
+  pattern doesn't consume the trailing boundary, so a plain global replace chains identically for
+  well-formed markup). **Also fixed a pre-existing Phase-2 gap:** the branding GET shape
+  (`brandingResponse`/`brandingShape`) was missing `faviconDataUrl`, which Node's `getBranding`
+  emits — added so the GET (and the PUT echo) match. Wired the PUT into `handleMutations` (gated
+  admin) and the favicon GET into the public GET switch in `handleAPI`. Verified Node vs Go across
+  two identical throwaway DBs (admin cookie + same-origin): **24 cases** — all 8 validation 400s,
+  the 3 per-asset 413s **and** the body-level 413, scale clamp-hi/clamp-lo/round/string-coerce,
+  siteName trim+truncate, clear-to-empty, and **7 SVG theme cases** (monochrome→currentColor +
+  viewBox synthesis + width/height strip, multi-color untouched, no-fill→root `fill=currentColor`,
+  pre-existing-viewBox kept, color-keyword/`stop-color` handling, and `<?xml>`/`<script>`
+  sanitization) — every PUT response (a re-read of the stored branding, so this also confirms
+  stored-state parity) byte-identical; the favicon GET byte-identical on image bytes, `Content-Type`,
+  `Cache-Control`, the 404, and the 500. No new deps; go directive stays 1.22.2. No `API.md` change
+  (pure port). **Last deferred subsystem before cutover:** the Home-Assistant integration
+  (`/api/settings/home-assistant/{,devices,rules,test}` + its `evaluateHaRules` engine timer).
+
 ## Phased plan (each phase build + parity-verify + commit)
 
 1. **Foundation** — server, pgxpool, logger, X-Request-Id, setSecurityHeaders

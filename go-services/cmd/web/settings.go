@@ -44,6 +44,7 @@ type brandingResponse struct {
 	LogoAdaptive      bool    `json:"logoAdaptive"`
 	LogoScale         float64 `json:"logoScale"`
 	BackgroundDataUrl string  `json:"backgroundDataUrl"`
+	FaviconDataUrl    string  `json:"faviconDataUrl"`
 }
 
 type integrationUrlsResponse struct {
@@ -65,6 +66,7 @@ func brandingShape(raw json.RawMessage) brandingResponse {
 		LogoAdaptive:      logoAdaptive,
 		LogoScale:         clampLogoScale(m["logoScale"]),
 		BackgroundDataUrl: storedString(m, "backgroundDataUrl"),
+		FaviconDataUrl:    storedString(m, "faviconDataUrl"),
 	}
 }
 

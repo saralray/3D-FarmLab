@@ -106,6 +106,10 @@ func handleMutations(w http.ResponseWriter, req *http.Request, sessFn func() *se
 		sendJSON(w, http.StatusOK, intervals, "")
 		return true
 
+	case p == "/api/settings/branding" && m == http.MethodPut:
+		handleBrandingPut(ctx, w, req)
+		return true
+
 	case p == "/api/settings/integrations" && m == http.MethodPut:
 		handleIntegrationsPut(ctx, w, req)
 		return true

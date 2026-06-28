@@ -203,6 +203,12 @@ func handleAPI(w http.ResponseWriter, req *http.Request) bool {
 		respondShaped(w, brandingShape(stored), err)
 		return true
 
+	// Serves the stored favicon data URL as a raw image (404 when none set) so the
+	// PWA manifest can reference it by URL. Public read.
+	case pathname == "/api/settings/favicon" && req.Method == http.MethodGet:
+		handleFaviconGet(ctx, w, req)
+		return true
+
 	case pathname == "/api/settings/integrations" && req.Method == http.MethodGet:
 		stored, err := getAppSetting(ctx, "integration_urls")
 		respondShaped(w, integrationUrlsShape(stored), err)
