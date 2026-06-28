@@ -3393,7 +3393,12 @@ async function handleApi(req, res, requestUrl) {
       return true;
     }
     if (req.method === 'POST') {
-      await upsertPrinter(await readJsonBody(req));
+      const body = await readJsonBody(req);
+      if (!body || typeof body.id !== 'string' || !body.id.trim()) {
+        sendJson(res, 400, { error: 'printer id is required' });
+        return true;
+      }
+      await upsertPrinter(body);
       sendEmpty(res);
       return true;
     }
