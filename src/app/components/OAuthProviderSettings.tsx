@@ -26,9 +26,6 @@ interface OAuthProviderSettingsProps {
   clientIdPlaceholder?: string;
   // Placeholder for the authority URL input.
   authorityPlaceholder?: string;
-  // Overrides the redirect URI hint with a full absolute URL. Use when the
-  // provider has a fixed, pre-registered redirect URI (e.g. ADFS).
-  callbackUrl?: string;
   // Short admin-facing description of where to create the OAuth client.
   setupHint: React.ReactNode;
 }
@@ -46,7 +43,6 @@ export function OAuthProviderSettings({
   disabled = false,
   clientIdPlaceholder,
   authorityPlaceholder = 'https://sso.example.com/adfs',
-  callbackUrl: callbackUrlOverride,
   setupHint,
 }: OAuthProviderSettingsProps) {
   const [enabled, setEnabled] = useState(false);
@@ -56,6 +52,7 @@ export function OAuthProviderSettings({
   const [tenant, setTenant] = useState('');
   const [authority, setAuthority] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [redirectUri, setRedirectUri] = useState('');
   const [allowedDomains, setAllowedDomains] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -73,6 +70,7 @@ export function OAuthProviderSettings({
         setAuthority(settings.authority);
         setAllowedDomains(settings.allowedDomains.join('\n'));
         setDisplayName(settings.displayName);
+        setRedirectUri(settings.redirectUri ?? '');
       })
       .catch(() => {
         toast.error(`Unable to load ${label} sign-in settings.`);
@@ -125,6 +123,7 @@ export function OAuthProviderSettings({
         clientSecret: clientSecret.trim(),
         allowedDomains: domains,
         displayName: displayName.trim(),
+        redirectUri: redirectUri.trim(),
       });
       setEnabled(saved.enabled);
       setClientId(saved.clientId);
@@ -133,6 +132,7 @@ export function OAuthProviderSettings({
       setAuthority(saved.authority);
       setAllowedDomains(saved.allowedDomains.join('\n'));
       setDisplayName(saved.displayName);
+      setRedirectUri(saved.redirectUri ?? '');
       setClientSecret('');
       toast.success(`${label} sign-in settings saved.`);
     } catch (error) {
@@ -144,7 +144,7 @@ export function OAuthProviderSettings({
     }
   };
 
-  const callbackUrl = callbackUrlOverride ?? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/${provider}/callback`;
+  const defaultCallbackUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/${provider}/callback`;
 
   return (
     <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
@@ -154,9 +154,14 @@ export function OAuthProviderSettings({
           <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
             Let people sign in with a {label} account. Everyone who signs in this
             way gets the read-only <span className="font-medium">student</span> role.{' '}
-            {setupHint} Register{' '}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{callbackUrl}</code>{' '}
-            as a redirect URI.
+            {setupHint}
+            {!showAuthority && (
+              <>
+                {' '}Register{' '}
+                <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{defaultCallbackUrl}</code>{' '}
+                as a redirect URI.
+              </>
+            )}
           </p>
         </div>
 
@@ -208,6 +213,27 @@ export function OAuthProviderSettings({
                   (Entra ID) with the Tenant ID below.
                 </>
               )}
+            </p>
+          </div>
+        )}
+
+        {showAuthority && !showTenant && (
+          <div className="space-y-2">
+            <Label htmlFor={`oauth-redirect-uri-${provider}`}>Redirect URI</Label>
+            <Input
+              id={`oauth-redirect-uri-${provider}`}
+              value={redirectUri}
+              onChange={(e) => setRedirectUri(e.target.value)}
+              placeholder={`${typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/oauth2_redirect`}
+              disabled={disabled}
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              The exact redirect URI registered with the IdP (e.g.{' '}
+              <code>https://your-domain.com/api/auth/oauth2_redirect</code>).
+              Must match what the IdP has on file — used verbatim so it works
+              correctly behind a reverse proxy.
             </p>
           </div>
         )}

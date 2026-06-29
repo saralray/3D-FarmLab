@@ -68,6 +68,11 @@ services:
       MAX_BODY_BYTES: ${MAX_BODY_BYTES:-1048576}
       # Shared with slicer-proxy: verifies the signed slicer operator-grant token.
       SLICER_GRANT_SECRET: ${SLICER_GRANT_SECRET:-}
+      # Public origin used to build OAuth redirect_uri / SAML ACS URLs. Set this
+      # to the site's public HTTPS URL (e.g. https://sso.stemlabs2.work) so SSO
+      # callbacks use the right address even when nginx doesn't forward the host.
+      # Leave empty to auto-detect from X-Forwarded-Proto / Host headers.
+      APP_BASE_URL: ${APP_BASE_URL:-}
       # Mark the login session cookie Secure (set true once served over HTTPS).
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       # Encrypts printer connection secrets (LAN access codes) at rest. Must be

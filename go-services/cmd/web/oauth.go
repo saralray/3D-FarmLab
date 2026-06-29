@@ -100,14 +100,12 @@ var oauthSettingsKeys = map[string]string{
 
 func oauthUsesTenant(provider string) bool { return provider == "microsoft" }
 
-// adfsCallbackPath is the fixed redirect_uri registered with the Satit-M Chula
-// ADFS server. All other providers use /api/auth/<provider>/callback.
+// adfsCallbackPath is the fixed redirect_uri pre-registered with the ADFS IdP.
+// All other providers use /api/auth/<provider>/callback.
 const adfsCallbackPath = "/api/auth/oauth2_redirect"
 
 // getOAuthConfig resolves a provider's stored config (nil for an unknown
 // provider). allowedDomains are normalized (trim, lowercase, strip a leading @).
-// For the ADFS provider, ADFS_CLIENT_ID / ADFS_CLIENT_SECRET env vars supply
-// the credentials when the app_setting is not yet populated.
 func getOAuthConfig(ctx context.Context, providerName string) (*oauthConfig, error) {
 	key, ok := oauthSettingsKeys[providerName]
 	if !ok {
@@ -118,7 +116,7 @@ func getOAuthConfig(ctx context.Context, providerName string) (*oauthConfig, err
 		return nil, err
 	}
 	m := decodeStored(raw)
-	storedEnabled, enabledSet := m["enabled"].(bool)
+	storedEnabled, _ := m["enabled"].(bool)
 	cfg := &oauthConfig{
 		provider:     providerName,
 		enabled:      storedEnabled,
@@ -126,20 +124,6 @@ func getOAuthConfig(ctx context.Context, providerName string) (*oauthConfig, err
 		clientSecret: storedString(m, "clientSecret"),
 		tenant:       strings.TrimSpace(storedString(m, "tenant")),
 		authority:    strings.TrimSpace(storedString(m, "authority")),
-	}
-	// ADFS: fall back to env vars when app_settings are not yet populated.
-	if providerName == "adfs" {
-		if cfg.clientID == "" {
-			cfg.clientID = strings.TrimSpace(os.Getenv("ADFS_CLIENT_ID"))
-		}
-		if cfg.clientSecret == "" {
-			cfg.clientSecret = strings.TrimSpace(os.Getenv("ADFS_CLIENT_SECRET"))
-		}
-		// Auto-enable when env creds are present and the setting has never been
-		// explicitly disabled (enabledSet && !storedEnabled means admin turned it off).
-		if !(enabledSet && !storedEnabled) && cfg.clientID != "" && cfg.clientSecret != "" {
-			cfg.enabled = true
-		}
 	}
 	if domains, ok := m["allowedDomains"].([]any); ok {
 		for _, d := range domains {
@@ -157,12 +141,16 @@ func getOAuthConfig(ctx context.Context, providerName string) (*oauthConfig, err
 }
 
 // isOAuthConfigured reports whether the flow can actually run: enabled, with a
-// client id + secret, plus (for Microsoft) a tenant or AD FS authority.
+// client id + secret, plus (for Microsoft) a tenant or AD FS authority, and
+// (for ADFS) a non-empty authority URL.
 func isOAuthConfigured(c *oauthConfig) bool {
 	if c == nil || !c.enabled || c.clientID == "" || c.clientSecret == "" {
 		return false
 	}
 	if oauthUsesTenant(c.provider) && c.tenant == "" && c.authority == "" {
+		return false
+	}
+	if c.provider == "adfs" && c.authority == "" {
 		return false
 	}
 	return true
@@ -173,7 +161,7 @@ func oauthAuthorizeEndpoint(c *oauthConfig) string {
 	case "google":
 		return "https://accounts.google.com/o/oauth2/v2/auth"
 	case "adfs":
-		return "https://sso.satitm.chula.ac.th/adfs/oauth2/authorize"
+		return strings.TrimRight(c.authority, "/") + "/oauth2/authorize"
 	}
 	if c.authority != "" {
 		return strings.TrimRight(c.authority, "/") + "/oauth2/authorize"
@@ -190,7 +178,7 @@ func oauthTokenEndpoint(c *oauthConfig) string {
 	case "google":
 		return "https://oauth2.googleapis.com/token"
 	case "adfs":
-		return "https://sso.satitm.chula.ac.th/adfs/oauth2/token"
+		return strings.TrimRight(c.authority, "/") + "/oauth2/token"
 	}
 	if c.authority != "" {
 		return strings.TrimRight(c.authority, "/") + "/oauth2/token"

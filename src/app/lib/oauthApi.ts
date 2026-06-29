@@ -41,6 +41,9 @@ export interface OAuthSettings {
   allowedDomains: string[];
   hasClientSecret: boolean;
   displayName: string;
+  // ADFS: full redirect URI pre-registered with the IdP. Used verbatim so the
+  // correct URL is sent even behind a TLS-terminating proxy.
+  redirectUri: string;
 }
 
 export interface OAuthSettingsInput {
@@ -52,6 +55,7 @@ export interface OAuthSettingsInput {
   clientSecret: string;
   allowedDomains: string[];
   displayName: string;
+  redirectUri: string;
 }
 
 interface MutationResult {

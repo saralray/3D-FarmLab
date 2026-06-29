@@ -2083,13 +2083,10 @@ export function Settings() {
                 showAuthority
                 showDisplayName
                 disabled={user?.role !== 'admin'}
-                callbackUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/oauth2_redirect`}
                 setupHint={
                   <>
-                    Satit-M Chula AD FS — the client app is pre-registered with
-                    the IdP. Enter the Client ID and Secret provided by the IdP
-                    administrator. The redirect URI below is fixed and must
-                    already be registered with the IdP as shown.
+                    Satit-M Chula AD FS — enter the Client ID, Secret, authority
+                    URL, and the redirect URI exactly as registered with the IdP.
                   </>
                 }
               />

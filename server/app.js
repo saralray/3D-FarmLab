@@ -560,6 +560,10 @@ async function getOAuthConfig(providerName) {
     // Custom label shown on the login-page sign-in button (e.g. "Sign in with Satit-M").
     // Falls back to the provider's built-in label when blank.
     displayName: typeof stored.displayName === 'string' ? stored.displayName.trim() : '',
+    // ADFS: the full redirect_uri pre-registered with the IdP. When set, used
+    // verbatim instead of computing it from request headers (which breaks behind
+    // a TLS-terminating proxy that doesn't forward X-Forwarded-Proto/Host).
+    redirectUri: typeof stored.redirectUri === 'string' ? stored.redirectUri.trim() : '',
   };
 }
 
@@ -619,9 +623,11 @@ function resolvePublicOrigin(req) {
   return `${proto}://${host}`;
 }
 
-function oauthRedirectUri(req, providerName) {
+function oauthRedirectUri(req, providerName, config = null) {
+  // Use the stored redirect URI when set — avoids relying on proxy headers to
+  // reconstruct the origin (required for ADFS whose URI is pre-registered).
+  if (config?.redirectUri) return config.redirectUri;
   const provider = getOAuthProvider(providerName);
-  // ADFS (and any future provider with a fixed registered path) uses callbackPath.
   const path = provider?.callbackPath ?? `/api/auth/${providerName}/callback`;
   return `${resolvePublicOrigin(req)}${path}`;
 }
@@ -653,7 +659,7 @@ async function oauthExchangeCallback(req, res, requestUrl, providerName) {
         code,
         client_id: config.clientId,
         client_secret: config.clientSecret,
-        redirect_uri: oauthRedirectUri(req, providerName),
+        redirect_uri: oauthRedirectUri(req, providerName, config),
         grant_type: 'authorization_code',
       }),
     });
@@ -4057,7 +4063,7 @@ async function handleApi(req, res, requestUrl) {
       const state = signState(secret, { n: randomUUID(), p: providerName });
       const authorizeUrl = new URL(provider.authorizeEndpoint(config));
       authorizeUrl.searchParams.set('client_id', config.clientId);
-      authorizeUrl.searchParams.set('redirect_uri', oauthRedirectUri(req, providerName));
+      authorizeUrl.searchParams.set('redirect_uri', oauthRedirectUri(req, providerName, config));
       authorizeUrl.searchParams.set('response_type', 'code');
       authorizeUrl.searchParams.set('scope', OAUTH_SCOPE);
       authorizeUrl.searchParams.set('state', state);
@@ -4809,6 +4815,7 @@ async function handleApi(req, res, requestUrl) {
         allowedDomains: config.allowedDomains,
         hasClientSecret: config.clientSecret.length > 0,
         displayName: config.displayName,
+        redirectUri: config.redirectUri,
       });
       return true;
     }
@@ -4819,6 +4826,7 @@ async function handleApi(req, res, requestUrl) {
       const tenant = typeof body?.tenant === 'string' ? body.tenant.trim() : '';
       const authority = typeof body?.authority === 'string' ? body.authority.trim() : '';
       const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : '';
+      const redirectUri = typeof body?.redirectUri === 'string' ? body.redirectUri.trim() : '';
       const allowedDomains = Array.isArray(body?.allowedDomains)
         ? body.allowedDomains
             .map((domain) => String(domain || '').trim().toLowerCase().replace(/^@/, ''))
@@ -4838,6 +4846,7 @@ async function handleApi(req, res, requestUrl) {
         tenant,
         authority,
         displayName,
+        redirectUri,
         allowedDomains,
       });
       // SSO providers are independent: Google, Microsoft/AD FS, and SAML can each
@@ -4852,6 +4861,7 @@ async function handleApi(req, res, requestUrl) {
         allowedDomains: saved.allowedDomains,
         hasClientSecret: saved.clientSecret.length > 0,
         displayName: saved.displayName,
+        redirectUri: saved.redirectUri,
       });
       return true;
     }
