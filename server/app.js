@@ -506,6 +506,23 @@ const OAUTH_PROVIDERS = {
             config.tenant || 'common',
           )}/oauth2/v2.0/token`,
   },
+  // Satit-M Chula AD FS — STEMLab Print Farm (Micky).
+  // Endpoints are fixed (pre-registered with the IdP); credentials come from
+  // ADFS_CLIENT_ID / ADFS_CLIENT_SECRET env vars (or the `oauth_adfs` app
+  // setting for runtime override). The redirect_uri is the fixed path
+  // /api/auth/oauth2_redirect as registered with the IdP.
+  adfs: {
+    settingsKey: 'oauth_adfs',
+    label: 'STEMLab SSO',
+    usesTenant: false,
+    // Fixed endpoints for sso.satitm.chula.ac.th/adfs
+    authorizeEndpoint: () => 'https://sso.satitm.chula.ac.th/adfs/oauth2/authorize',
+    tokenEndpoint: () => 'https://sso.satitm.chula.ac.th/adfs/oauth2/token',
+    logoutEndpoint: () => 'https://sso.satitm.chula.ac.th/adfs/oauth2/logout',
+    // The path registered with ADFS as the redirect_uri (not the default
+    // /api/auth/adfs/callback pattern used by the other providers).
+    callbackPath: '/api/auth/oauth2_redirect',
+  },
 };
 const OAUTH_SCOPE = 'openid email profile';
 const OAUTH_SIGNING_SECRET_KEY = 'oauth_signing_secret';
@@ -529,11 +546,26 @@ async function getOAuthConfig(providerName) {
         .map((domain) => String(domain || '').trim().toLowerCase().replace(/^@/, ''))
         .filter(Boolean)
     : [];
+
+  // For the ADFS provider, credentials can come from env vars (ADFS_CLIENT_ID /
+  // ADFS_CLIENT_SECRET) so the app works out-of-the-box without an admin UI step.
+  // A value stored in app_settings takes precedence over the env var fallback.
+  let clientId = typeof stored.clientId === 'string' ? stored.clientId.trim() : '';
+  let clientSecret = typeof stored.clientSecret === 'string' ? stored.clientSecret : '';
+  let enabled = stored.enabled === true;
+  if (providerName === 'adfs') {
+    if (!clientId && process.env.ADFS_CLIENT_ID) clientId = process.env.ADFS_CLIENT_ID.trim();
+    if (!clientSecret && process.env.ADFS_CLIENT_SECRET) clientSecret = process.env.ADFS_CLIENT_SECRET;
+    // Auto-enable when env creds are present and the setting has never been
+    // explicitly disabled (stored.enabled === false means an admin turned it off).
+    if (stored.enabled !== false && clientId && clientSecret) enabled = true;
+  }
+
   return {
     provider: providerName,
-    enabled: stored.enabled === true,
-    clientId: typeof stored.clientId === 'string' ? stored.clientId.trim() : '',
-    clientSecret: typeof stored.clientSecret === 'string' ? stored.clientSecret : '',
+    enabled,
+    clientId,
+    clientSecret,
     tenant: typeof stored.tenant === 'string' ? stored.tenant.trim() : '',
     // On-prem AD FS authority base (e.g. https://host/adfs); blank = use cloud.
     authority: typeof stored.authority === 'string' ? stored.authority.trim() : '',
@@ -594,7 +626,77 @@ function resolvePublicOrigin(req) {
 }
 
 function oauthRedirectUri(req, providerName) {
-  return `${resolvePublicOrigin(req)}/api/auth/${providerName}/callback`;
+  const provider = getOAuthProvider(providerName);
+  // ADFS (and any future provider with a fixed registered path) uses callbackPath.
+  const path = provider?.callbackPath ?? `/api/auth/${providerName}/callback`;
+  return `${resolvePublicOrigin(req)}${path}`;
+}
+
+// Shared Authorization Code exchange + identity extraction. Used by both the
+// standard /api/auth/:provider/callback routes and the fixed
+// /api/auth/oauth2_redirect path registered for ADFS.
+async function oauthExchangeCallback(req, res, requestUrl, providerName) {
+  const provider = OAUTH_PROVIDERS[providerName];
+  const config = await getOAuthConfig(providerName);
+  if (!isOAuthConfigured(config)) {
+    sendRedirect(res, '/login?oauth_error=not_configured');
+    return;
+  }
+  const secret = await getOAuthSigningSecret();
+  const code = requestUrl.searchParams.get('code');
+  const state = requestUrl.searchParams.get('state');
+  const stateData = verifyState(secret, state);
+  if (requestUrl.searchParams.get('error') || !code || !stateData || stateData.p !== providerName) {
+    sendRedirect(res, '/login?oauth_error=denied');
+    return;
+  }
+
+  try {
+    const tokenResponse = await fetch(provider.tokenEndpoint(config), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        redirect_uri: oauthRedirectUri(req, providerName),
+        grant_type: 'authorization_code',
+      }),
+    });
+    if (!tokenResponse.ok) {
+      sendRedirect(res, '/login?oauth_error=exchange_failed');
+      return;
+    }
+    const tokens = await tokenResponse.json();
+    // The id_token comes straight from the provider's token endpoint over TLS
+    // using our client secret, so its claims are trusted without re-verifying
+    // the signature; we only need the identity fields out of the payload.
+    const claims = decodeJwtClaims(tokens.id_token);
+    const email = oauthClaimEmail(claims);
+    // Google sets email_verified; Microsoft / ADFS omit it (institutional accounts
+    // are verified at directory level), so only reject when explicitly false.
+    if (!email || claims?.email_verified === false) {
+      sendRedirect(res, '/login?oauth_error=unverified_email');
+      return;
+    }
+    if (config.allowedDomains.length > 0) {
+      const domain = email.slice(email.indexOf('@') + 1);
+      if (!config.allowedDomains.includes(domain)) {
+        sendRedirect(res, '/login?oauth_error=domain_not_allowed');
+        return;
+      }
+    }
+    const grant = mintAuthGrant(secret, {
+      provider: providerName,
+      sub: typeof claims.sub === 'string' ? claims.sub : email,
+      email,
+      name: typeof claims.name === 'string' && claims.name.trim() ? claims.name.trim() : email,
+      role: OAUTH_DEFAULT_ROLE,
+    });
+    sendRedirect(res, `/login?oauth_grant=${encodeURIComponent(grant)}`);
+  } catch {
+    sendRedirect(res, '/login?oauth_error=exchange_failed');
+  }
 }
 
 // SAML 2.0 SSO (the dashboard is the Service Provider). Like OAuth, config lives
@@ -3790,14 +3892,16 @@ async function handleApi(req, res, requestUrl) {
   //   GET  /api/auth/:provider/callback → exchange code, 302 back with ?oauth_grant
   //   POST /api/auth/verify             → { token } → { user }  : provider-agnostic
   if (requestUrl.pathname === '/api/auth/providers' && req.method === 'GET') {
-    const [google, microsoft, saml] = await Promise.all([
+    const [google, microsoft, adfs, saml] = await Promise.all([
       getOAuthConfig('google'),
       getOAuthConfig('microsoft'),
+      getOAuthConfig('adfs'),
       getSamlConfig(),
     ]);
     sendJson(res, 200, {
       google: isOAuthConfigured(google),
       microsoft: isOAuthConfigured(microsoft),
+      adfs: isOAuthConfigured(adfs),
       saml: isSamlConfigured(saml),
     });
     return true;
@@ -3923,8 +4027,15 @@ async function handleApi(req, res, requestUrl) {
     return true;
   }
 
+  // ADFS callback lands on the fixed registered path /api/auth/oauth2_redirect.
+  // Route it through the same exchange logic as the other providers' callbacks.
+  if (requestUrl.pathname === '/api/auth/oauth2_redirect' && req.method === 'GET') {
+    await oauthExchangeCallback(req, res, requestUrl, 'adfs');
+    return true;
+  }
+
   const ssoMatch = requestUrl.pathname.match(
-    /^\/api\/auth\/(google|microsoft)\/(config|start|callback)$/,
+    /^\/api\/auth\/(google|microsoft|adfs)\/(config|start|callback)$/,
   );
   if (ssoMatch && req.method === 'GET') {
     const providerName = ssoMatch[1];
@@ -3952,72 +4063,18 @@ async function handleApi(req, res, requestUrl) {
       authorizeUrl.searchParams.set('scope', OAUTH_SCOPE);
       authorizeUrl.searchParams.set('state', state);
       // Force a fresh login so a shared kiosk doesn't silently reuse a session.
-      // On-prem AD FS (authority set) only understands prompt=login/none/consent —
-      // it rejects the Entra/Google `select_account` value with invalid_request —
-      // so use `login` there and the account chooser only on cloud providers.
+      // ADFS and on-prem AD FS only understand prompt=login/none/consent —
+      // they reject the Entra/Google `select_account` value with invalid_request.
       authorizeUrl.searchParams.set(
         'prompt',
-        config.authority ? 'login' : 'select_account',
+        config.authority || providerName === 'adfs' ? 'login' : 'select_account',
       );
       sendRedirect(res, authorizeUrl.toString());
       return true;
     }
 
-    // op === 'callback'
-    const code = requestUrl.searchParams.get('code');
-    const state = requestUrl.searchParams.get('state');
-    const stateData = verifyState(secret, state);
-    if (requestUrl.searchParams.get('error') || !code || !stateData || stateData.p !== providerName) {
-      sendRedirect(res, '/login?oauth_error=denied');
-      return true;
-    }
-
-    try {
-      const tokenResponse = await fetch(provider.tokenEndpoint(config), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          code,
-          client_id: config.clientId,
-          client_secret: config.clientSecret,
-          redirect_uri: oauthRedirectUri(req, providerName),
-          grant_type: 'authorization_code',
-        }),
-      });
-      if (!tokenResponse.ok) {
-        sendRedirect(res, '/login?oauth_error=exchange_failed');
-        return true;
-      }
-      const tokens = await tokenResponse.json();
-      // The id_token comes straight from the provider's token endpoint over TLS
-      // using our client secret, so its claims are trusted without re-verifying
-      // the signature; we only need the identity fields out of the payload.
-      const claims = decodeJwtClaims(tokens.id_token);
-      const email = oauthClaimEmail(claims);
-      // Google sets email_verified; Microsoft omits it (work/school accounts are
-      // inherently verified), so only reject when it is explicitly false.
-      if (!email || claims?.email_verified === false) {
-        sendRedirect(res, '/login?oauth_error=unverified_email');
-        return true;
-      }
-      if (config.allowedDomains.length > 0) {
-        const domain = email.slice(email.indexOf('@') + 1);
-        if (!config.allowedDomains.includes(domain)) {
-          sendRedirect(res, '/login?oauth_error=domain_not_allowed');
-          return true;
-        }
-      }
-      const grant = mintAuthGrant(secret, {
-        provider: providerName,
-        sub: typeof claims.sub === 'string' ? claims.sub : email,
-        email,
-        name: typeof claims.name === 'string' && claims.name.trim() ? claims.name.trim() : email,
-        role: OAUTH_DEFAULT_ROLE,
-      });
-      sendRedirect(res, `/login?oauth_grant=${encodeURIComponent(grant)}`);
-    } catch {
-      sendRedirect(res, '/login?oauth_error=exchange_failed');
-    }
+    // op === 'callback' (google / microsoft only; adfs uses the dedicated route above)
+    await oauthExchangeCallback(req, res, requestUrl, providerName);
     return true;
   }
 

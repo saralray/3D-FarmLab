@@ -76,6 +76,12 @@ services:
       # Max size of a model file uploaded through the in-app print-request form
       # (stored in Postgres). The nginx /api/queue/submit body cap should match.
       QUEUE_UPLOAD_MAX_BYTES: ${QUEUE_UPLOAD_MAX_BYTES:-52428800}
+      # Satit-M Chula ADFS SSO (STEMLab Print Farm).
+      # Client registered at sso.satitm.chula.ac.th — redirect_uri must stay
+      # https://sso.stemlabs2.work/api/auth/oauth2_redirect.
+      # When set, ADFS login is auto-enabled without any admin-UI configuration.
+      ADFS_CLIENT_ID: ${ADFS_CLIENT_ID:-82b800c2-870c-4e13-82eb-080c4ed75009}
+      ADFS_CLIENT_SECRET: ${ADFS_CLIENT_SECRET:-pLSwS8mJWvWR1lnxrqShNpSfBpqn6JPlt91tnvm7}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5173/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 30s

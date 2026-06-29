@@ -95,12 +95,19 @@ type oauthConfig struct {
 var oauthSettingsKeys = map[string]string{
 	"google":    "oauth_google",
 	"microsoft": "oauth_microsoft",
+	"adfs":      "oauth_adfs",
 }
 
 func oauthUsesTenant(provider string) bool { return provider == "microsoft" }
 
+// adfsCallbackPath is the fixed redirect_uri registered with the Satit-M Chula
+// ADFS server. All other providers use /api/auth/<provider>/callback.
+const adfsCallbackPath = "/api/auth/oauth2_redirect"
+
 // getOAuthConfig resolves a provider's stored config (nil for an unknown
 // provider). allowedDomains are normalized (trim, lowercase, strip a leading @).
+// For the ADFS provider, ADFS_CLIENT_ID / ADFS_CLIENT_SECRET env vars supply
+// the credentials when the app_setting is not yet populated.
 func getOAuthConfig(ctx context.Context, providerName string) (*oauthConfig, error) {
 	key, ok := oauthSettingsKeys[providerName]
 	if !ok {
@@ -111,14 +118,28 @@ func getOAuthConfig(ctx context.Context, providerName string) (*oauthConfig, err
 		return nil, err
 	}
 	m := decodeStored(raw)
-	enabled, _ := m["enabled"].(bool)
+	storedEnabled, enabledSet := m["enabled"].(bool)
 	cfg := &oauthConfig{
 		provider:     providerName,
-		enabled:      enabled,
+		enabled:      storedEnabled,
 		clientID:     strings.TrimSpace(storedString(m, "clientId")),
 		clientSecret: storedString(m, "clientSecret"),
 		tenant:       strings.TrimSpace(storedString(m, "tenant")),
 		authority:    strings.TrimSpace(storedString(m, "authority")),
+	}
+	// ADFS: fall back to env vars when app_settings are not yet populated.
+	if providerName == "adfs" {
+		if cfg.clientID == "" {
+			cfg.clientID = strings.TrimSpace(os.Getenv("ADFS_CLIENT_ID"))
+		}
+		if cfg.clientSecret == "" {
+			cfg.clientSecret = strings.TrimSpace(os.Getenv("ADFS_CLIENT_SECRET"))
+		}
+		// Auto-enable when env creds are present and the setting has never been
+		// explicitly disabled (enabledSet && !storedEnabled means admin turned it off).
+		if !(enabledSet && !storedEnabled) && cfg.clientID != "" && cfg.clientSecret != "" {
+			cfg.enabled = true
+		}
 	}
 	if domains, ok := m["allowedDomains"].([]any); ok {
 		for _, d := range domains {
@@ -148,8 +169,11 @@ func isOAuthConfigured(c *oauthConfig) bool {
 }
 
 func oauthAuthorizeEndpoint(c *oauthConfig) string {
-	if c.provider == "google" {
+	switch c.provider {
+	case "google":
 		return "https://accounts.google.com/o/oauth2/v2/auth"
+	case "adfs":
+		return "https://sso.satitm.chula.ac.th/adfs/oauth2/authorize"
 	}
 	if c.authority != "" {
 		return strings.TrimRight(c.authority, "/") + "/oauth2/authorize"
@@ -162,8 +186,11 @@ func oauthAuthorizeEndpoint(c *oauthConfig) string {
 }
 
 func oauthTokenEndpoint(c *oauthConfig) string {
-	if c.provider == "google" {
+	switch c.provider {
+	case "google":
 		return "https://oauth2.googleapis.com/token"
+	case "adfs":
+		return "https://sso.satitm.chula.ac.th/adfs/oauth2/token"
 	}
 	if c.authority != "" {
 		return strings.TrimRight(c.authority, "/") + "/oauth2/token"
@@ -176,12 +203,13 @@ func oauthTokenEndpoint(c *oauthConfig) string {
 }
 
 // oauthClaimEmail pulls the user's email out of id_token claims: Google sets
-// `email`, Microsoft commonly carries it in `preferred_username` / `upn`.
+// `email`, Microsoft / ADFS commonly carry it in `preferred_username`, `upn`,
+// or `unique_name`.
 func oauthClaimEmail(claims map[string]any) string {
 	if claims == nil {
 		return ""
 	}
-	for _, k := range []string{"email", "preferred_username", "upn"} {
+	for _, k := range []string{"email", "preferred_username", "upn", "unique_name"} {
 		if s, ok := claims[k].(string); ok && strings.Contains(s, "@") {
 			return strings.ToLower(s)
 		}
@@ -209,6 +237,9 @@ func decodeJwtClaims(jwt string) map[string]any {
 }
 
 func oauthRedirectURI(req *http.Request, providerName string) string {
+	if providerName == "adfs" {
+		return resolvePublicOrigin(req) + adfsCallbackPath
+	}
 	return resolvePublicOrigin(req) + "/api/auth/" + providerName + "/callback"
 }
 
@@ -284,12 +315,19 @@ func handleOAuthRoutes(ctx context.Context, w http.ResponseWriter, req *http.Req
 		}
 	}
 
-	// GET /api/auth/(google|microsoft)/(config|start|callback)
+	// GET /api/auth/oauth2_redirect — ADFS fixed callback path (pre-registered
+	// with the Satit-M Chula ADFS server as the redirect_uri).
+	if p == adfsCallbackPath && m == http.MethodGet {
+		handleOAuthProvider(ctx, w, req, "adfs", "callback")
+		return true
+	}
+
+	// GET /api/auth/(google|microsoft|adfs)/(config|start|callback)
 	if m == http.MethodGet && strings.HasPrefix(p, "/api/auth/") {
 		rest := p[len("/api/auth/"):]
 		if slash := strings.IndexByte(rest, '/'); slash > 0 {
 			providerName, op := rest[:slash], rest[slash+1:]
-			if (providerName == "google" || providerName == "microsoft") &&
+			if (providerName == "google" || providerName == "microsoft" || providerName == "adfs") &&
 				(op == "config" || op == "start" || op == "callback") {
 				handleOAuthProvider(ctx, w, req, providerName, op)
 				return true
@@ -326,8 +364,10 @@ func handleOAuthProvider(ctx context.Context, w http.ResponseWriter, req *http.R
 		state := signState(secret, uuid.NewString(), providerName)
 		// On-prem AD FS (authority set) only understands prompt=login; cloud
 		// providers get the account chooser.
+		// ADFS and on-prem AD FS only support prompt=login/none/consent —
+		// they reject `select_account` with invalid_request.
 		prompt := "select_account"
-		if cfg.authority != "" {
+		if cfg.authority != "" || providerName == "adfs" {
 			prompt = "login"
 		}
 		authorizeURL, perr := url.Parse(oauthAuthorizeEndpoint(cfg))

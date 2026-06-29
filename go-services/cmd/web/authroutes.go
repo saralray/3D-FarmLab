@@ -76,9 +76,11 @@ func handleAuthRoutes(w http.ResponseWriter, req *http.Request, sessFn func() *s
 // ── /api/auth/providers ──────────────────────────────────────────────────────
 
 func authProviders(ctx context.Context) map[string]any {
+	adfs, _ := getOAuthConfig(ctx, "adfs")
 	return map[string]any{
 		"google":    oauthConfigured(ctx, "oauth_google", false),
 		"microsoft": oauthConfigured(ctx, "oauth_microsoft", true),
+		"adfs":      isOAuthConfigured(adfs),
 		"saml":      samlConfigured(ctx),
 	}
 }

@@ -47,6 +47,7 @@ export function Login() {
   const [oauthProviders, setOauthProviders] = useState<EnabledOAuthProviders>({
     google: false,
     microsoft: false,
+    adfs: false,
     saml: false,
   });
 
@@ -304,7 +305,7 @@ export function Login() {
               </div>
             )}
 
-            {(oauthProviders.google || oauthProviders.microsoft || oauthProviders.saml) &&
+            {(oauthProviders.google || oauthProviders.microsoft || oauthProviders.adfs || oauthProviders.saml) &&
               !showSetup && (
               <>
                 <div className="flex items-center gap-3">
@@ -324,6 +325,20 @@ export function Login() {
                   >
                     <KeyRound className="size-5" />
                     Sign in with SSO
+                  </Button>
+                )}
+                {oauthProviders.adfs && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-14 w-full gap-3 text-base"
+                    disabled={isLoading}
+                    onClick={() => {
+                      window.location.href = '/api/auth/adfs/start';
+                    }}
+                  >
+                    <KeyRound className="size-5" />
+                    Sign in with STEMLab SSO
                   </Button>
                 )}
                 {oauthProviders.google && (

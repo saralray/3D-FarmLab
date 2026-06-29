@@ -1,13 +1,13 @@
-// OAuth (SSO) sign-in — Google and Microsoft Entra ID. The dashboard auth is
-// cookieless, so the server runs the Authorization Code flow and hands the
-// authenticated identity back to the client as a short-lived, HMAC-signed grant
-// token in a URL param (`?oauth_grant=`). The client verifies it here
-// (server-side) before creating a session — the same hand-off shape as the slicer
-// grant. See server/oauthGrant.js.
+// OAuth (SSO) sign-in — Google, Microsoft Entra ID, and Satit-M Chula ADFS.
+// The dashboard auth is cookieless, so the server runs the Authorization Code
+// flow and hands the authenticated identity back to the client as a short-lived,
+// HMAC-signed grant token in a URL param (`?oauth_grant=`). The client verifies
+// it here (server-side) before creating a session — the same hand-off shape as
+// the slicer grant. See server/oauthGrant.js.
 
 import type { UserRole } from './usersApi';
 
-export type OAuthProvider = 'google' | 'microsoft';
+export type OAuthProvider = 'google' | 'microsoft' | 'adfs';
 
 export interface OAuthUser {
   id: string;
@@ -21,6 +21,7 @@ export interface OAuthUser {
 export interface EnabledOAuthProviders {
   google: boolean;
   microsoft: boolean;
+  adfs: boolean;
   saml: boolean;
 }
 
@@ -66,16 +67,17 @@ export async function fetchEnabledOAuthProviders(): Promise<EnabledOAuthProvider
   try {
     const response = await fetch('/api/auth/providers', { cache: 'no-store' });
     if (!response.ok) {
-      return { google: false, microsoft: false, saml: false };
+      return { google: false, microsoft: false, adfs: false, saml: false };
     }
     const data = (await response.json()) as Partial<EnabledOAuthProviders>;
     return {
       google: Boolean(data.google),
       microsoft: Boolean(data.microsoft),
+      adfs: Boolean(data.adfs),
       saml: Boolean(data.saml),
     };
   } catch {
-    return { google: false, microsoft: false, saml: false };
+    return { google: false, microsoft: false, adfs: false, saml: false };
   }
 }
 
