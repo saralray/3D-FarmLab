@@ -4033,9 +4033,18 @@ async function handleApi(req, res, requestUrl) {
   }
 
   // ADFS callback lands on the fixed registered path /api/auth/oauth2_redirect.
-  // Route it through the same exchange logic as the other providers' callbacks.
-  if (requestUrl.pathname === '/api/auth/oauth2_redirect' && req.method === 'GET') {
-    await oauthExchangeCallback(req, res, requestUrl, 'adfs');
+  // response_mode=form_post → ADFS POSTs code+state in the body; fall back to
+  // GET query params for any non-form_post configuration.
+  if (requestUrl.pathname === '/api/auth/oauth2_redirect' &&
+      (req.method === 'GET' || req.method === 'POST')) {
+    let callbackUrl = requestUrl;
+    if (req.method === 'POST') {
+      const body = await readBody(req);
+      const params = new URLSearchParams(body);
+      callbackUrl = new URL(requestUrl.toString());
+      for (const [k, v] of params) callbackUrl.searchParams.set(k, v);
+    }
+    await oauthExchangeCallback(req, res, callbackUrl, 'adfs');
     return true;
   }
 
@@ -4072,6 +4081,12 @@ async function handleApi(req, res, requestUrl) {
       // session state and redirects to /adfs/ls?error=state instead of our callback.
       if (providerName === 'adfs' || config.authority) {
         authorizeUrl.searchParams.set('nonce', nonce);
+      }
+      // form_post: ADFS POSTs code+state from its own HTML page directly to our
+      // redirect_uri — avoids ADFS constructing a GET redirect using its internal
+      // IP instead of the public hostname, which caused /adfs/ls?error=state.
+      if (providerName === 'adfs') {
+        authorizeUrl.searchParams.set('response_mode', 'form_post');
       }
       // Force a fresh login so a shared kiosk doesn't silently reuse a session.
       // ADFS and on-prem AD FS only understand prompt=login/none/consent —
