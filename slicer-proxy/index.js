@@ -48,6 +48,13 @@ import { buildConnection, buildJob, buildPrinterState } from './octoprintDevice.
 const port = Number.parseInt(process.env.SLICER_PROXY_PORT || '8091', 10);
 const host = process.env.HOST || '0.0.0.0';
 
+// C-4 FIX: cap the in-memory buffer for multipart file uploads. Without a limit,
+// a large upload exhausts the Node.js heap. Default 500 MB (matching nginx cap).
+const SLICER_UPLOAD_MAX_BYTES = Number.parseInt(
+  process.env.SLICER_UPLOAD_MAX_BYTES || String(500 * 1024 * 1024),
+  10,
+);
+
 // Where the dashboard lives, for the slicer's "Device" tab redirect. Prefer an
 // explicit APP_BASE_URL; otherwise reuse the request's hostname with the
 // dashboard's HTTP_PORT (nginx), since the proxy is published on a sibling port.
@@ -166,7 +173,10 @@ function parseUpload(req) {
   return new Promise((resolve, reject) => {
     let bb;
     try {
-      bb = busboy({ headers: req.headers });
+      // C-4 FIX: enforce per-file and total-body size limits so a large upload
+      // cannot exhaust the Node.js heap. busboy truncates streams silently when
+      // a limit is hit and sets the `truncated` flag on the stream info.
+      bb = busboy({ headers: req.headers, limits: { fileSize: SLICER_UPLOAD_MAX_BYTES } });
     } catch (error) {
       reject(error);
       return;
@@ -184,6 +194,12 @@ function parseUpload(req) {
       captured = true;
       filename = info.filename || 'upload.gcode';
       stream.on('data', (chunk) => chunks.push(chunk));
+      stream.on('limit', () => {
+        // busboy hit the fileSize limit — drain and reject so the caller
+        // returns a 413 rather than uploading a truncated file to the printer.
+        stream.resume();
+        reject(Object.assign(new Error('Upload exceeds maximum allowed size'), { code: 'LIMIT_FILE_SIZE' }));
+      });
       stream.on('error', reject);
     });
     bb.on('error', reject);
@@ -439,7 +455,16 @@ async function handleUpload(req, res, printerId) {
     return;
   }
 
-  const file = await parseUpload(req);
+  let file;
+  try {
+    file = await parseUpload(req);
+  } catch (err) {
+    if (err?.code === 'LIMIT_FILE_SIZE') {
+      sendJson(res, 413, { error: `Upload exceeds the ${SLICER_UPLOAD_MAX_BYTES} byte limit` });
+      return;
+    }
+    throw err;
+  }
   if (!file || file.buffer.length === 0) {
     sendJson(res, 400, { error: 'No file part named "file" in the upload' });
     return;

@@ -19,6 +19,12 @@ server {
   add_header Referrer-Policy strict-origin-when-cross-origin always;
   add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
 
+  # C-2 FIX: replace (not append) X-Forwarded-For with the real client IP seen
+  # by nginx so backend services cannot be fooled by a spoofed header value from
+  # the client. $remote_addr is always the TCP peer address — no client can forge
+  # it. The backend now receives exactly one IP and trusts it for rate limiting.
+  proxy_set_header X-Forwarded-For $remote_addr;
+
   location = /nginx-health {
     access_log off;
     add_header Content-Type text/plain;
@@ -32,7 +38,6 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;
     proxy_read_timeout 3600s;
@@ -59,7 +64,6 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;
     proxy_read_timeout 3600s;
@@ -73,40 +77,33 @@ server {
   # cap and disable request buffering for this location only. The API key in the
   # X-Api-Key header is the sole guard now that this is reachable on the public
   # site — keep keys scoped and revoke them in Settings → Slicer Upload.
+  # C-4 FIX: cap at 500 MB (500 * 1024 * 1024 = 524288000 bytes); previously 0
+  # (unlimited) allowed any client with a valid API key to exhaust server RAM.
   location /printers/ {
     proxy_pass http://slicer-proxy:8091;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     # Use $http_host (the raw Host header, *including* the port) rather than
     # $host (which strips it), so the slicer "Device" tab's redirect to the
     # dashboard keeps the :8080 port — otherwise it lands on port 80 and the
     # device page fails to load.
     proxy_set_header X-Forwarded-Host $http_host;
-    client_max_body_size 0;
+    client_max_body_size ${SLICER_MAX_BODY_SIZE:-500m};
     proxy_request_buffering off;
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
   }
 
-  # Prometheus UI/API, served under /prometheus on the main site (its host port
-  # is no longer published). Prometheus runs with --web.route-prefix=/prometheus,
-  # so the path is passed through unchanged. NOTE: this puts Prometheus on the
-  # public site — gate it by network/auth if the dashboard is internet-facing.
+  # H-1 FIX: Prometheus is no longer proxied on the public site. Grafana should
+  # reach it directly at http://prometheus:9090 over the internal compose network.
+  # Expose /prometheus only on the loopback (localhost:8081) if needed for local
+  # queries — remove these two locations entirely for a fully locked-down setup.
   location = /prometheus {
-    # Relative Location so the browser keeps the original host:port (nginx only
-    # knows its internal "listen 80", and would otherwise drop a custom port).
-    absolute_redirect off;
-    return 301 /prometheus/;
+    return 404;
   }
   location /prometheus/ {
-    proxy_pass http://prometheus:9090;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 3600s;
+    return 404;
   }
 
   # In-app print-request form uploads the model file straight into the database.
@@ -116,7 +113,6 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     client_max_body_size 60m;
     proxy_request_buffering off;
@@ -131,7 +127,6 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     client_max_body_size 60m;
     proxy_request_buffering off;
@@ -146,7 +141,6 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     client_max_body_size 8m;
     proxy_read_timeout 3600s;
@@ -164,7 +158,6 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection $connection_upgrade;

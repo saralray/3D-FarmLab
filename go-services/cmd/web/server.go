@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -128,6 +129,17 @@ func handleRequest(w http.ResponseWriter, req *http.Request) {
 
 	// Printer hardware passthrough: control API, camera HTTP endpoint, and the
 	// friendly /webcam/<id-or-name> stream URL.
+	// C-1 FIX: require an authenticated session before forwarding to the printer
+	// proxy. Without this gate any unauthenticated HTTP client that can reach
+	// nginx can drive arbitrary Bambu / Moonraker commands on every printer.
+	if strings.HasPrefix(pathname, proxyPrefix) || strings.HasPrefix(pathname, webcamPrefix) ||
+		strings.HasPrefix(pathname, "/webcam/") {
+		sess, _ := resolveSession(req.Context(), req)
+		if sess == nil {
+			sendJSON(rec, http.StatusUnauthorized, map[string]any{"error": "Authentication required."}, "")
+			return
+		}
+	}
 	if handlePrinterProxy(rec, req, proxyPrefix, proxyTarget) {
 		return
 	}

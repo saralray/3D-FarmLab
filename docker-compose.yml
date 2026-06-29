@@ -185,6 +185,9 @@ services:
       # Must match the web service: decrypts the printer secret read from the DB
       # before dispatching the upload to the printer hardware.
       PRINTER_SECRET_KEY: ${PRINTER_SECRET_KEY:-}
+      # C-4 FIX: cap the in-memory multipart buffer. Must be <= the nginx
+      # client_max_body_size for /printers/ (SLICER_MAX_BODY_SIZE). Default 500 MB.
+      SLICER_UPLOAD_MAX_BYTES: ${SLICER_UPLOAD_MAX_BYTES:-524288000}
 
   # Read-only Prometheus exporter: exposes the PostgreSQL print-farm data as
   # metrics on :9180/metrics. Not published to the host — Prometheus scrapes it

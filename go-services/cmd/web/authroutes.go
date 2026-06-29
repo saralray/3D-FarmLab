@@ -338,10 +338,26 @@ func handleAdminCredential(ctx context.Context, w http.ResponseWriter, req *http
 }
 
 func handleAdminCredentialVerify(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	// C-3 FIX: apply the same rate limiter as /api/auth/login so brute-force
+	// against the admin password is throttled regardless of which endpoint is hit.
+	rateKey := clientIPString(req)
+	if rate := checkLoginRate(rateKey); !rate.allowed {
+		w.Header().Set("Retry-After", itoa(int((rate.retryAfter+999*time.Millisecond)/time.Second)))
+		sendJSON(w, http.StatusTooManyRequests, map[string]any{
+			"error":        "Too many failed attempts. Please wait and try again.",
+			"retryAfterMs": rate.retryAfter.Milliseconds(),
+		}, "")
+		return
+	}
 	storedHash := adminStoredHash(ctx)
 	var body adminCredBody
 	_ = readJSONBody(req, &body)
 	valid := storedHash != "" && pwcrypto.Verify(storedHash, body.PasswordHash)
+	if !valid {
+		recordLoginFailure(rateKey)
+	} else {
+		clearLoginAttempts(rateKey)
+	}
 	status := http.StatusUnauthorized
 	if valid {
 		status = http.StatusOK
@@ -350,6 +366,16 @@ func handleAdminCredentialVerify(ctx context.Context, w http.ResponseWriter, req
 }
 
 func handleUsersVerify(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	// C-3 FIX: rate-limit staff credential verification the same way as login.
+	rateKey := clientIPString(req)
+	if rate := checkLoginRate(rateKey); !rate.allowed {
+		w.Header().Set("Retry-After", itoa(int((rate.retryAfter+999*time.Millisecond)/time.Second)))
+		sendJSON(w, http.StatusTooManyRequests, map[string]any{
+			"error":        "Too many failed attempts. Please wait and try again.",
+			"retryAfterMs": rate.retryAfter.Milliseconds(),
+		}, "")
+		return
+	}
 	var body loginBody
 	_ = readJSONBody(req, &body)
 	username := strings.ToLower(strings.TrimSpace(body.Username))
@@ -359,9 +385,11 @@ func handleUsersVerify(ctx context.Context, w http.ResponseWriter, req *http.Req
 		found = findUserByCredential(users, username, body.PasswordHash)
 	}
 	if found == nil {
+		recordLoginFailure(rateKey)
 		sendJSON(w, http.StatusUnauthorized, map[string]any{"valid": false}, "")
 		return
 	}
+	clearLoginAttempts(rateKey)
 	sendJSON(w, http.StatusOK, map[string]any{"valid": true, "user": userPayload{
 		ID: found.ID, Name: found.Name, Username: found.Username, Role: found.Role,
 	}}, "")
