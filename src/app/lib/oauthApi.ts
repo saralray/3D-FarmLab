@@ -23,6 +23,10 @@ export interface EnabledOAuthProviders {
   microsoft: boolean;
   adfs: boolean;
   saml: boolean;
+  googleLabel: string;
+  microsoftLabel: string;
+  adfsLabel: string;
+  samlLabel: string;
 }
 
 // Admin-facing config shape for the Settings → Sign-in form. The client secret is
@@ -36,6 +40,7 @@ export interface OAuthSettings {
   authority: string;
   allowedDomains: string[];
   hasClientSecret: boolean;
+  displayName: string;
 }
 
 export interface OAuthSettingsInput {
@@ -46,6 +51,7 @@ export interface OAuthSettingsInput {
   // Blank means "keep the stored secret"; a value replaces it.
   clientSecret: string;
   allowedDomains: string[];
+  displayName: string;
 }
 
 interface MutationResult {
@@ -75,9 +81,16 @@ export async function fetchEnabledOAuthProviders(): Promise<EnabledOAuthProvider
       microsoft: Boolean(data.microsoft),
       adfs: Boolean(data.adfs),
       saml: Boolean(data.saml),
+      googleLabel: typeof data.googleLabel === 'string' ? data.googleLabel : '',
+      microsoftLabel: typeof data.microsoftLabel === 'string' ? data.microsoftLabel : '',
+      adfsLabel: typeof data.adfsLabel === 'string' ? data.adfsLabel : '',
+      samlLabel: typeof data.samlLabel === 'string' ? data.samlLabel : '',
     };
   } catch {
-    return { google: false, microsoft: false, adfs: false, saml: false };
+    return {
+      google: false, microsoft: false, adfs: false, saml: false,
+      googleLabel: '', microsoftLabel: '', adfsLabel: '', samlLabel: '',
+    };
   }
 }
 

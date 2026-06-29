@@ -15,11 +15,20 @@ import {
 interface OAuthProviderSettingsProps {
   provider: OAuthProvider;
   label: string;
-  // Whether to show the directory Tenant ID field (Microsoft only).
+  // Shows authority URL + tenant ID fields (Microsoft cloud / on-prem AD FS).
   showTenant?: boolean;
+  // Shows just the authority URL field without the tenant ID (ADFS).
+  showAuthority?: boolean;
+  // Shows a "Button label" field to customise the login-page button text.
+  showDisplayName?: boolean;
   // Only admins may change these; others see a read-only form.
   disabled?: boolean;
   clientIdPlaceholder?: string;
+  // Placeholder for the authority URL input.
+  authorityPlaceholder?: string;
+  // Overrides the redirect URI hint with a full absolute URL. Use when the
+  // provider has a fixed, pre-registered redirect URI (e.g. ADFS).
+  callbackUrl?: string;
   // Short admin-facing description of where to create the OAuth client.
   setupHint: React.ReactNode;
 }
@@ -32,8 +41,12 @@ export function OAuthProviderSettings({
   provider,
   label,
   showTenant = false,
+  showAuthority = false,
+  showDisplayName = false,
   disabled = false,
   clientIdPlaceholder,
+  authorityPlaceholder = 'https://sso.example.com/adfs',
+  callbackUrl: callbackUrlOverride,
   setupHint,
 }: OAuthProviderSettingsProps) {
   const [enabled, setEnabled] = useState(false);
@@ -42,6 +55,7 @@ export function OAuthProviderSettings({
   const [hasSecret, setHasSecret] = useState(false);
   const [tenant, setTenant] = useState('');
   const [authority, setAuthority] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [allowedDomains, setAllowedDomains] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -58,6 +72,7 @@ export function OAuthProviderSettings({
         setTenant(settings.tenant);
         setAuthority(settings.authority);
         setAllowedDomains(settings.allowedDomains.join('\n'));
+        setDisplayName(settings.displayName);
       })
       .catch(() => {
         toast.error(`Unable to load ${label} sign-in settings.`);
@@ -94,6 +109,10 @@ export function OAuthProviderSettings({
         toast.error(`A Tenant ID or AD FS authority URL is required to enable ${label} sign-in.`);
         return;
       }
+      if (showAuthority && !trimmedAuthority) {
+        toast.error(`An authority URL is required to enable ${label} sign-in.`);
+        return;
+      }
     }
 
     setSaving(true);
@@ -105,6 +124,7 @@ export function OAuthProviderSettings({
         authority: trimmedAuthority,
         clientSecret: clientSecret.trim(),
         allowedDomains: domains,
+        displayName: displayName.trim(),
       });
       setEnabled(saved.enabled);
       setClientId(saved.clientId);
@@ -112,6 +132,7 @@ export function OAuthProviderSettings({
       setTenant(saved.tenant);
       setAuthority(saved.authority);
       setAllowedDomains(saved.allowedDomains.join('\n'));
+      setDisplayName(saved.displayName);
       setClientSecret('');
       toast.success(`${label} sign-in settings saved.`);
     } catch (error) {
@@ -123,7 +144,7 @@ export function OAuthProviderSettings({
     }
   };
 
-  const callbackUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/${provider}/callback`;
+  const callbackUrl = callbackUrlOverride ?? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/${provider}/callback`;
 
   return (
     <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
@@ -156,47 +177,60 @@ export function OAuthProviderSettings({
           />
         </div>
 
-        {showTenant && (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor={`oauth-authority-${provider}`}>AD FS authority URL (optional)</Label>
-              <Input
-                id={`oauth-authority-${provider}`}
-                value={authority}
-                onChange={(e) => setAuthority(e.target.value)}
-                placeholder="https://sso.example.com/adfs"
-                disabled={disabled}
-                spellCheck={false}
-                autoComplete="off"
-              />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                For on-prem <span className="font-medium">AD FS</span>, enter the
-                base URL (the <code>/adfs</code> deep link). The OIDC endpoints used
-                are <code>&lt;authority&gt;/oauth2/authorize</code> and{' '}
-                <code>/oauth2/token</code>. Leave blank to use the Microsoft cloud
-                (Entra ID) with the Tenant ID below.
-              </p>
-            </div>
+        {(showTenant || showAuthority) && (
+          <div className="space-y-2">
+            <Label htmlFor={`oauth-authority-${provider}`}>
+              {showAuthority && !showTenant ? 'ADFS Authority URL' : 'AD FS authority URL (optional)'}
+            </Label>
+            <Input
+              id={`oauth-authority-${provider}`}
+              value={authority}
+              onChange={(e) => setAuthority(e.target.value)}
+              placeholder={authorityPlaceholder}
+              disabled={disabled}
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {showAuthority && !showTenant ? (
+                <>
+                  Base URL of the ADFS server (the <code>/adfs</code> deep link).
+                  Endpoints used are{' '}
+                  <code>&lt;authority&gt;/oauth2/authorize</code> and{' '}
+                  <code>/oauth2/token</code>.
+                </>
+              ) : (
+                <>
+                  For on-prem <span className="font-medium">AD FS</span>, enter the
+                  base URL (the <code>/adfs</code> deep link). The OIDC endpoints used
+                  are <code>&lt;authority&gt;/oauth2/authorize</code> and{' '}
+                  <code>/oauth2/token</code>. Leave blank to use the Microsoft cloud
+                  (Entra ID) with the Tenant ID below.
+                </>
+              )}
+            </p>
+          </div>
+        )}
 
-            <div className="space-y-2">
-              <Label htmlFor={`oauth-tenant-${provider}`}>Tenant ID</Label>
-              <Input
-                id={`oauth-tenant-${provider}`}
-                value={tenant}
-                onChange={(e) => setTenant(e.target.value)}
-                placeholder="Directory (tenant) ID, or common / organizations"
-                disabled={disabled}
-                spellCheck={false}
-                autoComplete="off"
-              />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Cloud only — the Azure AD directory (tenant) ID. Use a specific
-                tenant GUID to limit sign-in to your organization, or{' '}
-                <code>common</code> to allow any Microsoft account. Ignored when an
-                AD FS authority URL is set above.
-              </p>
-            </div>
-          </>
+        {showTenant && (
+          <div className="space-y-2">
+            <Label htmlFor={`oauth-tenant-${provider}`}>Tenant ID</Label>
+            <Input
+              id={`oauth-tenant-${provider}`}
+              value={tenant}
+              onChange={(e) => setTenant(e.target.value)}
+              placeholder="Directory (tenant) ID, or common / organizations"
+              disabled={disabled}
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Cloud only — the Azure AD directory (tenant) ID. Use a specific
+              tenant GUID to limit sign-in to your organization, or{' '}
+              <code>common</code> to allow any Microsoft account. Ignored when an
+              AD FS authority URL is set above.
+            </p>
+          </div>
         )}
 
         <div className="space-y-2">
@@ -230,6 +264,25 @@ export function OAuthProviderSettings({
               : 'No client secret stored yet.'}
           </p>
         </div>
+
+        {showDisplayName && (
+          <div className="space-y-2">
+            <Label htmlFor={`oauth-display-name-${provider}`}>Button label</Label>
+            <Input
+              id={`oauth-display-name-${provider}`}
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder={`Sign in with ${label}`}
+              disabled={disabled}
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Text shown on the sign-in button. Leave blank to use the default
+              "Sign in with {label}".
+            </p>
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label htmlFor={`oauth-domains-${provider}`}>Allowed email domains</Label>

@@ -13,6 +13,7 @@ export interface SamlSettings {
   spEntityId: string;
   acsUrl: string;
   autoProvisionUsers: boolean;
+  displayName: string;
   updatedAt: string | null;
   // Effective SP identifiers (the request-origin defaults the metadata endpoint
   // advertises when the SP fields are left blank).
@@ -30,6 +31,7 @@ export interface SamlSettingsInput {
   spEntityId: string;
   acsUrl: string;
   autoProvisionUsers: boolean;
+  displayName: string;
 }
 
 export interface SamlTestCheck {

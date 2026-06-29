@@ -49,6 +49,10 @@ export function Login() {
     microsoft: false,
     adfs: false,
     saml: false,
+    googleLabel: '',
+    microsoftLabel: '',
+    adfsLabel: '',
+    samlLabel: '',
   });
 
   const from = (location.state as any)?.from?.pathname || '/';
@@ -324,7 +328,7 @@ export function Login() {
                     }}
                   >
                     <KeyRound className="size-5" />
-                    Sign in with SSO
+                    {oauthProviders.samlLabel || 'Sign in with SSO'}
                   </Button>
                 )}
                 {oauthProviders.adfs && (
@@ -338,7 +342,7 @@ export function Login() {
                     }}
                   >
                     <KeyRound className="size-5" />
-                    Sign in with STEMLab SSO
+                    {oauthProviders.adfsLabel || 'Sign in with ADFS'}
                   </Button>
                 )}
                 {oauthProviders.google && (
@@ -369,7 +373,7 @@ export function Login() {
                         d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.05l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38Z"
                       />
                     </svg>
-                    Sign in with Google
+                    {oauthProviders.googleLabel || 'Sign in with Google'}
                   </Button>
                 )}
                 {oauthProviders.microsoft && (
@@ -388,7 +392,7 @@ export function Login() {
                       <path fill="#00A4EF" d="M1 12h10v10H1z" />
                       <path fill="#FFB900" d="M12 12h10v10H12z" />
                     </svg>
-                    Sign in with Microsoft
+                    {oauthProviders.microsoftLabel || 'Sign in with Microsoft'}
                   </Button>
                 )}
               </>

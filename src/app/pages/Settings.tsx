@@ -141,7 +141,7 @@ export function Settings() {
   const [actioningManagerId, setActioningManagerId] = useState<string | null>(null);
   // Which SSO provider's config form to show. Only one provider is configured at
   // a time — the admin picks before the form appears.
-  const [ssoProvider, setSsoProvider] = useState<'google' | 'microsoft' | 'saml'>('google');
+  const [ssoProvider, setSsoProvider] = useState<'google' | 'microsoft' | 'adfs' | 'saml'>('google');
   // Website access mode: whether an unauthenticated visitor can view the
   // dashboard read-only, or is sent to the login screen.
   const [publicViewerEnabled, setPublicViewerEnabled] = useState(true);
@@ -191,8 +191,10 @@ export function Settings() {
     // Open the Sign-in tab on whichever SSO provider is currently active.
     fetchEnabledOAuthProviders()
       .then((providers) => {
-        if (providers.saml && !providers.google && !providers.microsoft) {
+        if (providers.saml && !providers.google && !providers.microsoft && !providers.adfs) {
           setSsoProvider('saml');
+        } else if (providers.adfs && !providers.google && !providers.microsoft) {
+          setSsoProvider('adfs');
         } else if (providers.microsoft && !providers.google) {
           setSsoProvider('microsoft');
         }
@@ -2033,7 +2035,7 @@ export function Settings() {
                 </p>
                 <Select
                   value={ssoProvider}
-                  onValueChange={(value) => setSsoProvider(value as 'google' | 'microsoft' | 'saml')}
+                  onValueChange={(value) => setSsoProvider(value as 'google' | 'microsoft' | 'adfs' | 'saml')}
                   disabled={user?.role !== 'admin'}
                 >
                   <SelectTrigger id="sso-provider" className="w-full sm:w-72">
@@ -2042,6 +2044,7 @@ export function Settings() {
                   <SelectContent>
                     <SelectItem value="google">Google</SelectItem>
                     <SelectItem value="microsoft">Microsoft</SelectItem>
+                    <SelectItem value="adfs">ADFS</SelectItem>
                     <SelectItem value="saml">SAML 2.0</SelectItem>
                   </SelectContent>
                 </Select>
@@ -2052,6 +2055,7 @@ export function Settings() {
               <OAuthProviderSettings
                 provider="google"
                 label="Google"
+                showDisplayName
                 disabled={user?.role !== 'admin'}
                 clientIdPlaceholder="xxxxxxxx.apps.googleusercontent.com"
                 setupHint={<>Create an OAuth client in the Google Cloud console.</>}
@@ -2062,12 +2066,31 @@ export function Settings() {
                 provider="microsoft"
                 label="Microsoft"
                 showTenant
+                showDisplayName
                 disabled={user?.role !== 'admin'}
                 clientIdPlaceholder="Application (client) ID"
                 setupHint={
                   <>Register an app in the Azure portal (Entra ID → App registrations)
                   and add a client secret — or point it at an on-prem AD FS server
                   with the authority URL below.</>
+                }
+              />
+            )}
+            {ssoProvider === 'adfs' && (
+              <OAuthProviderSettings
+                provider="adfs"
+                label="ADFS"
+                showAuthority
+                showDisplayName
+                disabled={user?.role !== 'admin'}
+                callbackUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/oauth2_redirect`}
+                setupHint={
+                  <>
+                    Satit-M Chula AD FS — the client app is pre-registered with
+                    the IdP. Enter the Client ID and Secret provided by the IdP
+                    administrator. The redirect URI below is fixed and must
+                    already be registered with the IdP as shown.
+                  </>
                 }
               />
             )}

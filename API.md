@@ -1041,8 +1041,9 @@ Deletes a rule. **Response `204`**; `404` if the id is unknown.
 
 Admin-only in the UI (client-side session guard, like
 `/api/settings/integrations`). Stores each provider's OAuth config in
-`app_settings` (`:provider` is `google` or `microsoft`). `tenant` and `authority`
-are Microsoft-only; they are accepted for any provider but ignored where unused.
+`app_settings` (`:provider` is `google`, `microsoft`, or `adfs`). `tenant` and
+`authority` are Microsoft-only; they are accepted for any provider but ignored
+where unused.
 
 For Microsoft, two modes are supported:
 - **Cloud (Entra ID):** leave `authority` blank and set `tenant` (a directory GUID,
@@ -1050,6 +1051,13 @@ For Microsoft, two modes are supported:
 - **On-prem AD FS:** set `authority` to the AD FS base URL (the `/adfs` deep link,
   e.g. `https://sso.example.com/adfs`). Endpoints become `<authority>/oauth2/authorize`
   and `<authority>/oauth2/token`. `authority` takes precedence over `tenant`.
+
+For `adfs`, `authority` is **required** (unlike Microsoft where it is optional) —
+the provider is not considered configured without it, since all endpoints are
+derived as `<authority>/oauth2/{authorize,token}`. `tenant` is ignored. The
+registered callback path is `/api/auth/oauth2_redirect` (not the default
+`/api/auth/adfs/callback` pattern). All config is stored in the database via
+Settings → Sign-in → ADFS.
 
 #### `GET /api/settings/oauth/:provider`
 

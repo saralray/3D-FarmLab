@@ -62,6 +62,7 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
   const [spEntityId, setSpEntityId] = useState('');
   const [acsUrl, setAcsUrl] = useState('');
   const [autoProvisionUsers, setAutoProvisionUsers] = useState(false);
+  const [displayName, setDisplayName] = useState('');
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [defaults, setDefaults] = useState({ spEntityId: '', acsUrl: '' });
 
@@ -79,6 +80,7 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
     setSpEntityId(settings.spEntityId);
     setAcsUrl(settings.acsUrl);
     setAutoProvisionUsers(settings.autoProvisionUsers);
+    setDisplayName(settings.displayName);
     setUpdatedAt(settings.updatedAt);
     setDefaults({ spEntityId: settings.defaultSpEntityId, acsUrl: settings.defaultAcsUrl });
   };
@@ -141,6 +143,7 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
         spEntityId: spEntityId.trim(),
         acsUrl: acsUrl.trim(),
         autoProvisionUsers,
+        displayName: displayName.trim(),
       });
       applySettings(saved);
       toast.success('SSO configuration saved.');
@@ -343,6 +346,23 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
             onCheckedChange={setAutoProvisionUsers}
             disabled={disabled}
           />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="saml-display-name">Button label</Label>
+          <Input
+            id="saml-display-name"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Sign in with SSO"
+            disabled={disabled}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Text shown on the sign-in button. Leave blank to use the default
+            "Sign in with SSO".
+          </p>
         </div>
 
         {testResult && (

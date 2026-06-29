@@ -506,21 +506,18 @@ const OAUTH_PROVIDERS = {
             config.tenant || 'common',
           )}/oauth2/v2.0/token`,
   },
-  // Satit-M Chula AD FS — STEMLab Print Farm (Micky).
-  // Endpoints are fixed (pre-registered with the IdP); credentials come from
-  // ADFS_CLIENT_ID / ADFS_CLIENT_SECRET env vars (or the `oauth_adfs` app
-  // setting for runtime override). The redirect_uri is the fixed path
+  // ADFS — endpoints are derived from the `authority` base URL configured in
+  // Settings → Sign-in. `authority` is required; the provider is not considered
+  // configured without it. The redirect_uri is the fixed path
   // /api/auth/oauth2_redirect as registered with the IdP.
   adfs: {
     settingsKey: 'oauth_adfs',
-    label: 'STEMLab SSO',
+    label: 'ADFS',
     usesTenant: false,
-    // Fixed endpoints for sso.satitm.chula.ac.th/adfs
-    authorizeEndpoint: () => 'https://sso.satitm.chula.ac.th/adfs/oauth2/authorize',
-    tokenEndpoint: () => 'https://sso.satitm.chula.ac.th/adfs/oauth2/token',
-    logoutEndpoint: () => 'https://sso.satitm.chula.ac.th/adfs/oauth2/logout',
-    // The path registered with ADFS as the redirect_uri (not the default
-    // /api/auth/adfs/callback pattern used by the other providers).
+    requiresAuthority: true,
+    authorizeEndpoint: (config) => `${config.authority.replace(/\/+$/, '')}/oauth2/authorize`,
+    tokenEndpoint: (config) => `${config.authority.replace(/\/+$/, '')}/oauth2/token`,
+    logoutEndpoint: (config) => `${config.authority.replace(/\/+$/, '')}/oauth2/logout`,
     callbackPath: '/api/auth/oauth2_redirect',
   },
 };
@@ -547,19 +544,9 @@ async function getOAuthConfig(providerName) {
         .filter(Boolean)
     : [];
 
-  // For the ADFS provider, credentials can come from env vars (ADFS_CLIENT_ID /
-  // ADFS_CLIENT_SECRET) so the app works out-of-the-box without an admin UI step.
-  // A value stored in app_settings takes precedence over the env var fallback.
-  let clientId = typeof stored.clientId === 'string' ? stored.clientId.trim() : '';
-  let clientSecret = typeof stored.clientSecret === 'string' ? stored.clientSecret : '';
-  let enabled = stored.enabled === true;
-  if (providerName === 'adfs') {
-    if (!clientId && process.env.ADFS_CLIENT_ID) clientId = process.env.ADFS_CLIENT_ID.trim();
-    if (!clientSecret && process.env.ADFS_CLIENT_SECRET) clientSecret = process.env.ADFS_CLIENT_SECRET;
-    // Auto-enable when env creds are present and the setting has never been
-    // explicitly disabled (stored.enabled === false means an admin turned it off).
-    if (stored.enabled !== false && clientId && clientSecret) enabled = true;
-  }
+  const clientId = typeof stored.clientId === 'string' ? stored.clientId.trim() : '';
+  const clientSecret = typeof stored.clientSecret === 'string' ? stored.clientSecret : '';
+  const enabled = stored.enabled === true;
 
   return {
     provider: providerName,
@@ -570,17 +557,24 @@ async function getOAuthConfig(providerName) {
     // On-prem AD FS authority base (e.g. https://host/adfs); blank = use cloud.
     authority: typeof stored.authority === 'string' ? stored.authority.trim() : '',
     allowedDomains,
+    // Custom label shown on the login-page sign-in button (e.g. "Sign in with Satit-M").
+    // Falls back to the provider's built-in label when blank.
+    displayName: typeof stored.displayName === 'string' ? stored.displayName.trim() : '',
   };
 }
 
-// True only when the flow can actually run (enabled + client id + secret, plus,
-// for tenant providers — Microsoft — either a cloud tenant or an AD FS authority).
+// True only when the flow can actually run: enabled + credentials + any
+// provider-specific required fields (Microsoft needs tenant or authority; ADFS
+// needs authority since its endpoints are derived from it).
 function isOAuthConfigured(config) {
   if (!config || !config.enabled || !config.clientId || !config.clientSecret) {
     return false;
   }
   const provider = getOAuthProvider(config.provider);
   if (provider?.usesTenant && !config.tenant && !config.authority) {
+    return false;
+  }
+  if (provider?.requiresAuthority && !config.authority) {
     return false;
   }
   return true;
@@ -730,6 +724,7 @@ async function getSamlConfig() {
     acsUrl: typeof stored.acsUrl === 'string' ? stored.acsUrl.trim() : '',
     autoProvisionUsers: stored.autoProvisionUsers === true,
     updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : null,
+    displayName: typeof stored.displayName === 'string' ? stored.displayName.trim() : '',
   };
 }
 
@@ -3903,6 +3898,10 @@ async function handleApi(req, res, requestUrl) {
       microsoft: isOAuthConfigured(microsoft),
       adfs: isOAuthConfigured(adfs),
       saml: isSamlConfigured(saml),
+      googleLabel: google?.displayName || '',
+      microsoftLabel: microsoft?.displayName || '',
+      adfsLabel: adfs?.displayName || '',
+      samlLabel: saml?.displayName || '',
     });
     return true;
   }
@@ -4795,7 +4794,7 @@ async function handleApi(req, res, requestUrl) {
   // (the Azure directory / tenant id); it is accepted and stored for any provider
   // but ignored where unused.
   const oauthSettingsMatch = requestUrl.pathname.match(
-    /^\/api\/settings\/oauth\/(google|microsoft)$/,
+    /^\/api\/settings\/oauth\/(google|microsoft|adfs)$/,
   );
   if (oauthSettingsMatch) {
     const providerName = oauthSettingsMatch[1];
@@ -4809,6 +4808,7 @@ async function handleApi(req, res, requestUrl) {
         authority: config.authority,
         allowedDomains: config.allowedDomains,
         hasClientSecret: config.clientSecret.length > 0,
+        displayName: config.displayName,
       });
       return true;
     }
@@ -4818,6 +4818,7 @@ async function handleApi(req, res, requestUrl) {
       const clientId = typeof body?.clientId === 'string' ? body.clientId.trim() : '';
       const tenant = typeof body?.tenant === 'string' ? body.tenant.trim() : '';
       const authority = typeof body?.authority === 'string' ? body.authority.trim() : '';
+      const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : '';
       const allowedDomains = Array.isArray(body?.allowedDomains)
         ? body.allowedDomains
             .map((domain) => String(domain || '').trim().toLowerCase().replace(/^@/, ''))
@@ -4836,6 +4837,7 @@ async function handleApi(req, res, requestUrl) {
         clientSecret,
         tenant,
         authority,
+        displayName,
         allowedDomains,
       });
       // SSO providers are independent: Google, Microsoft/AD FS, and SAML can each
@@ -4849,6 +4851,7 @@ async function handleApi(req, res, requestUrl) {
         authority: saved.authority,
         allowedDomains: saved.allowedDomains,
         hasClientSecret: saved.clientSecret.length > 0,
+        displayName: saved.displayName,
       });
       return true;
     }
@@ -4887,6 +4890,7 @@ async function handleApi(req, res, requestUrl) {
       const spEntityId = typeof body?.spEntityId === 'string' ? body.spEntityId.trim() : '';
       const acsUrl = typeof body?.acsUrl === 'string' ? body.acsUrl.trim() : '';
       const autoProvisionUsers = body?.autoProvisionUsers === true;
+      const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : '';
 
       // URL + certificate validation. URLs, when provided, must be absolute
       // http(s); the IdP SSO URL and certificate are required to enable the flow.
@@ -4919,6 +4923,7 @@ async function handleApi(req, res, requestUrl) {
         spEntityId,
         acsUrl,
         autoProvisionUsers,
+        displayName,
         updatedAt: new Date().toISOString(),
       });
       // SSO providers are independent: SAML can be enabled alongside the OAuth
