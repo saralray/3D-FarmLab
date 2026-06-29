@@ -515,9 +515,12 @@ const OAUTH_PROVIDERS = {
     label: 'ADFS',
     usesTenant: false,
     requiresAuthority: true,
-    authorizeEndpoint: (config) => `${config.authority.replace(/\/+$/, '')}/oauth2/authorize`,
-    tokenEndpoint: (config) => `${config.authority.replace(/\/+$/, '')}/oauth2/token`,
-    logoutEndpoint: (config) => `${config.authority.replace(/\/+$/, '')}/oauth2/logout`,
+    authorizeEndpoint: (config) =>
+      config.authorizeEndpoint || `${config.authority.replace(/\/+$/, '')}/oauth2/authorize`,
+    tokenEndpoint: (config) =>
+      config.tokenEndpoint || `${config.authority.replace(/\/+$/, '')}/oauth2/token`,
+    logoutEndpoint: (config) =>
+      config.logoutEndpoint || `${config.authority.replace(/\/+$/, '')}/oauth2/logout`,
     callbackPath: '/api/auth/oauth2_redirect',
   },
 };
@@ -564,6 +567,12 @@ async function getOAuthConfig(providerName) {
     // verbatim instead of computing it from request headers (which breaks behind
     // a TLS-terminating proxy that doesn't forward X-Forwarded-Proto/Host).
     redirectUri: typeof stored.redirectUri === 'string' ? stored.redirectUri.trim() : '',
+    authorizeEndpoint: typeof stored.authorizeEndpoint === 'string' ? stored.authorizeEndpoint.trim() : '',
+    tokenEndpoint: typeof stored.tokenEndpoint === 'string' ? stored.tokenEndpoint.trim() : '',
+    logoutEndpoint: typeof stored.logoutEndpoint === 'string' ? stored.logoutEndpoint.trim() : '',
+    metadataUrl: typeof stored.metadataUrl === 'string' ? stored.metadataUrl.trim() : '',
+    jwksUri: typeof stored.jwksUri === 'string' ? stored.jwksUri.trim() : '',
+    relyingPartyId: typeof stored.relyingPartyId === 'string' ? stored.relyingPartyId.trim() : '',
   };
 }
 
@@ -591,7 +600,7 @@ function oauthClaimEmail(claims) {
   if (!claims) {
     return '';
   }
-  for (const candidate of [claims.email, claims.preferred_username, claims.upn]) {
+  for (const candidate of [claims.email, claims.preferred_username, claims.upn, claims.unique_name]) {
     if (typeof candidate === 'string' && candidate.includes('@')) {
       return candidate.toLowerCase();
     }
@@ -4848,6 +4857,12 @@ async function handleApi(req, res, requestUrl) {
       const authority = typeof body?.authority === 'string' ? body.authority.trim() : '';
       const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : '';
       const redirectUri = typeof body?.redirectUri === 'string' ? body.redirectUri.trim() : '';
+      const authorizeEndpoint = typeof body?.authorizeEndpoint === 'string' ? body.authorizeEndpoint.trim() : '';
+      const tokenEndpoint = typeof body?.tokenEndpoint === 'string' ? body.tokenEndpoint.trim() : '';
+      const logoutEndpoint = typeof body?.logoutEndpoint === 'string' ? body.logoutEndpoint.trim() : '';
+      const metadataUrl = typeof body?.metadataUrl === 'string' ? body.metadataUrl.trim() : '';
+      const jwksUri = typeof body?.jwksUri === 'string' ? body.jwksUri.trim() : '';
+      const relyingPartyId = typeof body?.relyingPartyId === 'string' ? body.relyingPartyId.trim() : '';
       const allowedDomains = Array.isArray(body?.allowedDomains)
         ? body.allowedDomains
             .map((domain) => String(domain || '').trim().toLowerCase().replace(/^@/, ''))
@@ -4868,6 +4883,12 @@ async function handleApi(req, res, requestUrl) {
         authority,
         displayName,
         redirectUri,
+        authorizeEndpoint,
+        tokenEndpoint,
+        logoutEndpoint,
+        metadataUrl,
+        jwksUri,
+        relyingPartyId,
         allowedDomains,
       });
       // SSO providers are independent: Google, Microsoft/AD FS, and SAML can each
@@ -4883,6 +4904,12 @@ async function handleApi(req, res, requestUrl) {
         hasClientSecret: saved.clientSecret.length > 0,
         displayName: saved.displayName,
         redirectUri: saved.redirectUri,
+        authorizeEndpoint: saved.authorizeEndpoint,
+        tokenEndpoint: saved.tokenEndpoint,
+        logoutEndpoint: saved.logoutEndpoint,
+        metadataUrl: saved.metadataUrl,
+        jwksUri: saved.jwksUri,
+        relyingPartyId: saved.relyingPartyId,
       });
       return true;
     }

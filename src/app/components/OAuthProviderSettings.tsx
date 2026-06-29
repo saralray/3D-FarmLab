@@ -53,6 +53,12 @@ export function OAuthProviderSettings({
   const [authority, setAuthority] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [redirectUri, setRedirectUri] = useState('');
+  const [authorizeEndpoint, setAuthorizeEndpoint] = useState('');
+  const [tokenEndpoint, setTokenEndpoint] = useState('');
+  const [logoutEndpoint, setLogoutEndpoint] = useState('');
+  const [metadataUrl, setMetadataUrl] = useState('');
+  const [jwksUri, setJwksUri] = useState('');
+  const [relyingPartyId, setRelyingPartyId] = useState('');
   const [allowedDomains, setAllowedDomains] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -71,6 +77,12 @@ export function OAuthProviderSettings({
         setAllowedDomains(settings.allowedDomains.join('\n'));
         setDisplayName(settings.displayName);
         setRedirectUri(settings.redirectUri ?? '');
+        setAuthorizeEndpoint(settings.authorizeEndpoint ?? '');
+        setTokenEndpoint(settings.tokenEndpoint ?? '');
+        setLogoutEndpoint(settings.logoutEndpoint ?? '');
+        setMetadataUrl(settings.metadataUrl ?? '');
+        setJwksUri(settings.jwksUri ?? '');
+        setRelyingPartyId(settings.relyingPartyId ?? '');
       })
       .catch(() => {
         toast.error(`Unable to load ${label} sign-in settings.`);
@@ -124,6 +136,12 @@ export function OAuthProviderSettings({
         allowedDomains: domains,
         displayName: displayName.trim(),
         redirectUri: redirectUri.trim(),
+        authorizeEndpoint: authorizeEndpoint.trim(),
+        tokenEndpoint: tokenEndpoint.trim(),
+        logoutEndpoint: logoutEndpoint.trim(),
+        metadataUrl: metadataUrl.trim(),
+        jwksUri: jwksUri.trim(),
+        relyingPartyId: relyingPartyId.trim(),
       });
       setEnabled(saved.enabled);
       setClientId(saved.clientId);
@@ -133,6 +151,12 @@ export function OAuthProviderSettings({
       setAllowedDomains(saved.allowedDomains.join('\n'));
       setDisplayName(saved.displayName);
       setRedirectUri(saved.redirectUri ?? '');
+      setAuthorizeEndpoint(saved.authorizeEndpoint ?? '');
+      setTokenEndpoint(saved.tokenEndpoint ?? '');
+      setLogoutEndpoint(saved.logoutEndpoint ?? '');
+      setMetadataUrl(saved.metadataUrl ?? '');
+      setJwksUri(saved.jwksUri ?? '');
+      setRelyingPartyId(saved.relyingPartyId ?? '');
       setClientSecret('');
       toast.success(`${label} sign-in settings saved.`);
     } catch (error) {
@@ -199,10 +223,9 @@ export function OAuthProviderSettings({
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {showAuthority && !showTenant ? (
                 <>
-                  Base URL of the ADFS server (the <code>/adfs</code> deep link).
-                  Endpoints used are{' '}
-                  <code>&lt;authority&gt;/oauth2/authorize</code> and{' '}
-                  <code>/oauth2/token</code>.
+                  Base URL of the ADFS server (the <code>/adfs</code> deep link, e.g.{' '}
+                  <code>https://sso.example.com/adfs</code>). Used to derive the
+                  authorize/token/logout endpoints below when those fields are left blank.
                 </>
               ) : (
                 <>
@@ -218,24 +241,123 @@ export function OAuthProviderSettings({
         )}
 
         {showAuthority && !showTenant && (
-          <div className="space-y-2">
-            <Label htmlFor={`oauth-redirect-uri-${provider}`}>Redirect URI</Label>
-            <Input
-              id={`oauth-redirect-uri-${provider}`}
-              value={redirectUri}
-              onChange={(e) => setRedirectUri(e.target.value)}
-              placeholder={`${typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/oauth2_redirect`}
-              disabled={disabled}
-              spellCheck={false}
-              autoComplete="off"
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              The exact redirect URI registered with the IdP (e.g.{' '}
-              <code>https://your-domain.com/api/auth/oauth2_redirect</code>).
-              Must match what the IdP has on file — used verbatim so it works
-              correctly behind a reverse proxy.
-            </p>
-          </div>
+          <>
+            <div className="space-y-2">
+              <Label htmlFor={`oauth-redirect-uri-${provider}`}>Redirect URI</Label>
+              <Input
+                id={`oauth-redirect-uri-${provider}`}
+                value={redirectUri}
+                onChange={(e) => setRedirectUri(e.target.value)}
+                placeholder={`${typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/oauth2_redirect`}
+                disabled={disabled}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                The exact redirect URI registered with the IdP (e.g.{' '}
+                <code>https://your-domain.com/api/auth/oauth2_redirect</code>).
+                Must match what the IdP has on file — used verbatim so it works
+                correctly behind a reverse proxy.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`oauth-authorize-endpoint-${provider}`}>Authorize endpoint</Label>
+              <Input
+                id={`oauth-authorize-endpoint-${provider}`}
+                value={authorizeEndpoint}
+                onChange={(e) => setAuthorizeEndpoint(e.target.value)}
+                placeholder={authority ? `${authority.replace(/\/+$/, '')}/oauth2/authorize` : 'https://sso.example.com/adfs/oauth2/authorize'}
+                disabled={disabled}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Override the authorization endpoint. Leave blank to derive from the authority URL above.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`oauth-token-endpoint-${provider}`}>Token endpoint</Label>
+              <Input
+                id={`oauth-token-endpoint-${provider}`}
+                value={tokenEndpoint}
+                onChange={(e) => setTokenEndpoint(e.target.value)}
+                placeholder={authority ? `${authority.replace(/\/+$/, '')}/oauth2/token` : 'https://sso.example.com/adfs/oauth2/token'}
+                disabled={disabled}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Override the token exchange endpoint. Leave blank to derive from the authority URL above.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`oauth-logout-endpoint-${provider}`}>Logout endpoint</Label>
+              <Input
+                id={`oauth-logout-endpoint-${provider}`}
+                value={logoutEndpoint}
+                onChange={(e) => setLogoutEndpoint(e.target.value)}
+                placeholder={authority ? `${authority.replace(/\/+$/, '')}/oauth2/logout` : 'https://sso.example.com/adfs/oauth2/logout'}
+                disabled={disabled}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Override the logout endpoint. Leave blank to derive from the authority URL above.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`oauth-metadata-url-${provider}`}>OIDC Metadata URL</Label>
+              <Input
+                id={`oauth-metadata-url-${provider}`}
+                value={metadataUrl}
+                onChange={(e) => setMetadataUrl(e.target.value)}
+                placeholder={authority ? `${authority.replace(/\/+$/, '')}/.well-known/openid-configuration` : 'https://sso.example.com/adfs/.well-known/openid-configuration'}
+                disabled={disabled}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                OpenID Connect discovery document URL (informational — stored for reference).
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`oauth-jwks-uri-${provider}`}>JWKS URI</Label>
+              <Input
+                id={`oauth-jwks-uri-${provider}`}
+                value={jwksUri}
+                onChange={(e) => setJwksUri(e.target.value)}
+                placeholder={authority ? `${authority.replace(/\/+$/, '')}/discovery/keys` : 'https://sso.example.com/adfs/discovery/keys'}
+                disabled={disabled}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                JSON Web Key Set endpoint for token signature verification.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`oauth-relying-party-id-${provider}`}>Relying Party Identifier</Label>
+              <Input
+                id={`oauth-relying-party-id-${provider}`}
+                value={relyingPartyId}
+                onChange={(e) => setRelyingPartyId(e.target.value)}
+                placeholder="https://your-domain.com/"
+                disabled={disabled}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Relying Party Trust identifier registered in ADFS (the audience URI, e.g.{' '}
+                <code>https://your-domain.com/</code>).
+              </p>
+            </div>
+          </>
         )}
 
         {showTenant && (

@@ -44,6 +44,14 @@ export interface OAuthSettings {
   // ADFS: full redirect URI pre-registered with the IdP. Used verbatim so the
   // correct URL is sent even behind a TLS-terminating proxy.
   redirectUri: string;
+  // ADFS: explicit endpoint URLs. When set, used verbatim instead of deriving
+  // from authority (useful when the IdP uses non-standard paths).
+  authorizeEndpoint: string;
+  tokenEndpoint: string;
+  logoutEndpoint: string;
+  metadataUrl: string;
+  jwksUri: string;
+  relyingPartyId: string;
 }
 
 export interface OAuthSettingsInput {
@@ -56,6 +64,12 @@ export interface OAuthSettingsInput {
   allowedDomains: string[];
   displayName: string;
   redirectUri: string;
+  authorizeEndpoint: string;
+  tokenEndpoint: string;
+  logoutEndpoint: string;
+  metadataUrl: string;
+  jwksUri: string;
+  relyingPartyId: string;
 }
 
 interface MutationResult {
