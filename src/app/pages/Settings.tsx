@@ -23,6 +23,7 @@ import { Switch } from '../components/ui/switch';
 import { buttonVariants } from '../components/ui/button';
 import { cn } from '../components/ui/utils';
 import { MaintenanceIntervalsSettings } from '../components/MaintenanceIntervalsSettings';
+import { SoftwareUpdateSettings } from '../components/SoftwareUpdateSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { ADMIN_USERNAME } from '../lib/runtimeConfig';
 import { Printer, PrinterProfile } from '../types';
@@ -99,6 +100,7 @@ export function Settings() {
   const [printerIpAddress, setPrinterIpAddress] = useState('');
   const [printerApiKeyHeader, setPrinterApiKeyHeader] = useState('');
   const [printerSerial, setPrinterSerial] = useState('');
+  const [printerPrintHours, setPrinterPrintHours] = useState('');
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -291,6 +293,8 @@ export function Settings() {
     const normalizedIpAddress = printerIpAddress.trim();
     const normalizedApiKeyHeader = printerApiKeyHeader.trim();
     const normalizedSerial = printerSerial.trim();
+    const parsedHours = Number(printerPrintHours);
+    const seedHours = Number.isFinite(parsedHours) && parsedHours > 0 ? parsedHours : 0;
     const profileConfig = PRINTER_PROFILES[printerProfile];
 
     if (!normalizedName || !normalizedIpAddress || !normalizedApiKeyHeader) {
@@ -332,6 +336,11 @@ export function Settings() {
       lastMaintenance: new Date().toISOString().slice(0, 10),
       totalPrintTime: 0,
       successRate: 100,
+      // Optional starting print-hour reading for an already-used printer. Seeds
+      // both the lifetime and nozzle maintenance counters (server honors these
+      // on create only).
+      totalPrintHours: seedHours,
+      currentNozzleHours: seedHours,
     };
 
     try {
@@ -342,6 +351,7 @@ export function Settings() {
       setPrinterIpAddress('');
       setPrinterApiKeyHeader('');
       setPrinterSerial('');
+      setPrinterPrintHours('');
       toast.success('Printer added', {
         description: 'Status will switch from offline once a live status check succeeds.',
       });
@@ -1140,6 +1150,23 @@ export function Settings() {
                   </p>
                 </div>
               )}
+
+              <div className="space-y-2">
+                <Label htmlFor="printer-print-hours">Print Hours (optional)</Label>
+                <Input
+                  id="printer-print-hours"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  inputMode="decimal"
+                  value={printerPrintHours}
+                  onChange={(event) => setPrinterPrintHours(event.target.value)}
+                  placeholder="0"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Starting lifetime print hours for an already-used printer; leave blank for a new machine. Seeds the maintenance schedule.
+                </p>
+              </div>
 
               <Button type="submit">Add Printer</Button>
             </form>
@@ -2030,7 +2057,10 @@ export function Settings() {
         </TabsContent>
 
         <TabsContent value="maintenance">
-          <MaintenanceIntervalsSettings />
+          <div className="space-y-6">
+            {user?.role === 'admin' && <SoftwareUpdateSettings />}
+            <MaintenanceIntervalsSettings />
+          </div>
         </TabsContent>
 
         <TabsContent value="home-assistant">

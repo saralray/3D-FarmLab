@@ -967,6 +967,59 @@ const distDir = path.resolve(__dirname, '..', 'dist');
 // Hash of dist/index.html, set once in assertProductionInputs(). Changes on
 // every new deploy so the frontend's version poll can prompt users to reload.
 let BUILD_ID = 'dev';
+
+// Git commit SHA baked into the image at build time (Dockerfile.web ARG
+// APP_VERSION, passed by CI as ${{ github.sha }}). This is the *running*
+// version the admin update check compares against the latest published commit.
+// Falls back to BUILD_ID ('dev' for local runs) when not stamped.
+const APP_VERSION = (process.env.APP_VERSION || '').trim();
+function runningVersion() {
+  return APP_VERSION || BUILD_ID;
+}
+
+// Admin "update available" check config. UPDATE_CHECK_REPO ("owner/repo") turns
+// the feature on; when unset the endpoint reports { enabled: false } and the UI
+// hides the card. UPDATE_CHECK_TOKEN (optional) lifts GitHub's 60-req/hr
+// unauthenticated limit / reaches private repos. The one-click apply calls a
+// Watchtower sidecar's HTTP API (WATCHTOWER_URL + WATCHTOWER_TOKEN).
+const UPDATE_CHECK_REPO = (process.env.UPDATE_CHECK_REPO || '').trim();
+const UPDATE_CHECK_BRANCH = (process.env.UPDATE_CHECK_BRANCH || 'main').trim();
+const UPDATE_CHECK_TOKEN = (process.env.UPDATE_CHECK_TOKEN || '').trim();
+const UPDATE_CHECK_TTL_MS = Number.parseInt(process.env.UPDATE_CHECK_TTL_MS || String(20 * 60 * 1000), 10);
+const WATCHTOWER_URL = (process.env.WATCHTOWER_URL || 'http://watchtower:8080/v1/update').trim();
+const WATCHTOWER_TOKEN = (process.env.WATCHTOWER_TOKEN || '').trim();
+// Cached latest-commit lookup, shared across admins so GitHub is polled at most
+// once per TTL regardless of how many browsers are watching.
+let updateCheckCache = null; // { latest, latestCommittedAt, checkedAt }
+
+async function fetchLatestCommit() {
+  if (!UPDATE_CHECK_REPO) return null;
+  const now = Date.now();
+  if (updateCheckCache && now - updateCheckCache.checkedAt < UPDATE_CHECK_TTL_MS) {
+    return updateCheckCache;
+  }
+  const url = `https://api.github.com/repos/${UPDATE_CHECK_REPO}/commits/${encodeURIComponent(UPDATE_CHECK_BRANCH)}`;
+  const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'printfarm-update-check' };
+  if (UPDATE_CHECK_TOKEN) headers.Authorization = `Bearer ${UPDATE_CHECK_TOKEN}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const resp = await fetch(url, { headers, signal: controller.signal });
+    if (!resp.ok) {
+      throw new Error(`GitHub responded ${resp.status}`);
+    }
+    const data = await resp.json();
+    const latest = typeof data?.sha === 'string' ? data.sha : null;
+    if (!latest) throw new Error('GitHub response missing sha');
+    const latestCommittedAt =
+      data?.commit?.committer?.date || data?.commit?.author?.date || null;
+    updateCheckCache = { latest, latestCommittedAt, checkedAt: now };
+    return updateCheckCache;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const port = Number.parseInt(process.env.PORT || '5173', 10);
 const host = process.env.HOST || '0.0.0.0';
 const maxBodyBytes = Number.parseInt(process.env.MAX_BODY_BYTES || String(1024 * 1024), 10);
@@ -1493,6 +1546,9 @@ function isSensitiveRead(pathname) {
   if (pathname === '/api/audit-logs') {
     return true;
   }
+  if (pathname === '/api/admin/update-status') {
+    return true; // software-update status is admin-only (not viewer-readable)
+  }
   if (pathname.startsWith('/api/notifications/')) {
     return true; // Discord webhook URLs are secrets
   }
@@ -1517,6 +1573,7 @@ function isAdminMutation(method, pathname) {
   if (pathname === '/api/slicer-keys' && method === 'POST') return true;
   if (pathname.startsWith('/api/slicer-keys/') && method === 'DELETE') return true;
   if (pathname === '/api/admin/credential' && method === 'PUT') return true;
+  if (pathname === '/api/admin/update/apply' && method === 'POST') return true;
   if (pathname.startsWith('/api/notifications/')) return true;
   if (pathname === '/api/settings/saml' || pathname === '/api/settings/saml/test') return true;
   if (pathname.startsWith('/api/settings/') && method !== 'GET') return true;
@@ -4306,6 +4363,85 @@ async function handleApi(req, res, requestUrl) {
     // resulting (typically read-only) browser is gated by the same cookie.
     await issueSession(req, res, user, { remember: true });
     sendJson(res, 200, { user });
+    return true;
+  }
+
+  // Admin software-update check. Compares the running image's baked commit SHA
+  // against the latest commit on the configured GitHub branch (cached ~20 min),
+  // so an admin sees "update available" without SSH-ing into the host. Admin-only
+  // (classified in isSensitiveRead); reveals no secrets.
+  if (requestUrl.pathname === '/api/admin/update-status' && req.method === 'GET') {
+    const current = runningVersion();
+    if (!UPDATE_CHECK_REPO) {
+      sendJson(res, 200, { enabled: false, current }, 'no-store');
+      return true;
+    }
+    try {
+      const info = await fetchLatestCommit();
+      const latest = info?.latest || null;
+      // Treat a commit as an update only when we know both sides and they differ.
+      // A short SHA baked at build time still matches via prefix comparison.
+      const updateAvailable = Boolean(
+        latest && current && current !== 'dev' && !latest.startsWith(current) && !current.startsWith(latest),
+      );
+      sendJson(
+        res,
+        200,
+        {
+          enabled: true,
+          current,
+          latest,
+          updateAvailable,
+          latestCommittedAt: info?.latestCommittedAt || null,
+          checkedAt: info ? new Date(info.checkedAt).toISOString() : null,
+          canApply: WATCHTOWER_TOKEN.length > 0,
+        },
+        'no-store',
+      );
+    } catch (err) {
+      sendJson(res, 200, { enabled: true, current, error: 'update check failed' }, 'no-store');
+    }
+    return true;
+  }
+
+  // One-click apply: trigger the Watchtower sidecar to pull the newer :latest
+  // images and recreate the app containers. Admin-only (isAdminMutation) and
+  // audited. The web container is typically recreated mid-flight, so the client
+  // treats a dropped response as "update started".
+  if (requestUrl.pathname === '/api/admin/update/apply' && req.method === 'POST') {
+    if (!WATCHTOWER_TOKEN) {
+      sendJson(res, 503, { error: 'One-click update is not configured on this host' });
+      return true;
+    }
+    const session = await resolveSession(req);
+    await recordAuditLog({
+      actorName: session ? session.name : null,
+      actorUsername: session ? session.username : null,
+      actorRole: session ? session.role : null,
+      action: 'software.update.apply',
+      target: UPDATE_CHECK_REPO || null,
+      details: { current: runningVersion(), latest: updateCheckCache?.latest || null },
+      source: 'web',
+      ip: getClientIp(req),
+    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const resp = await fetch(WATCHTOWER_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${WATCHTOWER_TOKEN}` },
+        signal: controller.signal,
+      });
+      if (!resp.ok) {
+        sendJson(res, 502, { error: `Updater responded ${resp.status}` });
+        return true;
+      }
+      sendJson(res, 202, { started: true });
+    } catch (err) {
+      sendJson(res, 502, { error: 'Could not reach the updater service' });
+    } finally {
+      clearTimeout(timer);
+    }
     return true;
   }
 

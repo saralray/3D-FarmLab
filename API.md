@@ -127,6 +127,11 @@ in redacted/public-viewer responses.
 }
 ```
 
+Optional `totalPrintHours` and `currentNozzleHours` (doubles, hours) seed the
+printer's preventive-maintenance clock for an already-used machine. They are
+**honored on create only** — on an edit/reorder they are ignored so the poller's
+accrued hours aren't overwritten.
+
 **Command body (example):**
 ```json
 { "command": "pause" }
@@ -512,11 +517,11 @@ classified below requires an admin session.
 | Class | Who | Examples |
 | --- | --- | --- |
 | **public read** | anyone | `GET /api/printers`, `GET /api/queue`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/summary`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, `GET /api/settings/favicon`, branding/layout reads |
-| **admin read** | admin only | `GET /api/users`, `GET /api/slicer-keys`, `GET /api/audit-logs`, `GET /api/notifications/*`, `GET /api/manager/requests`, `GET /api/settings/saml`, `GET /api/settings/home-assistant*` |
+| **admin read** | admin only | `GET /api/users`, `GET /api/slicer-keys`, `GET /api/audit-logs`, `GET /api/admin/update-status`, `GET /api/notifications/*`, `GET /api/manager/requests`, `GET /api/settings/saml`, `GET /api/settings/home-assistant*` |
 | **public mutation** | anyone | `POST /api/queue/submit` (student intake), `POST /api/manager/request`, the auth endpoints above |
 | **operator** | operator or admin | `POST /api/printers` (create/edit/reorder), `POST /api/printers/:id/command`, `POST /api/queue/:id/printed`, `POST /api/maintenance/:id/complete`, `POST /api/maintenance/notifications/read` |
 | **authed** | any session | `POST /api/audit-logs` (actor is taken from the session, not the body) |
-| **admin** | admin only | `DELETE /api/printers/:id`, `DELETE /api/queue/:id`, `/api/queue/reset`, `/api/analytics/daily/reset`, all `/api/users/*` writes, all `/api/slicer-keys` writes, `/api/notifications/*` writes, `/api/settings/*` writes, manager request approve/deny/delete |
+| **admin** | admin only | `DELETE /api/printers/:id`, `DELETE /api/queue/:id`, `/api/queue/reset`, `/api/analytics/daily/reset`, all `/api/users/*` writes, all `/api/slicer-keys` writes, `/api/notifications/*` writes, `/api/settings/*` writes, `POST /api/admin/update/apply`, manager request approve/deny/delete |
 
 > **Connection-secret redaction:** `GET /api/printers` and `GET /api/printers/:id`
 > return connection fields (`ipAddress`, `apiKeyHeader`, `serial`, `url`) only to
@@ -538,6 +543,17 @@ Denials return `401` (no/expired session) or `403` (insufficient role).
 ### Version endpoint
 
 `GET /api/version` — **public, no auth**. Returns `{ buildId: string }` where `buildId` is a 16-hex-char SHA-256 of `dist/index.html`, computed once at server startup. Changes on every new deploy. Cached `no-store`. The frontend polls this every 5 minutes and prompts users to reload when the value changes. Suppressed from access logs (treated as a quiet probe alongside `/healthz`).
+
+### Software update (admin — Settings → Maintenance)
+
+Lets a deployed site detect that a newer version has been published and (when a Watchtower sidecar is wired up) apply it in place. Both are **admin only** (cookie session); the apply is CSRF same-origin-gated and audited.
+
+| Method & path | Description |
+|---------------|-------------|
+| `GET /api/admin/update-status` | Compares the running image's baked commit SHA against the latest commit on the tracked GitHub branch (cached ~20 min server-side). Returns `{ enabled, current, latest, updateAvailable, latestCommittedAt, checkedAt, canApply }`. When `UPDATE_CHECK_REPO` is unset → `{ enabled: false, current }`. On an upstream failure → `{ enabled: true, current, error }`. `canApply` reflects whether `WATCHTOWER_TOKEN` is configured. Cached `no-store`. |
+| `POST /api/admin/update/apply` | Triggers the Watchtower sidecar (`WATCHTOWER_URL` + `WATCHTOWER_TOKEN`) to pull the newer `:latest` images and recreate the app containers. `202 { started: true }` on success; `503` when no updater is configured; `502` when the updater is unreachable. Writes an audit-log entry (`action: software.update.apply`). The `web` container is typically recreated mid-request. |
+
+Version detection relies on `APP_VERSION` (the git SHA baked into the image by `.github/workflows/deploy.yml`); the one-click apply relies on `docker-compose.deploy.yml` (pulls published images + runs the Watchtower sidecar). Both are documented in `.env.example`.
 
 ### Maintenance (frontend `/api/*`)
 

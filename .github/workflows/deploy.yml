@@ -34,12 +34,14 @@ jobs:
           docker build \
             -f Dockerfile.web \
             --build-arg VITE_PUBLIC_VIEWER_MODE='${{ vars.PUBLIC_VIEWER_MODE || 'false' }}' \
+            --build-arg APP_VERSION='${{ github.sha }}' \
             -t "${IMAGE_PREFIX}/printfarm-web:latest" .
 
       - name: Build poller image
         run: |
           docker build \
-            -f Dockerfile.poller \
+            -f Dockerfile.go \
+            --build-arg SERVICE=poller \
             -t "${IMAGE_PREFIX}/printfarm-poller:latest" .
 
       - name: Build nginx image
@@ -51,8 +53,15 @@ jobs:
       - name: Build exporter image
         run: |
           docker build \
-            -f Dockerfile.exporter \
+            -f Dockerfile.go \
+            --build-arg SERVICE=exporter \
             -t "${IMAGE_PREFIX}/printfarm-exporter:latest" .
+
+      - name: Build slicer-proxy image
+        run: |
+          docker build \
+            -f Dockerfile.slicer-proxy \
+            -t "${IMAGE_PREFIX}/printfarm-slicer-proxy:latest" .
 
       - name: Push images
         run: |
@@ -60,3 +69,4 @@ jobs:
           docker push "${IMAGE_PREFIX}/printfarm-poller:latest"
           docker push "${IMAGE_PREFIX}/printfarm-nginx:latest"
           docker push "${IMAGE_PREFIX}/printfarm-exporter:latest"
+          docker push "${IMAGE_PREFIX}/printfarm-slicer-proxy:latest"

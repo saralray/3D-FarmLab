@@ -87,6 +87,23 @@ services:
       # Max size of a model file uploaded through the in-app print-request form
       # (stored in Postgres). The nginx /api/queue/submit body cap should match.
       QUEUE_UPLOAD_MAX_BYTES: ${QUEUE_UPLOAD_MAX_BYTES:-52428800}
+      # Git commit SHA baked into this image (the running version). Normally set by
+      # the CI build; can be overridden here for a locally built image.
+      APP_VERSION: ${APP_VERSION:-}
+      # Admin "update available" check (Settings → Maintenance). Set
+      # UPDATE_CHECK_REPO to "owner/repo" to enable it; the server compares the
+      # running APP_VERSION against the latest commit on UPDATE_CHECK_BRANCH.
+      # UPDATE_CHECK_TOKEN (optional) lifts GitHub's unauthenticated rate limit /
+      # reaches private repos. Empty repo = feature disabled (card hidden).
+      UPDATE_CHECK_REPO: ${UPDATE_CHECK_REPO:-}
+      UPDATE_CHECK_BRANCH: ${UPDATE_CHECK_BRANCH:-main}
+      UPDATE_CHECK_TOKEN: ${UPDATE_CHECK_TOKEN:-}
+      # One-click apply target: the Watchtower sidecar's HTTP API (see
+      # docker-compose.deploy.yml). WATCHTOWER_TOKEN must match the sidecar's
+      # token; empty = the "Update now" button is hidden and the apply endpoint
+      # returns 503.
+      WATCHTOWER_URL: ${WATCHTOWER_URL:-http://watchtower:8080/v1/update}
+      WATCHTOWER_TOKEN: ${WATCHTOWER_TOKEN:-}
 
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5173/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]

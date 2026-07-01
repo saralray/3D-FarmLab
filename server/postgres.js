@@ -666,6 +666,8 @@ export async function upsertPrinter(printer) {
       last_maintenance,
       total_print_time,
       success_rate,
+      total_print_hours,
+      current_nozzle_hours,
       current_job,
       nozzle_temperatures,
       spools,
@@ -688,6 +690,11 @@ export async function upsertPrinter(printer) {
       data->>'lastMaintenance',
       COALESCE((data->>'totalPrintTime')::double precision, 0),
       COALESCE((data->>'successRate')::double precision, 0),
+      -- Optional seed for an already-used printer's maintenance clock. Honored on
+      -- INSERT only (see the ON CONFLICT note below); defaults to 0 for a new
+      -- machine or a payload that omits them.
+      COALESCE((data->>'totalPrintHours')::double precision, 0),
+      COALESCE((data->>'currentNozzleHours')::double precision, 0),
       data->'currentJob',
       data->'nozzleTemperatures',
       data->'spools',
@@ -701,6 +708,10 @@ export async function upsertPrinter(printer) {
       -- deliberately NOT overwritten here: the browser's payload can be several
       -- seconds stale (or API-rounded), so writing it back would clobber the
       -- poller's fresh values and flicker the UI until the next poll corrects it.
+      -- total_print_hours / current_nozzle_hours are likewise omitted here: they
+      -- are seeded only on the create path (an admin recording an already-used
+      -- printer's starting hours) and are otherwise accrued by the poller, so an
+      -- edit/reorder must not reset them.
       name = EXCLUDED.name,
       model = EXCLUDED.model,
       sort_order = EXCLUDED.sort_order,

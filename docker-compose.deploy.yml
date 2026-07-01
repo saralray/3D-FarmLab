@@ -1,0 +1,59 @@
+# Production deploy override — pulls the prebuilt images published by
+# .github/workflows/deploy.yml (Docker Hub) instead of building from source, and
+# adds the Watchtower sidecar that powers the admin "Update now" button.
+#
+# Usage on a deployed host:
+#   docker compose -f docker-compose.yml -f docker-compose.deploy.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d
+#
+# Requires in .env:
+#   IMAGE_PREFIX       Docker Hub namespace the images were pushed under
+#                      (the DOCKERHUB_USERNAME used by the workflow).
+#   WATCHTOWER_TOKEN   shared secret; must match the web service's value so the
+#                      web server can trigger an update.
+#   UPDATE_CHECK_REPO  "owner/repo" so the update card knows what to compare.
+#
+# Watchtower can only update containers whose image is *pulled* (not built), which
+# is exactly why this override replaces every app service's `build:` with an
+# `image:` reference. The `!reset null` tag that drops the inherited `build:`
+# needs Docker Compose v2.24.4+ (Jan 2024); on older Compose, delete those
+# `build: !reset null` lines and run with `docker compose pull` first so the
+# pulled image is used instead of a local rebuild.
+services:
+  web:
+    build: !reset null
+    image: ${IMAGE_PREFIX:?set IMAGE_PREFIX to the Docker Hub namespace}/printfarm-web:latest
+
+  nginx:
+    build: !reset null
+    image: ${IMAGE_PREFIX:?set IMAGE_PREFIX}/printfarm-nginx:latest
+
+  poller:
+    build: !reset null
+    image: ${IMAGE_PREFIX:?set IMAGE_PREFIX}/printfarm-poller:latest
+
+  exporter:
+    build: !reset null
+    image: ${IMAGE_PREFIX:?set IMAGE_PREFIX}/printfarm-exporter:latest
+
+  slicer-proxy:
+    build: !reset null
+    image: ${IMAGE_PREFIX:?set IMAGE_PREFIX}/printfarm-slicer-proxy:latest
+
+  # On-demand updater. Runs no periodic poll — it only acts when the web server
+  # POSTs to its HTTP API (the admin's "Update now" click), then pulls the newer
+  # :latest images and recreates the changed containers.
+  #
+  # SECURITY: this container holds the Docker socket, so it must never be
+  # published to the host. Only the internal `web` service reaches its :8080 over
+  # the compose network. Keep WATCHTOWER_TOKEN secret.
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - "--http-api-update"
+      - "--cleanup"
+      - "--http-api-token"
+      - "${WATCHTOWER_TOKEN:?set WATCHTOWER_TOKEN to enable one-click updates}"

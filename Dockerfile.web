@@ -20,6 +20,12 @@ FROM node:20-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV PORT=5173
 
+# Git commit SHA this image was built from (passed by CI, defaults to "dev" for
+# local builds). The server exposes it as the running version so the admin
+# "update available" check can compare it against the latest published commit.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
 WORKDIR /app
 
 # ffmpeg grabs JPEG snapshots from the Bambu H2/X1-class RTSP-over-TLS camera

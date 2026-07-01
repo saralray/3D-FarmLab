@@ -100,6 +100,7 @@ Browser → nginx:8080 → Node web:5173
 
 ## Guidelines
 
+- **Feature branches:** Always create a new git branch before starting work on a new feature (never commit new feature work directly to `main`). When the feature is finished, ask the user whether to merge the branch back into `main` — do not merge without their confirmation.
 - Prefer Docker Compose for full-stack validation; npm scripts for frontend-only checks
 - When changing poller or database behavior, verify interaction with `docker-compose.yml` env vars
 - Do not commit `.env`; document defaults in `.env.example`
