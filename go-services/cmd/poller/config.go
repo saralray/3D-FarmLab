@@ -11,7 +11,7 @@ import (
 // ── Runtime configuration, mirroring printer_status_poller.py's module globals ──
 
 var (
-	pollInterval   = durationFromMs("PRINTER_POLL_INTERVAL_MS", 5000, 1000)
+	pollInterval   = durationFromMs("PRINTER_POLL_INTERVAL_MS", 2000, 1000)
 	requestTimeout = durationFromMs("PRINTER_REQUEST_TIMEOUT_MS", 3000, 1000)
 	offlineGrace   = time.Duration(envInt("PRINTER_OFFLINE_GRACE_SECONDS", 30, 0)) * time.Second
 	// Force a write at most this stale even when telemetry is unchanged (0 = write every cycle).
