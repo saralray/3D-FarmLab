@@ -1251,7 +1251,7 @@ export function PrinterDetail() {
       {printer.errorMessage && (
         <div
           role="alert"
-          className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          className="flex items-start gap-3 rounded-lg border-2 border-destructive bg-card px-4 py-3 text-sm text-destructive"
         >
           <AlertCircle className="size-5 shrink-0 mt-0.5" />
           <div className="min-w-0">
