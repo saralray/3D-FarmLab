@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -13,7 +12,8 @@ import {
 
 // Admin editor for the global default service intervals. These seed every new
 // printer's schedule and backfill existing printers on the next worker pass.
-export function MaintenanceIntervalsSettings() {
+// Rendered inside the Maintenance page's "Edit intervals" dialog.
+export function MaintenanceIntervalsSettings({ onSaved }: { onSaved?: () => void } = {}) {
   const [intervals, setIntervals] = useState<MaintenanceInterval[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -66,6 +66,7 @@ export function MaintenanceIntervalsSettings() {
       const saved = await saveMaintenanceIntervals(cleaned);
       setIntervals(saved);
       toast.success('Maintenance intervals saved');
+      onSaved?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save intervals');
     } finally {
@@ -74,14 +75,11 @@ export function MaintenanceIntervalsSettings() {
   };
 
   return (
-    <Card className="p-6 space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold dark:text-white">Default Maintenance Intervals</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          Service tasks generated for every printer as it accumulates print hours. Changes seed new
-          printers immediately and backfill existing printers within a few minutes.
-        </p>
-      </div>
+    <div className="space-y-4">
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Service tasks generated for every printer as it accumulates print hours. Changes seed new
+        printers immediately and backfill existing printers within a few minutes.
+      </p>
 
       {loading ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
@@ -137,6 +135,6 @@ export function MaintenanceIntervalsSettings() {
           </div>
         </div>
       )}
-    </Card>
+    </div>
   );
 }

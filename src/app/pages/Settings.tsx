@@ -22,7 +22,6 @@ import { Checkbox } from '../components/ui/checkbox';
 import { Switch } from '../components/ui/switch';
 import { buttonVariants } from '../components/ui/button';
 import { cn } from '../components/ui/utils';
-import { MaintenanceIntervalsSettings } from '../components/MaintenanceIntervalsSettings';
 import { SoftwareUpdateSettings } from '../components/SoftwareUpdateSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { ADMIN_USERNAME } from '../lib/runtimeConfig';
@@ -86,7 +85,7 @@ const SETTINGS_TABS = [
   { value: 'notifications', label: 'Notifications', icon: Bell },
   { value: 'slicer-upload', label: 'API Keys', icon: KeyRound },
   { value: 'managers', label: 'Managers', icon: MonitorCheck },
-  { value: 'maintenance', label: 'Maintenance', icon: Wrench },
+  { value: 'maintenance', label: 'System', icon: Wrench },
   { value: 'home-assistant', label: 'Home Assistant', icon: House },
   { value: 'sign-in', label: 'Sign-in', icon: Shield },
 ] as const;
@@ -2059,7 +2058,6 @@ export function Settings() {
         <TabsContent value="maintenance">
           <div className="space-y-6">
             {user?.role === 'admin' && <SoftwareUpdateSettings />}
-            <MaintenanceIntervalsSettings />
           </div>
         </TabsContent>
 

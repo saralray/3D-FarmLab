@@ -7,6 +7,7 @@ import {
   CheckCircle,
   History,
   Gauge,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -36,6 +37,7 @@ import {
   type HealthStatus,
 } from '../lib/maintenanceApi';
 import { getPrinterNozzleCount } from '../lib/printerProfiles';
+import { MaintenanceIntervalsSettings } from '../components/MaintenanceIntervalsSettings';
 
 const REFRESH_INTERVAL_MS = 15000;
 
@@ -95,6 +97,7 @@ export function Maintenance() {
   const [completeTarget, setCompleteTarget] = useState<MaintenanceEvent | null>(null);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [intervalsOpen, setIntervalsOpen] = useState(false);
 
   const printerById = useMemo(() => {
     const map = new Map<string, (typeof printers)[number]>();
@@ -152,9 +155,17 @@ export function Maintenance() {
 
   return (
     <div className="space-y-6 p-4 lg:p-6">
-      <div>
-        <h1 className="text-3xl font-bold mb-2 dark:text-white">Maintenance</h1>
-        <p className="text-gray-600 dark:text-gray-400">Fleet health, pending tasks, and maintenance history</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold mb-2 dark:text-white">Maintenance</h1>
+          <p className="text-gray-600 dark:text-gray-400">Fleet health, pending tasks, and maintenance history</p>
+        </div>
+        {!readOnly && (
+          <Button variant="outline" onClick={() => setIntervalsOpen(true)}>
+            <SlidersHorizontal className="size-4" />
+            Edit intervals
+          </Button>
+        )}
       </div>
 
       {/* Fleet summary widgets */}
@@ -348,6 +359,16 @@ export function Maintenance() {
               {submitting ? 'Saving…' : 'Mark Completed'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit default maintenance intervals dialog */}
+      <Dialog open={intervalsOpen} onOpenChange={setIntervalsOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Default Maintenance Intervals</DialogTitle>
+          </DialogHeader>
+          <MaintenanceIntervalsSettings onSaved={() => setIntervalsOpen(false)} />
         </DialogContent>
       </Dialog>
     </div>
