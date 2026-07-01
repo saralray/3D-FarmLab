@@ -311,6 +311,43 @@ function CameraHealthBadge({
 const CONTROL_GLOW =
   'hover:bg-blue-50! hover:text-blue-600! dark:hover:bg-blue-900/30! dark:hover:text-blue-400!';
 
+// Every live readout on this page (temps, grams, percentages, coordinates,
+// timers) shares this instrument-panel numeral treatment — monospaced with
+// tabular figures, distinct from the prose labels around it, so the page
+// reads like a bank of gauges rather than another settings form.
+const READOUT = 'font-mono tabular-nums';
+
+// A heater's color should reflect how hot it actually is, not the printer's
+// job status (a paused printer with a hot bed is still hot) — this three-stop
+// scale is fixed to 0–max regardless of the current reading, matching how a
+// physical printer's own display colors its heater digits.
+function thermalTextClass(percent: number): string {
+  if (percent >= 66) return 'text-thermal-hot';
+  if (percent >= 33) return 'text-thermal-warm';
+  return 'text-thermal-cold';
+}
+
+// Heater gauge: the track always shows the full cold→warm→hot scale so a
+// glance at *where* the fill ends tells you the temperature, not just a
+// generic percentage bar. `clip-path` reveals a fixed-position slice of that
+// scale rather than restretching a gradient to the current value, so the
+// color at any given fill length is always the same physical temperature.
+function ThermalBar({ percent }: { percent: number }) {
+  const clamped = Math.max(0, Math.min(100, percent));
+  return (
+    <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          background:
+            'linear-gradient(90deg, var(--thermal-cold) 0%, var(--thermal-warm) 50%, var(--thermal-hot) 100%)',
+          clipPath: `inset(0 ${100 - clamped}% 0 0)`,
+        }}
+      />
+    </div>
+  );
+}
+
 const IPV4_PATTERN =
   /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
@@ -710,7 +747,7 @@ export function PrinterDetail() {
     return (
       <div className="p-6">
         <div className="text-center py-12">
-          <p className="text-gray-500 dark:text-gray-400">Printer not found</p>
+          <p className="text-muted-foreground">Printer not found</p>
           <Button onClick={() => navigate('/')} className="mt-4">
             Back to Dashboard
           </Button>
@@ -719,18 +756,37 @@ export function PrinterDetail() {
     );
   }
 
+  // Full utility class names are spelled out per status (rather than built
+  // from an interpolated token) so Tailwind's static source scan can see and
+  // generate them — a template-built class name like `bg-${token}` never
+  // makes it into the compiled CSS.
   const getStatusColor = () => {
     switch (printer.status) {
       case 'printing':
-        return 'text-blue-500';
+        return 'text-status-printing';
       case 'idle':
-        return 'text-green-500';
+        return 'text-status-idle';
       case 'error':
-        return 'text-red-500';
+        return 'text-destructive';
       case 'offline':
-        return 'text-gray-500';
+        return 'text-muted-foreground';
       case 'paused':
-        return 'text-yellow-500';
+        return 'text-status-paused';
+    }
+  };
+
+  const getStatusDotColor = () => {
+    switch (printer.status) {
+      case 'printing':
+        return 'bg-status-printing';
+      case 'idle':
+        return 'bg-status-idle';
+      case 'error':
+        return 'bg-destructive';
+      case 'offline':
+        return 'bg-muted-foreground';
+      case 'paused':
+        return 'bg-status-paused';
     }
   };
 
@@ -1151,8 +1207,10 @@ export function PrinterDetail() {
           <ArrowLeft className="size-5" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold dark:text-white">{printer.name}</h1>
-          <p className="text-gray-600 dark:text-gray-400">{printer.model}</p>
+          <h1 className="text-3xl font-bold">{printer.name}</h1>
+          <p className={`${READOUT} mt-1 inline-block rounded border border-border px-1.5 py-0.5 text-xs uppercase tracking-wide text-muted-foreground`}>
+            {printer.model}
+          </p>
         </div>
         {user?.role === 'admin' && (
           <div className="flex items-center gap-2">
@@ -1183,8 +1241,9 @@ export function PrinterDetail() {
           </div>
         )}
         <div className="flex flex-col items-end gap-2">
-          <Badge className="text-base px-4 py-2 capitalize">
-            {isOnline ? 'online' : 'offline'}
+          <Badge variant="outline" className="gap-2 px-4 py-2 text-base capitalize">
+            <span className={`size-2 rounded-full ${getStatusDotColor()}`} aria-hidden="true" />
+            {isOnline ? printer.status : 'offline'}
           </Badge>
         </div>
       </div>
@@ -1192,7 +1251,7 @@ export function PrinterDetail() {
       {printer.errorMessage && (
         <div
           role="alert"
-          className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200"
+          className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
           <AlertCircle className="size-5 shrink-0 mt-0.5" />
           <div className="min-w-0">
@@ -1203,7 +1262,7 @@ export function PrinterDetail() {
       )}
 
       {isLayoutEditing && (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-muted-foreground">
           Drag the handle on each card to rearrange. Changes apply to every {printer.model} (and other {printer.profile} printers) and save automatically.
         </p>
       )}
@@ -1215,8 +1274,8 @@ export function PrinterDetail() {
         onCommit={handleCommitLayout}
         cards={{
           currentJob: (
-        <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
+        <Card className="p-6">
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <Activity className="size-5" />
             Current Job
           </h2>
@@ -1225,7 +1284,7 @@ export function PrinterDetail() {
             {/* Camera is always shown so staff can watch the printer regardless of job state.
                 A fixed 16:9 box (aspect-video) is shared by every profile so the live feed
                 fills the card edge-to-edge (object-cover) with no black letterbox bars. */}
-            <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-900">
+            <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-border bg-muted">
               {isOnline ? (
                 supportsWebcamStream ? (
                   // Snapmaker's own real-time H264 player (jmuxer → <video>), which
@@ -1255,7 +1314,7 @@ export function PrinterDetail() {
                     />
                     <CameraHealthBadge health={cameraHealth} imageErrored={snapshotErrored} />
                     {snapshotErrored && (
-                      <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                      <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
                         Reconnecting…
                       </div>
                     )}
@@ -1281,14 +1340,14 @@ export function PrinterDetail() {
                       }}
                     />
                     {snapshotErrored && (
-                      <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                      <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
                         Webcam unavailable
                       </div>
                     )}
                   </div>
                 )
               ) : (
-                <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
                   Webcam offline
                 </div>
               )}
@@ -1323,29 +1382,29 @@ export function PrinterDetail() {
               {printer.currentJob ? (
                 <div className="space-y-4">
                   <div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">File</div>
-                    <div className="font-medium text-lg dark:text-white truncate">{printer.currentJob.filename}</div>
+                    <div className="text-sm text-muted-foreground mb-1">File</div>
+                    <div className="font-medium text-lg truncate">{printer.currentJob.filename}</div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Time Remaining</div>
-                      <div className="font-medium flex items-center gap-1 dark:text-white">
+                      <div className="text-sm text-muted-foreground mb-1">Time Remaining</div>
+                      <div className={`${READOUT} font-medium flex items-center gap-1`}>
                         <Clock className="size-4" />
                         {formattedTimeRemaining} h.
                       </div>
                     </div>
                     <div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Printing Time</div>
-                      <div className="font-medium dark:text-white">{formattedPrintingTime} h.</div>
+                      <div className="text-sm text-muted-foreground mb-1">Printing Time</div>
+                      <div className={`${READOUT} font-medium`}>{formattedPrintingTime} h.</div>
                     </div>
                     <div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Filament Used</div>
-                      <div className="font-medium dark:text-white">
+                      <div className="text-sm text-muted-foreground mb-1">Filament Used</div>
+                      <div className={`${READOUT} font-medium`}>
                         {formatMaxTwoDecimals(printer.currentJob.filamentUsed)}g
                         {typeof printer.currentJob.estimatedFilament === 'number' &&
                           printer.currentJob.estimatedFilament > 0 && (
-                            <span className="text-gray-500 dark:text-gray-400">
+                            <span className="text-muted-foreground">
                               {' / '}
                               {formatMaxTwoDecimals(printer.currentJob.estimatedFilament)}g
                             </span>
@@ -1355,7 +1414,7 @@ export function PrinterDetail() {
                   </div>
                 </div>
               ) : (
-                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                <div className="text-center py-8 text-muted-foreground">
                   <CheckCircle className="size-12 mx-auto mb-3 opacity-50" />
                   <p>No active job</p>
                   <p className="text-sm mt-1">This printer is ready for new tasks</p>
@@ -1367,8 +1426,8 @@ export function PrinterDetail() {
                 area, so it sits at the exact same level whether idle or printing. */}
             <div>
               <div className="flex justify-between text-sm mb-2">
-                <span className="text-gray-600 dark:text-gray-400">Progress</span>
-                <span className="font-medium dark:text-white">{formatMaxTwoDecimals(printer.progress)}%</span>
+                <span className="text-muted-foreground">Progress</span>
+                <span className={`${READOUT} font-medium`}>{formatMaxTwoDecimals(printer.progress)}%</span>
               </div>
               <Progress value={printer.progress} className="h-3" />
             </div>
@@ -1422,7 +1481,7 @@ export function PrinterDetail() {
             )}
 
             {printer.currentJob && !canControlPrinter && (
-              <p className="pt-4 text-sm text-gray-500 dark:text-gray-400">
+              <p className="pt-4 text-sm text-muted-foreground">
                 Viewer accounts can monitor jobs but cannot pause, resume, or cancel them.
               </p>
             )}
@@ -1430,8 +1489,8 @@ export function PrinterDetail() {
         </Card>
           ),
           temperature: (
-          <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
+          <Card className="p-6">
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
               <Thermometer className="size-5" />
               Temperature
             </h2>
@@ -1461,7 +1520,7 @@ export function PrinterDetail() {
                         }`}
                       >
                         <span
-                          className={`text-sm text-gray-600 dark:text-gray-400 truncate ${
+                          className={`text-sm text-muted-foreground truncate ${
                             multiNozzle ? 'w-full' : 'min-w-0'
                           }`}
                         >
@@ -1472,7 +1531,9 @@ export function PrinterDetail() {
                             multiNozzle ? '' : 'shrink-0'
                           }`}
                         >
-                          <span className={`font-bold text-lg ${getStatusColor()}`}>
+                          <span
+                            className={`${READOUT} font-bold text-lg ${thermalTextClass((temperature / 250) * 100)}`}
+                          >
                             {formatMaxTwoDecimals(temperature)}°C
                           </span>
                           {canControlTemp && (
@@ -1491,16 +1552,18 @@ export function PrinterDetail() {
                           )}
                         </div>
                       </div>
-                      <Progress value={(temperature / 250) * 100} className="h-2" />
+                      <ThermalBar percent={(temperature / 250) * 100} />
                     </div>
                   );
                 })}
               </div>
               <div>
                 <div className="flex justify-between items-center gap-2 mb-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Bed</span>
+                  <span className="text-sm text-muted-foreground">Bed</span>
                   <div className="flex items-center gap-2">
-                    <span className={`font-bold text-lg ${getStatusColor()}`}>
+                    <span
+                      className={`${READOUT} font-bold text-lg ${thermalTextClass((printer.temperature.bed / 100) * 100)}`}
+                    >
                       {formatMaxTwoDecimals(printer.temperature.bed)}°C
                     </span>
                     {canControlTemp && (
@@ -1517,14 +1580,16 @@ export function PrinterDetail() {
                     )}
                   </div>
                 </div>
-                <Progress value={(printer.temperature.bed / 100) * 100} className="h-2" />
+                <ThermalBar percent={(printer.temperature.bed / 100) * 100} />
               </div>
               {profileHasChamberTemp(printer.profile) && (
                 <div>
                   <div className="flex justify-between items-center gap-2 mb-2">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">Chamber</span>
+                    <span className="text-sm text-muted-foreground">Chamber</span>
                     <div className="flex items-center gap-2">
-                      <span className={`font-bold text-lg ${getStatusColor()}`}>
+                      <span
+                        className={`${READOUT} font-bold text-lg ${thermalTextClass(((printer.temperature.chamber ?? 0) / 60) * 100)}`}
+                      >
                         {formatMaxTwoDecimals(printer.temperature.chamber ?? 0)}°C
                       </span>
                       {canControlTemp && (
@@ -1546,15 +1611,15 @@ export function PrinterDetail() {
                       )}
                     </div>
                   </div>
-                  <Progress value={((printer.temperature.chamber ?? 0) / 60) * 100} className="h-2" />
+                  <ThermalBar percent={((printer.temperature.chamber ?? 0) / 60) * 100} />
                 </div>
               )}
             </div>
           </Card>
           ),
           filament: (
-          <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
+          <Card className="p-6">
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
               <Palette className="size-5" />
               Current Filament
             </h2>
@@ -1587,12 +1652,12 @@ export function PrinterDetail() {
                             }
                           : undefined
                       }
-                      className={`rounded-lg border p-3 transition-colors dark:border-gray-700 ${
+                      className={`rounded-lg border p-3 transition-colors ${
                         isSelectable ? 'cursor-pointer hover:border-primary/60' : ''
                       } ${
                         isSelected
                           ? 'border-primary ring-2 ring-primary/40'
-                          : 'border-gray-200'
+                          : 'border-border'
                       }`}
                     >
                       <div className="flex h-full flex-col gap-3">
@@ -1601,19 +1666,19 @@ export function PrinterDetail() {
                             <FilamentSpoolIcon color={slot.color} />
                           </div>
                           <div>
-                            <div className="font-medium dark:text-white">
+                            <div className="font-medium">
                               {slot.label ?? `${isBambuProfile(printer.profile) ? 'Slot' : 'Tool'} ${slot.slot}`}
                             </div>
-                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                            <div className="text-sm text-muted-foreground">
                               {`${slot.vendor} ${slot.type}`.trim()}{slot.subType ? ` / ${slot.subType}` : ''}
                             </div>
                           </div>
                         </div>
                         {typeof slot.weight === 'number' && slot.weight > 0 && (
                           <div className="space-y-1">
-                            <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
                               <span>Remaining</span>
-                              <span className="font-medium">
+                              <span className={`${READOUT} font-medium`}>
                                 {formatMaxTwoDecimals(slot.remaining ?? 0)}% · {formatMaxTwoDecimals(slot.weight)}g
                               </span>
                             </div>
@@ -1632,8 +1697,8 @@ export function PrinterDetail() {
                   })}
                 </div>
                 {(canControlFilament || canEditFilament) && (
-                  <div className="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
-                    <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="mt-4 border-t border-border pt-4">
+                    <p className="mb-2 text-xs text-muted-foreground">
                       {selectedSlot
                         ? `Selected: ${selectedSlot.label ?? `${isBambuProfile(printer.profile) ? 'Slot' : 'Tool'} ${selectedSlot.slot}`}`
                         : 'Select a filament spool above to load, unload, or edit it.'}
@@ -1683,7 +1748,7 @@ export function PrinterDetail() {
                 )}
               </>
             ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-muted-foreground">
                 No live filament status available.
               </p>
             )}
@@ -1691,15 +1756,15 @@ export function PrinterDetail() {
           ),
           cooling:
             canControlPrinter && printerSupportsCoolingControl(printer) ? (
-            <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
+            <Card className="p-6">
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-xl font-semibold flex items-center gap-2 dark:text-white">
+                <h2 className="text-xl font-semibold flex items-center gap-2">
                   <Fan className="size-5" />
                   Cooling
                 </h2>
                 {supportsAirFilter && (
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">Air Filter</span>
+                    <span className="text-sm text-muted-foreground">Air Filter</span>
                     <Switch
                       checked={airFilterOn}
                       disabled={!canControlCooling || airFilterInFlight}
@@ -1715,8 +1780,8 @@ export function PrinterDetail() {
                   return (
                     <div key={`${printer.id}-fan-${fan.id}`}>
                       <div className="flex justify-between items-center gap-2 mb-2">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">{fan.label}</span>
-                        <span className={`font-bold text-lg ${getStatusColor()}`}>
+                        <span className="text-sm text-muted-foreground">{fan.label}</span>
+                        <span className={`${READOUT} font-bold text-lg`}>
                           {formatMaxTwoDecimals(value)}%
                         </span>
                       </div>
@@ -1749,7 +1814,7 @@ export function PrinterDetail() {
                   );
                 })}
                 {!isOnline && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <p className="text-sm text-muted-foreground">
                     Connect the printer to control its cooling fans.
                   </p>
                 )}
@@ -1757,14 +1822,14 @@ export function PrinterDetail() {
             </Card>
           ) : null,
           motion: canControlMotion ? (
-            <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
-              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
+            <Card className="p-6">
+              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
                 <Move className="size-5" />
                 Motion Control
               </h2>
               <div className="space-y-5">
                 <div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">Step size (mm)</div>
+                  <div className="text-sm text-muted-foreground mb-2">Step size (mm)</div>
                   <div className="grid grid-cols-4 gap-2">
                     {MOTION_STEP_OPTIONS.map((step) => (
                       <Button
@@ -1844,7 +1909,7 @@ export function PrinterDetail() {
                       </Button>
                       <div />
                     </div>
-                    <div className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">X / Y</div>
+                    <div className="mt-2 text-center text-xs text-muted-foreground">X / Y</div>
                   </div>
 
                   <div>
@@ -1872,7 +1937,7 @@ export function PrinterDetail() {
                         <ArrowDown className="size-5" />
                       </Button>
                     </div>
-                    <div className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">Z</div>
+                    <div className="mt-2 text-center text-xs text-muted-foreground">Z</div>
                   </div>
                 </div>
 
@@ -1888,7 +1953,7 @@ export function PrinterDetail() {
                 </Button>
 
                 {!isMotionReady && !isOnline && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <p className="text-sm text-muted-foreground">
                     Connect the printer to control its motion.
                   </p>
                 )}
@@ -1896,59 +1961,59 @@ export function PrinterDetail() {
             </Card>
           ) : null,
           information: (
-          <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
-            <h2 className="text-xl font-semibold mb-4 dark:text-white">Information</h2>
+          <Card className="p-6">
+            <h2 className="text-xl font-semibold mb-4">Information</h2>
             <div className="space-y-3">
               {canViewIpAddress && (
                 <div className="flex items-start gap-2">
-                  <Network className="size-4 mt-0.5 text-gray-400" />
+                  <Network className="size-4 mt-0.5 text-muted-foreground" />
                   <div className="flex-1">
-                    <div className="text-sm text-gray-600 dark:text-gray-400">IP Address</div>
-                    <div className="font-medium dark:text-white">{printer.ipAddress}</div>
+                    <div className="text-sm text-muted-foreground">IP Address</div>
+                    <div className={`${READOUT} font-medium`}>{printer.ipAddress}</div>
                   </div>
                 </div>
               )}
               <div className="flex items-start gap-2">
-                <CheckCircle className="size-4 mt-0.5 text-gray-400" />
+                <CheckCircle className="size-4 mt-0.5 text-muted-foreground" />
                 <div className="flex-1">
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Connection</div>
-                  <div className="font-medium capitalize dark:text-white">
+                  <div className="text-sm text-muted-foreground">Connection</div>
+                  <div className="font-medium capitalize">
                     {isOnline ? 'online' : 'offline'}
                   </div>
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <Activity className="size-4 mt-0.5 text-gray-400" />
+                <Activity className="size-4 mt-0.5 text-muted-foreground" />
                 <div className="flex-1">
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Activity</div>
-                  <div className="font-medium capitalize dark:text-white">{activityLabel}</div>
+                  <div className="text-sm text-muted-foreground">Activity</div>
+                  <div className="font-medium capitalize">{activityLabel}</div>
                 </div>
               </div>
               {canViewSensitiveInfo && (
                 <div className="flex items-start gap-2">
-                  <Activity className="size-4 mt-0.5 text-gray-400" />
+                  <Activity className="size-4 mt-0.5 text-muted-foreground" />
                   <div className="flex-1">
-                    <div className="text-sm text-gray-600 dark:text-gray-400">Profile</div>
-                    <div className="font-medium dark:text-white">{printer.profile}</div>
+                    <div className="text-sm text-muted-foreground">Profile</div>
+                    <div className="font-medium">{printer.profile}</div>
                   </div>
                 </div>
               )}
               {canViewSensitiveInfo && (
                 <div className="flex items-start gap-2">
-                  <KeyRound className="size-4 mt-0.5 text-gray-400" />
+                  <KeyRound className="size-4 mt-0.5 text-muted-foreground" />
                   <div className="flex-1">
-                    <div className="text-sm text-gray-600 dark:text-gray-400">
+                    <div className="text-sm text-muted-foreground">
                       {PRINTER_PROFILES[printer.profile]?.credentialLabel ?? 'API Key Header'}
                     </div>
                     {user?.role === 'admin' && printer.apiKeyHeader ? (
                       <div className="flex items-center gap-2">
-                        <span className="font-medium font-mono dark:text-white break-all">
+                        <span className="font-medium font-mono break-all">
                           {showCredential ? printer.apiKeyHeader : '••••••••'}
                         </span>
                         <button
                           type="button"
                           onClick={() => setShowCredential((v) => !v)}
-                          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 flex-shrink-0"
+                          className="text-muted-foreground hover:text-foreground flex-shrink-0"
                           aria-label={showCredential ? 'Hide credential' : 'Show credential'}
                         >
                           {showCredential ? (
@@ -1959,7 +2024,7 @@ export function PrinterDetail() {
                         </button>
                       </div>
                     ) : (
-                      <div className="font-medium dark:text-white">
+                      <div className="font-medium">
                         {printer.apiKeyHeader ? 'Configured' : 'Not configured'}
                       </div>
                     )}
@@ -1967,10 +2032,10 @@ export function PrinterDetail() {
                 </div>
               )}
               <div className="flex items-start gap-2">
-                <Wrench className="size-4 mt-0.5 text-gray-400" />
+                <Wrench className="size-4 mt-0.5 text-muted-foreground" />
                 <div className="flex-1">
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Last Maintenance</div>
-                  <div className="font-medium dark:text-white">
+                  <div className="text-sm text-muted-foreground">Last Maintenance</div>
+                  <div className="font-medium">
                     {printer.lastMaintenanceAt
                       ? new Date(printer.lastMaintenanceAt).toLocaleString()
                       : printer.lastMaintenance}
@@ -1978,19 +2043,19 @@ export function PrinterDetail() {
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <Clock className="size-4 mt-0.5 text-gray-400" />
+                <Clock className="size-4 mt-0.5 text-muted-foreground" />
                 <div className="flex-1">
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Total Print Time</div>
-                  <div className="font-medium dark:text-white">
+                  <div className="text-sm text-muted-foreground">Total Print Time</div>
+                  <div className={`${READOUT} font-medium`}>
                     {formatMaxTwoDecimals(printer.totalPrintTime)}h
                   </div>
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <CheckCircle className="size-4 mt-0.5 text-gray-400" />
+                <CheckCircle className="size-4 mt-0.5 text-muted-foreground" />
                 <div className="flex-1">
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Success Rate</div>
-                  <div className="font-medium dark:text-white">
+                  <div className="text-sm text-muted-foreground">Success Rate</div>
+                  <div className={`${READOUT} font-medium`}>
                     {formatMaxTwoDecimals(printer.successRate)}%
                   </div>
                 </div>
@@ -2026,7 +2091,7 @@ export function PrinterDetail() {
 
       {user?.role === 'admin' && editDraft && (
         <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-          <DialogContent className="dark:bg-gray-900 dark:border-gray-800">
+          <DialogContent>
             <DialogHeader>
               <DialogTitle>Edit Printer</DialogTitle>
               <DialogDescription>
@@ -2160,7 +2225,7 @@ export function PrinterDetail() {
             if (!open) setFilamentEditSlot(null);
           }}
         >
-          <DialogContent className="dark:bg-gray-900 dark:border-gray-800">
+          <DialogContent>
             <DialogHeader>
               <DialogTitle>Edit Filament</DialogTitle>
               <DialogDescription>
@@ -2237,7 +2302,7 @@ export function PrinterDetail() {
                     onChange={(event) =>
                       setFilamentEditDraft((draft) => ({ ...draft, color: event.target.value }))
                     }
-                    className="h-10 w-16 cursor-pointer rounded border border-gray-300 bg-transparent dark:border-gray-700"
+                    className="h-10 w-16 cursor-pointer rounded border border-input bg-transparent"
                   />
                   <Input
                     value={filamentEditDraft.color}
