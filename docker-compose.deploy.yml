@@ -12,6 +12,18 @@
 #   WATCHTOWER_TOKEN   shared secret; must match the web service's value so the
 #                      web server can trigger an update.
 #   UPDATE_CHECK_REPO  "owner/repo" so the update card knows what to compare.
+#   WATCHTOWER_DOCKER_SOCK  (optional) host path of the Docker socket that
+#                      `docker compose` itself talks to — default assumes a
+#                      normal rootful install at /var/run/docker.sock. On a
+#                      **rootless Docker** host, compose actually manages
+#                      containers through the per-user socket instead (find it
+#                      with `docker context ls` / `docker info | grep -i sock`
+#                      — typically /run/user/<uid>/docker.sock). Bind-mounting
+#                      the wrong one leaves Watchtower unable to see or recreate
+#                      any containers: it can crash-loop with "permission
+#                      denied ... docker.sock" (rootless remaps container root
+#                      to an unprivileged host uid outside the `docker` group)
+#                      or silently manage a different, unrelated daemon.
 #
 # Watchtower can only update containers whose image is *pulled* (not built), which
 # is exactly why this override replaces every app service's `build:` with an
@@ -56,7 +68,7 @@ services:
     environment:
       DOCKER_API_VERSION: ${WATCHTOWER_DOCKER_API_VERSION:-1.44}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${WATCHTOWER_DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
     command:
       - "--http-api-update"
       - "--cleanup"
