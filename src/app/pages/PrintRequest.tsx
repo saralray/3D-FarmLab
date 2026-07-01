@@ -144,7 +144,7 @@ export function PrintRequest() {
       {backgroundDataUrl && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center opacity-40"
+          className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center opacity-70 dark:opacity-40"
           style={{ backgroundImage: `url(${backgroundDataUrl})` }}
         />
       )}
