@@ -73,6 +73,7 @@ import {
   backfillAllMaintenanceSchedules,
   createPendingMaintenanceEvent,
   createMaintenanceNotification,
+  markMaintenanceEventsNotified,
   recalcHealthScore,
   healthStatusFromScore,
 } from './postgres.js';
@@ -5866,27 +5867,48 @@ async function runMaintenanceWorkerPass() {
     const highFailureRate = 100 - (Number(printer.successRate) || 0) > 10;
     const score = recalcHealthScore({ lubricationOverdue, nozzleOverdue, anyTaskOverdue, highFailureRate });
 
-    if (score !== Number(printer.healthScore)) {
+    const previousScore = Number(printer.healthScore);
+    if (score !== previousScore) {
       healthUpdates.push({ id: printer.id, healthScore: score });
     }
 
-    // Notifications (deduped to one open row per printer+kind by the DB index).
-    if (anyTaskOverdue) {
+    // Notify once per task, not once per worker pass. Each pending event carries the
+    // notification kind we last raised for it (notifiedKind); we only alert when a
+    // task first comes due (null → 'due') and once more if it escalates to overdue
+    // ('due'/null → 'overdue'). Servicing the task completes the row; its next
+    // routine is a fresh event with notifiedKind = null, so it alerts again.
+    const overdueToNotify = [];
+    const dueToNotify = [];
+    for (const e of pendingList) {
+      const overdue = totalHours >= (Number(e.triggeredAtHours) || 0) + maintenanceOverdueGrace(e.intervalHours);
+      if (overdue) {
+        if (e.notifiedKind !== 'overdue') overdueToNotify.push(e);
+      } else if (!e.notifiedKind) {
+        dueToNotify.push(e);
+      }
+    }
+    if (overdueToNotify.length > 0) {
       await createMaintenanceNotification({
         printerId: printer.id,
         kind: 'overdue',
         title: `${printer.name}: maintenance overdue`,
-        body: overduePending.map((e) => e.maintenanceType).join(', '),
+        body: overdueToNotify.map((e) => e.maintenanceType).join(', '),
       });
-    } else if (pendingList.length > 0) {
+      await markMaintenanceEventsNotified(overdueToNotify.map((e) => e.id), 'overdue');
+    }
+    if (dueToNotify.length > 0) {
       await createMaintenanceNotification({
         printerId: printer.id,
         kind: 'due',
         title: `${printer.name}: maintenance due`,
-        body: pendingList.map((e) => e.maintenanceType).join(', '),
+        body: dueToNotify.map((e) => e.maintenanceType).join(', '),
       });
+      await markMaintenanceEventsNotified(dueToNotify.map((e) => e.id), 'due');
     }
-    if (score < 70) {
+    // Health alerts fire once per low-health episode: only on the transition below 70
+    // (previous score was healthy), not every pass while it stays low. It re-alerts
+    // after recovering to >= 70 and dropping again.
+    if (score < 70 && (!Number.isFinite(previousScore) || previousScore >= 70)) {
       await createMaintenanceNotification({
         printerId: printer.id,
         kind: 'health',

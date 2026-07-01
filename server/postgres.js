@@ -334,6 +334,17 @@ const MIGRATIONS = [
       ALTER TABLE queue_jobs ADD COLUMN IF NOT EXISTS photo_mime TEXT;
     `,
   },
+  {
+    version: 3,
+    name: 'maintenance-events-notified-kind',
+    // Tracks the last notification kind ('due' | 'overdue') raised for each pending
+    // maintenance event so the 5-minute worker alerts once per task (escalating to
+    // 'overdue' once) instead of re-toasting every pass. A completed task's next
+    // routine is a fresh row with NULL notified_kind, so it alerts again.
+    sql: `
+      ALTER TABLE maintenance_events ADD COLUMN IF NOT EXISTS notified_kind TEXT;
+    `,
+  },
 ];
 
 // Advisory lock id for the migration run (distinct from the baseline's 90210), so
@@ -1919,6 +1930,20 @@ export async function createMaintenanceNotification({ printerId = null, kind, ti
   return result.rows[0] ?? null;
 }
 
+// Stamp the notification kind we've raised for a set of pending maintenance events
+// so the worker doesn't re-alert the same task every pass. Idempotent; only writes
+// when the kind actually changes (null → 'due' → 'overdue').
+export async function markMaintenanceEventsNotified(ids, kind) {
+  await ensureSchema();
+  if (!Array.isArray(ids) || ids.length === 0) return;
+  await query(
+    `UPDATE maintenance_events
+        SET notified_kind = $2
+      WHERE id = ANY($1) AND notified_kind IS DISTINCT FROM $2;`,
+    [ids, kind],
+  );
+}
+
 export async function markMaintenanceNotificationsRead(ids = null) {
   await ensureSchema();
   if (Array.isArray(ids) && ids.length > 0) {
@@ -1950,8 +1975,9 @@ export async function getMaintenanceWorkerData() {
        WHERE enabled = TRUE;`,
     ),
     query(
-      `SELECT printer_id AS "printerId", maintenance_type AS "maintenanceType",
-              interval_hours AS "intervalHours", triggered_at_hours AS "triggeredAtHours"
+      `SELECT id, printer_id AS "printerId", maintenance_type AS "maintenanceType",
+              interval_hours AS "intervalHours", triggered_at_hours AS "triggeredAtHours",
+              notified_kind AS "notifiedKind"
        FROM maintenance_events WHERE status = 'pending';`,
     ),
     query(
