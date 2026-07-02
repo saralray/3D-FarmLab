@@ -578,6 +578,22 @@ overdue task −15, print failure rate >10% −10 (clamped 0–100). Status band
 
 ---
 
+### Network usage (frontend `/api/*`)
+
+Admin-only (like audit logs). Approximate app-layer response traffic by route
+category, backing the **Network** page (Settings-adjacent admin nav). Fed by an
+in-process byte counter (`server/metrics.js`) that's flushed to Postgres
+(`network_usage_daily`) once a minute, so history survives a web-container
+restart. It's an estimate: Node counts response chunk bytes, which excludes
+TLS/HTTP framing overhead and any traffic nginx serves without reaching the app
+(e.g. the Prometheus UI at `/prometheus`).
+
+| Method & path | Description |
+|---------------|-------------|
+| `GET /api/network-usage` | `{ today, monthToDate, daily[], byRoute[], processStartedAt }`. `today`/`monthToDate` are `{ bytes, requests }`. `daily` is the last 30 calendar days, oldest first, zero-filled for days with no traffic. `byRoute` is the last-30-days total per route category (see `classifyRoute` in `server/metrics.js` for the vocabulary — `webcam`, `printer_proxy`, `api_v1`, `api_<resource>`, `static`, `app`, `healthz`, `readyz`, `metrics`), sorted by bytes descending. |
+
+---
+
 ## Manager Access Request API (`/api/manager`)
 
 A separate, **public** endpoint group that lets an external manager app request a
@@ -1268,8 +1284,9 @@ falls back to Postgres/in-memory). Use for load-balancer routing.
 
 Prometheus exposition of the web tier's own request metrics
 (`printfarm_web_http_requests_total`, `printfarm_web_http_request_duration_seconds`,
-`printfarm_web_http_requests_in_flight`, `printfarm_web_resident_memory_bytes`,
-`printfarm_web_start_time_seconds`). **Internal only** — nginx returns `404` for
+`printfarm_web_response_bytes_total`, `printfarm_web_http_requests_in_flight`,
+`printfarm_web_resident_memory_bytes`, `printfarm_web_start_time_seconds`).
+**Internal only** — nginx returns `404` for
 `/metrics` on the public site; Prometheus scrapes `web:5173/metrics` directly
 over the compose network. Carries no secrets. Distinct from the `exporter`
 service, which exposes the print-farm *data* metrics (`printfarm_*`) from Postgres.

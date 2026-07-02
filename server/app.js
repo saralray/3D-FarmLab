@@ -45,6 +45,11 @@ import {
   pingDatabase,
   setQueueJobFile,
   listDailyAnalytics,
+  listNetworkUsageDaily,
+  getNetworkUsageByRoute,
+  getNetworkUsageToday,
+  getNetworkUsageMonthToDate,
+  upsertNetworkUsageDaily,
   listDiscordWebhooks,
   listManagerRequests,
   listPrinters,
@@ -91,9 +96,13 @@ import {
 import { logger } from './logger.js';
 import {
   classifyRoute,
+  getProcessStartSeconds,
   recordRequestEnd,
   recordRequestStart,
+  recordResponseBytes,
   renderMetrics,
+  snapshotBytesByRoute,
+  snapshotRequestsByRoute,
 } from './metrics.js';
 import {
   mintAuthGrant,
@@ -1551,6 +1560,9 @@ function isSensitiveRead(pathname) {
   }
   if (pathname === '/api/admin/update-status') {
     return true; // software-update status is admin-only (not viewer-readable)
+  }
+  if (pathname === '/api/network-usage') {
+    return true; // internal traffic breakdown is admin-only, like audit logs
   }
   if (pathname.startsWith('/api/notifications/')) {
     return true; // Discord webhook URLs are secrets
@@ -3770,6 +3782,26 @@ async function handleApi(req, res, requestUrl) {
     return true;
   }
 
+  // Admin-only (see isSensitiveRead): approximate app-layer traffic by route
+  // class, backing the Network Usage page. "Approximate" because it's Node
+  // counting response chunk bytes, not TLS/HTTP framing or nginx-only paths.
+  if (requestUrl.pathname === '/api/network-usage' && req.method === 'GET') {
+    const [today, monthToDate, daily, byRoute] = await Promise.all([
+      getNetworkUsageToday(),
+      getNetworkUsageMonthToDate(),
+      listNetworkUsageDaily(30),
+      getNetworkUsageByRoute(30),
+    ]);
+    sendJson(res, 200, {
+      today,
+      monthToDate,
+      daily,
+      byRoute,
+      processStartedAt: new Date(getProcessStartSeconds() * 1000).toISOString(),
+    });
+    return true;
+  }
+
   // Read path: cheap DB read of the stored queue.
   if (requestUrl.pathname === '/api/queue') {
     if (req.method === 'GET') {
@@ -5663,6 +5695,24 @@ async function handleRequest(req, res) {
   res.setHeader('X-Request-Id', requestId);
   const startedAt = process.hrtime.bigint();
   recordRequestStart();
+
+  // Tally response bytes per chunk (not just once at the end) so a long-lived
+  // stream — the webcam MJPEG feed above all — shows up in the network-usage
+  // page in near-real time rather than only once the connection closes.
+  const originalWrite = res.write.bind(res);
+  const originalEnd = res.end.bind(res);
+  res.write = (chunk, ...rest) => {
+    if (chunk) {
+      recordResponseBytes(route, Buffer.byteLength(chunk, typeof rest[0] === 'string' ? rest[0] : 'utf8'));
+    }
+    return originalWrite(chunk, ...rest);
+  };
+  res.end = (chunk, ...rest) => {
+    if (chunk) {
+      recordResponseBytes(route, Buffer.byteLength(chunk, typeof rest[0] === 'string' ? rest[0] : 'utf8'));
+    }
+    return originalEnd(chunk, ...rest);
+  };
   // Settle exactly once, on whichever ends the response first: 'finish' (body
   // fully flushed) or 'close' (connection torn down — the only one that fires
   // for some proxied Connection: close responses, and for client aborts). The
@@ -5797,6 +5847,53 @@ setInterval(() => {
     logger.error('expired-session sweep failed', error);
   });
 }, 60 * 60 * 1000).unref();
+
+// ---------------------------------------------------------------------------
+// Network-usage flush worker
+// ---------------------------------------------------------------------------
+// metrics.js keeps cumulative-since-process-start byte/request counters per
+// route in memory (cheap, but lost on restart). This worker periodically
+// diffs those against the last-seen snapshot and persists just the delta into
+// network_usage_daily, so the Network Usage page has history that survives a
+// restart/redeploy. Diffing (rather than writing the running total) also
+// means a stale/duplicate flush is harmless — it just adds zero.
+const lastFlushedBytesByRoute = new Map();
+const lastFlushedRequestsByRoute = new Map();
+
+async function flushNetworkUsagePass() {
+  const bytesNow = snapshotBytesByRoute();
+  const requestsNow = snapshotRequestsByRoute();
+  const routes = new Set([...Object.keys(bytesNow), ...Object.keys(requestsNow)]);
+
+  const deltas = [];
+  for (const route of routes) {
+    const bytes = bytesNow[route] || 0;
+    const requests = requestsNow[route] || 0;
+    const prevBytes = lastFlushedBytesByRoute.get(route) || 0;
+    const prevRequests = lastFlushedRequestsByRoute.get(route) || 0;
+    // A counter smaller than what was last flushed means the process
+    // restarted (metrics.js resets to 0) — treat the current value as the
+    // whole delta rather than going negative.
+    const deltaBytes = bytes >= prevBytes ? bytes - prevBytes : bytes;
+    const deltaRequests = requests >= prevRequests ? requests - prevRequests : requests;
+    lastFlushedBytesByRoute.set(route, bytes);
+    lastFlushedRequestsByRoute.set(route, requests);
+    if (deltaBytes > 0 || deltaRequests > 0) {
+      deltas.push({ route, bytes: deltaBytes, requests: deltaRequests });
+    }
+  }
+
+  if (deltas.length > 0) {
+    await upsertNetworkUsageDaily(deltas);
+  }
+}
+
+const NETWORK_USAGE_FLUSH_INTERVAL_MS = 60 * 1000;
+setInterval(() => {
+  flushNetworkUsagePass().catch((error) => {
+    logger.error('network usage flush failed', error);
+  });
+}, NETWORK_USAGE_FLUSH_INTERVAL_MS).unref();
 
 // ---------------------------------------------------------------------------
 // Preventive-maintenance background worker

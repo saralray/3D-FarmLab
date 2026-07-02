@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { LayoutDashboard, List, BarChart3, LogOut, Settings, ClipboardList, ScrollText, Music, Wrench } from 'lucide-react';
+import { LayoutDashboard, List, BarChart3, LogOut, Settings, ClipboardList, ScrollText, Music, Wrench, Wifi } from 'lucide-react';
 import { PrintRequestDialog } from './PrintRequestDialog';
 import { ThemeToggle } from './ThemeToggle';
 import { NotificationBell } from './NotificationBell';
@@ -73,6 +73,7 @@ export function Navigation() {
   const adminNavItems = !PUBLIC_VIEWER_MODE && user?.role === 'admin'
     ? [
         { path: '/logs', label: 'Activity Log', icon: ScrollText },
+        { path: '/network', label: 'Network', icon: Wifi },
         { path: '/settings', label: 'Settings', icon: Settings },
       ]
     : [];

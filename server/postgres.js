@@ -281,6 +281,19 @@ CREATE INDEX IF NOT EXISTS maintenance_notifications_unread_idx
 CREATE UNIQUE INDEX IF NOT EXISTS maintenance_notifications_open_unique_idx
   ON maintenance_notifications (printer_id, kind)
   WHERE read = FALSE;
+-- Daily response-byte/request rollups by route class (see server/metrics.js
+-- classifyRoute), fed by a periodic in-process flush so the Network Usage page
+-- has history that survives a web-container restart. bytes are approximate —
+-- measured at the app layer (Node writing response chunks), not including TLS/
+-- HTTP framing overhead or any nginx-only traffic (e.g. the Prometheus UI).
+CREATE TABLE IF NOT EXISTS network_usage_daily (
+  usage_date DATE NOT NULL,
+  route TEXT NOT NULL,
+  bytes BIGINT NOT NULL DEFAULT 0,
+  requests BIGINT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (usage_date, route)
+);
 -- Versioned migrations applied after this idempotent baseline (see MIGRATIONS).
 -- This baseline schema is the forward-only "version 0"; ordered migrations record
 -- their version here so each runs exactly once and the DB's schema level is visible.
@@ -810,6 +823,107 @@ export async function listDailyAnalytics(days = 7) {
 export async function resetDailyAnalytics() {
   await ensureSchema();
   await query('TRUNCATE TABLE analytics_daily;');
+}
+
+// Applies in-process byte/request deltas (see server/app.js's periodic flush
+// worker) to today's row per route. Deltas are additive, so a flush that
+// double-runs or races another instance is harmless.
+export async function upsertNetworkUsageDaily(deltas) {
+  if (!Array.isArray(deltas) || deltas.length === 0) {
+    return;
+  }
+  await ensureSchema();
+  for (const { route, bytes, requests } of deltas) {
+    await query(
+      `
+      INSERT INTO network_usage_daily (usage_date, route, bytes, requests, updated_at)
+      VALUES (CURRENT_DATE, $1, $2, $3, NOW())
+      ON CONFLICT (usage_date, route) DO UPDATE SET
+        bytes = network_usage_daily.bytes + EXCLUDED.bytes,
+        requests = network_usage_daily.requests + EXCLUDED.requests,
+        updated_at = NOW();
+    `,
+      [route, bytes, requests],
+    );
+  }
+}
+
+export async function listNetworkUsageDaily(days = 30) {
+  await ensureSchema();
+
+  const result = await query(
+    `
+    WITH dates AS (
+      SELECT generate_series(
+        CURRENT_DATE - (($1::integer - 1) * INTERVAL '1 day'),
+        CURRENT_DATE,
+        INTERVAL '1 day'
+      )::date AS usage_date
+    ),
+    totals AS (
+      SELECT usage_date, SUM(bytes) AS bytes, SUM(requests) AS requests
+      FROM network_usage_daily
+      GROUP BY usage_date
+    )
+    SELECT COALESCE(
+      json_agg(
+        json_build_object(
+          'date', to_char(d.usage_date, 'YYYY-MM-DD'),
+          'bytes', COALESCE(t.bytes, 0),
+          'requests', COALESCE(t.requests, 0)
+        )
+        ORDER BY d.usage_date ASC
+      ),
+      '[]'::json
+    ) AS data
+    FROM dates d
+    LEFT JOIN totals t ON t.usage_date = d.usage_date;
+  `,
+    [Number(days)],
+  );
+
+  return result.rows[0].data;
+}
+
+export async function getNetworkUsageByRoute(days = 30) {
+  await ensureSchema();
+
+  const result = await query(
+    `
+    SELECT route, SUM(bytes)::bigint AS bytes, SUM(requests)::bigint AS requests
+    FROM network_usage_daily
+    WHERE usage_date >= CURRENT_DATE - (($1::integer - 1) * INTERVAL '1 day')
+    GROUP BY route
+    ORDER BY bytes DESC;
+  `,
+    [Number(days)],
+  );
+
+  return result.rows.map((row) => ({
+    route: row.route,
+    bytes: Number(row.bytes),
+    requests: Number(row.requests),
+  }));
+}
+
+export async function getNetworkUsageToday() {
+  await ensureSchema();
+  const result = await query(`
+    SELECT COALESCE(SUM(bytes), 0)::bigint AS bytes, COALESCE(SUM(requests), 0)::bigint AS requests
+    FROM network_usage_daily
+    WHERE usage_date = CURRENT_DATE;
+  `);
+  return { bytes: Number(result.rows[0].bytes), requests: Number(result.rows[0].requests) };
+}
+
+export async function getNetworkUsageMonthToDate() {
+  await ensureSchema();
+  const result = await query(`
+    SELECT COALESCE(SUM(bytes), 0)::bigint AS bytes, COALESCE(SUM(requests), 0)::bigint AS requests
+    FROM network_usage_daily
+    WHERE usage_date >= date_trunc('month', CURRENT_DATE)::date;
+  `);
+  return { bytes: Number(result.rows[0].bytes), requests: Number(result.rows[0].requests) };
 }
 
 export async function upsertQueueJobs(jobs) {
