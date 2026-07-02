@@ -220,6 +220,10 @@ CREATE TABLE IF NOT EXISTS poller_health (
   rows_written INTEGER NOT NULL DEFAULT 0,
   refresh_failures INTEGER NOT NULL DEFAULT 0
 );
+-- Bytes to/from the printers themselves the shard's last cycle (HTTP polling,
+-- Bambu MQTT, Bambu FTP — see go-services/cmd/poller/netbytes.go).
+ALTER TABLE poller_health ADD COLUMN IF NOT EXISTS bytes_out BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE poller_health ADD COLUMN IF NOT EXISTS bytes_in BIGINT NOT NULL DEFAULT 0;
 -- Preventive maintenance: per-printer service schedules. Each printer is seeded
 -- (seedMaintenanceSchedules) with a set of interval-based tasks derived from the
 -- global default-intervals app_setting. interval_hours is the print-hour cadence

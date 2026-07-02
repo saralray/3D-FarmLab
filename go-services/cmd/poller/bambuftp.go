@@ -141,6 +141,7 @@ func fetchBambu3mf(printer, printData pmap, jobName string) []byte {
 		}
 		data, err := io.ReadAll(resp)
 		resp.Close()
+		addBytesIn(len(data))
 		if err == nil && len(data) > 0 {
 			return data
 		}

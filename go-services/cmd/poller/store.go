@@ -121,6 +121,12 @@ CREATE TABLE IF NOT EXISTS poller_health (
   rows_written INTEGER NOT NULL DEFAULT 0,
   refresh_failures INTEGER NOT NULL DEFAULT 0
 );
+-- Bytes to/from the printers themselves this shard's last cycle (HTTP polling,
+-- Bambu MQTT, Bambu FTP) — see netbytes.go. Added after the initial release;
+-- a separate ALTER rather than baking into the CREATE TABLE above so an
+-- existing deployment picks it up without a backfill.
+ALTER TABLE poller_health ADD COLUMN IF NOT EXISTS bytes_out BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE poller_health ADD COLUMN IF NOT EXISTS bytes_in BIGINT NOT NULL DEFAULT 0;
 SELECT pg_advisory_unlock(90210);
 `
 
@@ -341,17 +347,19 @@ func recordSlicerEstimate(ctx context.Context, conn *pgx.Conn, printerID, jobNam
 	return err
 }
 
-func upsertPollerHealth(ctx context.Context, conn *pgx.Conn, cycleDurationMs float64, printersPolled, rowsWritten, refreshFailures int) error {
+func upsertPollerHealth(ctx context.Context, conn *pgx.Conn, cycleDurationMs float64, printersPolled, rowsWritten, refreshFailures int, bytesOut, bytesIn int64) error {
 	_, err := conn.Exec(ctx, `
 		INSERT INTO poller_health (
 		  shard_index, shard_count, last_run_at,
-		  cycle_duration_ms, printers_polled, rows_written, refresh_failures
-		) VALUES ($1, $2, NOW(), $3, $4, $5, $6)
+		  cycle_duration_ms, printers_polled, rows_written, refresh_failures,
+		  bytes_out, bytes_in
+		) VALUES ($1, $2, NOW(), $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (shard_index) DO UPDATE SET
 		  shard_count = EXCLUDED.shard_count, last_run_at = EXCLUDED.last_run_at,
 		  cycle_duration_ms = EXCLUDED.cycle_duration_ms, printers_polled = EXCLUDED.printers_polled,
-		  rows_written = EXCLUDED.rows_written, refresh_failures = EXCLUDED.refresh_failures`,
-		shardIndex, shardCount, cycleDurationMs, printersPolled, rowsWritten, refreshFailures)
+		  rows_written = EXCLUDED.rows_written, refresh_failures = EXCLUDED.refresh_failures,
+		  bytes_out = EXCLUDED.bytes_out, bytes_in = EXCLUDED.bytes_in`,
+		shardIndex, shardCount, cycleDurationMs, printersPolled, rowsWritten, refreshFailures, bytesOut, bytesIn)
 	return err
 }
 

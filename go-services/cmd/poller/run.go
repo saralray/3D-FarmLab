@@ -84,6 +84,12 @@ func run() {
 	for !shuttingDown {
 		cycleStart := time.Now()
 		printersPolled, rowsWritten, refreshFailures := 0, 0, 0
+		// Bytes to/from printers this cycle (HTTP, Bambu MQTT, Bambu FTP — see
+		// netbytes.go). MQTT messages arrive on the client library's own
+		// goroutines, so one landing right at the reset/snapshot boundary can
+		// occasionally get attributed to the neighboring cycle; acceptable
+		// given this whole feature is already approximate.
+		resetCycleBytes()
 
 		err := func() error {
 			var err error
@@ -155,9 +161,10 @@ func run() {
 			}
 
 			printersPolled = len(printers)
+			bytesOut, bytesIn := snapshotCycleBytes()
 			return upsertPollerHealth(ctx, conn,
 				float64(time.Since(cycleStart).Microseconds())/1000.0,
-				printersPolled, rowsWritten, refreshFailures)
+				printersPolled, rowsWritten, refreshFailures, bytesOut, bytesIn)
 		}()
 
 		if err != nil {

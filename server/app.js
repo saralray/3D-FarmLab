@@ -5698,13 +5698,20 @@ async function handleRequest(req, res) {
   const startedAt = process.hrtime.bigint();
   recordRequestStart();
 
-  // Inbound bytes: read once from Content-Length rather than counting actual
-  // request-body chunks, so this can never race with (or steal chunks from)
-  // downstream body parsing — busboy's file-upload stream above all.
-  const requestContentLength = Number(req.headers['content-length']);
-  if (Number.isFinite(requestContentLength) && requestContentLength > 0) {
-    recordRequestBytes(route, requestContentLength);
-  }
+  // Inbound bytes: intercept req's own 'data' emissions rather than adding our
+  // own listener. Adding a listener would switch the stream into flowing mode
+  // immediately, which — if it happens before downstream body parsing (busboy
+  // for uploads, a JSON body reader) attaches its listener — can drop chunks
+  // before the real consumer ever sees them. Wrapping emit only *observes*
+  // bytes as they flow past whatever the real consumer triggers, so this is
+  // exact (actual bytes read) with zero risk of interfering with parsing.
+  const originalReqEmit = req.emit.bind(req);
+  req.emit = (event, ...rest) => {
+    if (event === 'data' && rest[0]) {
+      recordRequestBytes(route, Buffer.byteLength(rest[0]));
+    }
+    return originalReqEmit(event, ...rest);
+  };
 
   // Tally response bytes per chunk (not just once at the end) so a long-lived
   // stream — the webcam MJPEG feed above all — shows up in the network-usage

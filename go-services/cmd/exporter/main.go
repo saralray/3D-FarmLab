@@ -323,7 +323,7 @@ func pollerMetrics(ctx context.Context, conn *pgx.Conn, w *metrics.Writer) error
 		SELECT shard_index, shard_count,
 		       EXTRACT(EPOCH FROM last_run_at),
 		       cycle_duration_ms, printers_polled, rows_written,
-		       refresh_failures
+		       refresh_failures, bytes_out, bytes_in
 		FROM poller_health;`)
 	if err != nil {
 		return err
@@ -331,9 +331,9 @@ func pollerMetrics(ctx context.Context, conn *pgx.Conn, w *metrics.Writer) error
 	defer rows.Close()
 
 	type healthRow struct {
-		shard                     string
-		lastRun, cycleSeconds     float64
-		polled, written, failures float64
+		shard                                        string
+		lastRun, cycleSeconds                        float64
+		polled, written, failures, bytesOut, bytesIn float64
 	}
 	var health []healthRow
 	maxShardCount := 1
@@ -342,7 +342,8 @@ func pollerMetrics(ctx context.Context, conn *pgx.Conn, w *metrics.Writer) error
 		var idx, count *int
 		var lastEpoch, durMs *float64
 		var polled, written, failures *int
-		if err := rows.Scan(&idx, &count, &lastEpoch, &durMs, &polled, &written, &failures); err != nil {
+		var bytesOut, bytesIn *int64
+		if err := rows.Scan(&idx, &count, &lastEpoch, &durMs, &polled, &written, &failures, &bytesOut, &bytesIn); err != nil {
 			return err
 		}
 		shard := "0"
@@ -362,6 +363,12 @@ func pollerMetrics(ctx context.Context, conn *pgx.Conn, w *metrics.Writer) error
 			}
 			return float64(*p)
 		}
+		toF64 := func(p *int64) float64 {
+			if p == nil {
+				return 0
+			}
+			return float64(*p)
+		}
 		health = append(health, healthRow{
 			shard:        shard,
 			lastRun:      f(lastEpoch),
@@ -369,6 +376,8 @@ func pollerMetrics(ctx context.Context, conn *pgx.Conn, w *metrics.Writer) error
 			polled:       toF(polled),
 			written:      toF(written),
 			failures:     toF(failures),
+			bytesOut:     toF64(bytesOut),
+			bytesIn:      toF64(bytesIn),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -399,6 +408,16 @@ func pollerMetrics(ctx context.Context, conn *pgx.Conn, w *metrics.Writer) error
 		w.Gauge("printfarm_poller_refresh_failures",
 			"Printers whose refresh failed (fell back to offline grace) last cycle",
 			h.failures, []string{"shard"}, []string{h.shard})
+	}
+	for _, h := range health {
+		w.Gauge("printfarm_poller_bytes_out",
+			"Bytes the shard sent to printers (HTTP, Bambu MQTT/FTP) in its last cycle",
+			h.bytesOut, []string{"shard"}, []string{h.shard})
+	}
+	for _, h := range health {
+		w.Gauge("printfarm_poller_bytes_in",
+			"Bytes the shard received from printers (HTTP, Bambu MQTT/FTP) in its last cycle",
+			h.bytesIn, []string{"shard"}, []string{h.shard})
 	}
 	w.Gauge("printfarm_poller_shard_count", "Number of poller shards configured",
 		float64(maxShardCount), nil, nil)

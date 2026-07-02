@@ -72,6 +72,9 @@ func (c *bambuClient) onConnect(client mqtt.Client) {
 }
 
 func (c *bambuClient) onMessage(_ mqtt.Client, msg mqtt.Message) {
+	// Count the message as received regardless of whether it parses — the
+	// bytes still arrived over the wire.
+	addBytesIn(len(msg.Payload()))
 	var payload pmap
 	if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
 		return
@@ -97,7 +100,9 @@ func (c *bambuClient) requestPushall() {
 	}
 	c.lastPushall = now
 	c.mu.Unlock()
-	c.client.Publish(c.requestTopic, 0, false, `{"pushing": {"sequence_id": "0", "command": "pushall"}}`)
+	const pushallPayload = `{"pushing": {"sequence_id": "0", "command": "pushall"}}`
+	addBytesOut(len(pushallPayload))
+	c.client.Publish(c.requestTopic, 0, false, pushallPayload)
 }
 
 // latestReport returns the cached report, nudging a pushall when stale, or nil

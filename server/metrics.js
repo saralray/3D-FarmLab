@@ -26,11 +26,10 @@ const durationByRoute = new Map();
 // requestCounts — this feeds both /metrics and the network-usage page's
 // periodic DB flush, neither of which needs the method/status breakdown).
 const bytesByRoute = new Map();
-// Inbound (request body) bytes, by route — approximate: derived from the
-// Content-Length header at request start rather than counting actual chunks,
-// so it can never interfere with body parsing downstream (busboy, JSON
-// readers). Requests without Content-Length (rare for browser uploads) are
-// undercounted, same "approximate" caveat as the rest of this feature.
+// Inbound (request body) bytes, by route. Recorded from the actual bytes read
+// off each request (see the req.emit wrapper in app.js's handleRequest) —
+// exact for whatever the body parser actually consumes; a body no handler
+// ever reads (shouldn't happen for a well-behaved route) wouldn't be seen.
 const bytesInByRoute = new Map();
 const requestsByRoute = new Map();
 let inFlight = 0;
@@ -107,12 +106,8 @@ export function recordResponseBytes(route, bytes) {
   bytesByRoute.set(route, (bytesByRoute.get(route) || 0) + bytes);
 }
 
-// Cumulative-since-process-start snapshots, consumed by the network-usage
-// flush worker (server/app.js) to compute deltas for persistence. Returned as
-// plain objects so the caller can't mutate the live maps.
-// Called once at request start from the Content-Length header (see the note
-// on bytesInByRoute above for why this isn't chunk-counted like the outbound
-// side).
+// Called incrementally as each actual request-body chunk is observed (see the
+// req.emit wrapper in app.js's handleRequest).
 export function recordRequestBytes(route, bytes) {
   if (!bytes) {
     return;
@@ -120,6 +115,9 @@ export function recordRequestBytes(route, bytes) {
   bytesInByRoute.set(route, (bytesInByRoute.get(route) || 0) + bytes);
 }
 
+// Cumulative-since-process-start snapshots, consumed by the network-usage
+// flush worker (server/app.js) to compute deltas for persistence. Returned as
+// plain objects so the caller can't mutate the live maps.
 export function snapshotBytesByRoute() {
   return Object.fromEntries(bytesByRoute);
 }

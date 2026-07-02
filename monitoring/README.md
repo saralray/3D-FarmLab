@@ -167,6 +167,23 @@ All series are namespaced `printfarm_*`. Per-printer metrics carry `id` and
 > counters drop to `0`. Prometheus treats that as a normal counter reset, and
 > `rate()`/`increase()` handle it correctly.
 
+### Poller health (gauge — "last cycle", by `shard`)
+
+Written once per poll cycle per shard to `poller_health` and read fresh by the
+exporter on every scrape. Alert on a stale `last_run` timestamp to detect a
+stalled poller (see `monitoring/prometheus/alerts.yml`).
+
+| Metric | Meaning |
+|--------|---------|
+| `printfarm_poller_last_run_timestamp_seconds` | Unix time of the shard's last completed poll cycle. |
+| `printfarm_poller_cycle_duration_seconds` | Duration of the shard's last poll cycle. |
+| `printfarm_poller_printers_polled` | Printers the shard polled last cycle. |
+| `printfarm_poller_rows_written` | Printer rows the shard wrote to Postgres last cycle. |
+| `printfarm_poller_refresh_failures` | Printers whose refresh failed (fell back to offline grace) last cycle. |
+| `printfarm_poller_bytes_out` | Bytes the shard sent **to the printers themselves** last cycle — HTTP polling, Bambu MQTT, Bambu FTP (`go-services/cmd/poller/netbytes.go`). Distinct from `printfarm_network_usage_*` below, which is the web tier's traffic to browsers/clients. |
+| `printfarm_poller_bytes_in` | Bytes the shard received from the printers last cycle. |
+| `printfarm_poller_shard_count` | Number of poller shards configured (not per-shard). |
+
 ### Network usage (approximate app-layer traffic, by route category)
 
 Sourced from `network_usage_daily` (the web tier's request/response byte
@@ -220,6 +237,9 @@ sum by (route) (rate(printfarm_network_usage_bytes_out_total[24h]))
 
 # Which route category is driving egress today?
 topk(5, printfarm_network_usage_bytes_out_today)
+
+# Poller <-> printer traffic (LAN, not web egress) by shard, last cycle
+sum by (shard) (printfarm_poller_bytes_out + printfarm_poller_bytes_in)
 ```
 
 ## Security notes
