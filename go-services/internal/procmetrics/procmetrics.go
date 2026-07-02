@@ -38,7 +38,7 @@ func Add(w *metrics.Writer) {
 		w.Gauge("process_virtual_memory_bytes", "Virtual memory size in bytes.", vsz, nil, nil)
 	}
 	if cpu, ok := cpuSeconds(); ok {
-		w.Counter("process_cpu_seconds", "Total user and system CPU time spent in seconds.", cpu)
+		w.Counter("process_cpu_seconds", "Total user and system CPU time spent in seconds.", cpu, nil, nil)
 	}
 	if fds, ok := openFDs(); ok {
 		w.Gauge("process_open_fds", "Number of open file descriptors.", fds, nil, nil)

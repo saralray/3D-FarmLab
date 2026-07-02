@@ -167,6 +167,26 @@ All series are namespaced `printfarm_*`. Per-printer metrics carry `id` and
 > counters drop to `0`. Prometheus treats that as a normal counter reset, and
 > `rate()`/`increase()` handle it correctly.
 
+### Network usage (approximate app-layer traffic, by route category)
+
+Sourced from `network_usage_daily` (the web tier's request/response byte
+counters, flushed once a minute — see the admin **Network** page). `route` is
+the same low-cardinality vocabulary as `printfarm_web_*` below (`webcam`,
+`printer_proxy`, `api_v1`, `api_<resource>`, `static`, `app`, ...). Unlike the
+raw `printfarm_web_response_bytes_total`/`printfarm_web_request_bytes_total`
+counters exposed directly by `web:5173/metrics` (which reset whenever the web
+container restarts), these are durable — the exporter re-derives them from
+Postgres on every scrape, so they survive a web redeploy without a counter
+reset.
+
+| Metric | Type | Labels | Meaning |
+|--------|------|--------|---------|
+| `printfarm_network_usage_bytes_out_total` | counter | `route` | Cumulative outbound (response) bytes served, all time. |
+| `printfarm_network_usage_bytes_in_total` | counter | `route` | Cumulative inbound (request) bytes received, all time. |
+| `printfarm_network_usage_requests_total` | counter | `route` | Cumulative requests handled, all time. |
+| `printfarm_network_usage_bytes_out_today` | gauge | `route` | Outbound bytes served today. |
+| `printfarm_network_usage_bytes_in_today` | gauge | `route` | Inbound bytes received today. |
+
 ### Exporter self-metrics (gauge)
 
 | Metric | Meaning |
@@ -194,6 +214,12 @@ printfarm_queue_jobs{state="queued"}
 
 # Alert signal: exporter can't reach the database
 printfarm_scrape_success == 0
+
+# Outbound traffic rate by route category, last 24h
+sum by (route) (rate(printfarm_network_usage_bytes_out_total[24h]))
+
+# Which route category is driving egress today?
+topk(5, printfarm_network_usage_bytes_out_today)
 ```
 
 ## Security notes

@@ -53,12 +53,13 @@ func (w *Writer) Gauge(name, help string, value float64, labelNames, labelValues
 	f.samples = append(f.samples, sample{labelNames, labelValues, value})
 }
 
-// Counter appends a counter sample. Following prometheus_client semantics, the
-// rendered metric name (HELP, TYPE and sample) carries the _total suffix.
-func (w *Writer) Counter(name, help string, value float64) {
+// Counter appends a (optionally labelled) counter sample. Following
+// prometheus_client semantics, the rendered metric name (HELP, TYPE and
+// sample) carries the _total suffix. Pass nil, nil for an unlabelled counter.
+func (w *Writer) Counter(name, help string, value float64, labelNames, labelValues []string) {
 	full := name + "_total"
 	f := w.family(full, help, "counter")
-	f.samples = append(f.samples, sample{nil, nil, value})
+	f.samples = append(f.samples, sample{labelNames, labelValues, value})
 }
 
 // String renders all families in the Prometheus text exposition format.

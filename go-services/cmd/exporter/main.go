@@ -99,6 +99,9 @@ func build(ctx context.Context, w *metrics.Writer, connectTimeout time.Duration,
 	if err := pollerMetrics(ctx, conn, w); err != nil {
 		return err
 	}
+	if err := networkUsageMetrics(ctx, conn, w); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -254,10 +257,10 @@ func analyticsMetrics(ctx context.Context, conn *pgx.Conn, w *metrics.Writer) er
 		todayAvgPrintTime = todayHours / todayCompleted
 	}
 
-	w.Counter("printfarm_jobs_completed", "Cumulative completed print jobs", totalCompleted)
-	w.Counter("printfarm_jobs_failed", "Cumulative failed print jobs", totalFailed)
-	w.Counter("printfarm_print_time_hours", "Cumulative print time across all jobs, in hours", totalHours)
-	w.Counter("printfarm_filament_grams", "Cumulative filament used across all jobs, in grams", totalFilament)
+	w.Counter("printfarm_jobs_completed", "Cumulative completed print jobs", totalCompleted, nil, nil)
+	w.Counter("printfarm_jobs_failed", "Cumulative failed print jobs", totalFailed, nil, nil)
+	w.Counter("printfarm_print_time_hours", "Cumulative print time across all jobs, in hours", totalHours, nil, nil)
+	w.Counter("printfarm_filament_grams", "Cumulative filament used across all jobs, in grams", totalFilament, nil, nil)
 	w.Gauge("printfarm_jobs_completed_today", "Completed print jobs today", todayCompleted, nil, nil)
 	w.Gauge("printfarm_jobs_failed_today", "Failed print jobs today", todayFailed, nil, nil)
 	w.Gauge("printfarm_print_time_hours_today", "Print time today, in hours", todayHours, nil, nil)
@@ -399,5 +402,97 @@ func pollerMetrics(ctx context.Context, conn *pgx.Conn, w *metrics.Writer) error
 	}
 	w.Gauge("printfarm_poller_shard_count", "Number of poller shards configured",
 		float64(maxShardCount), nil, nil)
+	return nil
+}
+
+// networkUsageMetrics exposes the web tier's approximate app-layer traffic
+// (server/metrics.js counters, flushed once a minute into network_usage_daily
+// — see the Network Usage admin page) as durable Prometheus series: an
+// all-time counter per route/direction that survives web-container restarts
+// (unlike the raw in-process counters at web:5173/metrics, which reset on
+// restart), plus a today gauge for at-a-glance dashboards.
+func networkUsageMetrics(ctx context.Context, conn *pgx.Conn, w *metrics.Writer) error {
+	// Tolerate the table not existing yet (a DB predating this feature).
+	var regclass *string
+	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.network_usage_daily');`).Scan(&regclass); err != nil {
+		return err
+	}
+	if regclass == nil {
+		return nil
+	}
+
+	type usageRow struct {
+		route                       string
+		bytesOut, bytesIn, requests float64
+	}
+
+	totalRows, err := conn.Query(ctx, `
+		SELECT route, SUM(bytes)::float8, SUM(bytes_in)::float8, SUM(requests)::float8
+		FROM network_usage_daily
+		GROUP BY route;`)
+	if err != nil {
+		return err
+	}
+	defer totalRows.Close()
+
+	var totals []usageRow
+	for totalRows.Next() {
+		var row usageRow
+		if err := totalRows.Scan(&row.route, &row.bytesOut, &row.bytesIn, &row.requests); err != nil {
+			return err
+		}
+		totals = append(totals, row)
+	}
+	if err := totalRows.Err(); err != nil {
+		return err
+	}
+
+	for _, r := range totals {
+		w.Counter("printfarm_network_usage_bytes_out",
+			"Cumulative outbound (response) bytes served, by route category",
+			r.bytesOut, []string{"route"}, []string{r.route})
+	}
+	for _, r := range totals {
+		w.Counter("printfarm_network_usage_bytes_in",
+			"Cumulative inbound (request) bytes received, by route category",
+			r.bytesIn, []string{"route"}, []string{r.route})
+	}
+	for _, r := range totals {
+		w.Counter("printfarm_network_usage_requests",
+			"Cumulative requests handled, by route category",
+			r.requests, []string{"route"}, []string{r.route})
+	}
+
+	todayRows, err := conn.Query(ctx, `
+		SELECT route, bytes::float8, bytes_in::float8, requests::float8
+		FROM network_usage_daily
+		WHERE usage_date = CURRENT_DATE;`)
+	if err != nil {
+		return err
+	}
+	defer todayRows.Close()
+
+	var today []usageRow
+	for todayRows.Next() {
+		var row usageRow
+		if err := todayRows.Scan(&row.route, &row.bytesOut, &row.bytesIn, &row.requests); err != nil {
+			return err
+		}
+		today = append(today, row)
+	}
+	if err := todayRows.Err(); err != nil {
+		return err
+	}
+
+	for _, r := range today {
+		w.Gauge("printfarm_network_usage_bytes_out_today",
+			"Outbound (response) bytes served today, by route category",
+			r.bytesOut, []string{"route"}, []string{r.route})
+	}
+	for _, r := range today {
+		w.Gauge("printfarm_network_usage_bytes_in_today",
+			"Inbound (request) bytes received today, by route category",
+			r.bytesIn, []string{"route"}, []string{r.route})
+	}
 	return nil
 }
