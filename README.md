@@ -16,13 +16,6 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 
-<a href="https://github.com/saralray/3D-FarmLab">
-  <img src=".github/assets/repo-card.svg" alt="3D-FarmLab repo stat card" width="440" />
-</a>
-
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/saralray/3D-FarmLab/pulls)
-[![Docker pulls](https://img.shields.io/docker/pulls/saralray/printfarm-web?logo=docker&label=web%20pulls)](https://hub.docker.com/r/saralray/printfarm-web)
-
 </div>
 
 ---
