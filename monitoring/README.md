@@ -293,6 +293,9 @@ sum(rate(printfarm_web_request_bytes_total[$__rate_interval]))   # in
 # stat panel for the current bytes/sec reading.
 sum(irate(printfarm_web_response_bytes_total[5m]))  # out
 sum(irate(printfarm_web_request_bytes_total[5m]))   # in
+
+# Instant throughput right now, combined out+in into one number
+sum(irate(printfarm_web_response_bytes_total[5m])) + sum(irate(printfarm_web_request_bytes_total[5m]))
 ```
 
 ## Security notes

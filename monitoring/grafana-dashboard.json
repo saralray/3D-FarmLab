@@ -251,27 +251,14 @@
     {
       "id": 17,
       "type": "stat",
-      "title": "Instant throughput out",
-      "description": "Instantaneous out rate right now — irate() over just the last two scrapes (job printfarm_web, 15s interval), not averaged across a window like the panel above.",
+      "title": "Instant throughput (total)",
+      "description": "Instantaneous combined out+in rate right now — irate() over just the last two scrapes (job printfarm_web, 15s interval) for both printfarm_web_response_bytes_total (out) and printfarm_web_request_bytes_total (in), summed into one number.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 52 },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 52 },
       "fieldConfig": { "defaults": { "unit": "Bps", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "value", "colorMode": "value", "graphMode": "area", "justifyMode": "auto" },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(irate(printfarm_web_response_bytes_total[5m]))", "legendFormat": "out", "instant": true }
-      ]
-    },
-    {
-      "id": 18,
-      "type": "stat",
-      "title": "Instant throughput in",
-      "description": "Instantaneous in rate right now — irate() over just the last two scrapes (job printfarm_web, 15s interval), not averaged across a window like the panel above.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 52 },
-      "fieldConfig": { "defaults": { "unit": "Bps", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "value", "colorMode": "value", "graphMode": "area", "justifyMode": "auto" },
-      "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(irate(printfarm_web_request_bytes_total[5m]))", "legendFormat": "in", "instant": true }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(irate(printfarm_web_response_bytes_total[5m])) + sum(irate(printfarm_web_request_bytes_total[5m]))", "legendFormat": "total", "instant": true }
       ]
     }
   ]
