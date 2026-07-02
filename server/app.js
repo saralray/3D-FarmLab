@@ -1564,7 +1564,7 @@ function isSensitiveRead(pathname) {
   if (pathname === '/api/admin/update-status') {
     return true; // software-update status is admin-only (not viewer-readable)
   }
-  if (pathname === '/api/network-usage') {
+  if (pathname === '/api/network-usage' || pathname === '/api/network-usage/live') {
     return true; // internal traffic breakdown is admin-only, like audit logs
   }
   if (pathname.startsWith('/api/notifications/')) {
@@ -3804,6 +3804,20 @@ async function handleApi(req, res, requestUrl) {
       poller,
       processStartedAt: new Date(getProcessStartSeconds() * 1000).toISOString(),
     });
+    return true;
+  }
+
+  // Admin-only, cheap in-memory read (no DB query) — safe to poll every couple
+  // of seconds. Returns cumulative-since-process-start totals; the frontend
+  // diffs two samples over the elapsed wall-clock time to derive a live
+  // bytes/sec rate, the same "diff a running counter" approach the 60s DB
+  // flush below uses for history.
+  if (requestUrl.pathname === '/api/network-usage/live' && req.method === 'GET') {
+    const bytesOutByRoute = snapshotBytesByRoute();
+    const bytesInByRoute = snapshotBytesInByRoute();
+    const bytesOut = Object.values(bytesOutByRoute).reduce((sum, value) => sum + value, 0);
+    const bytesIn = Object.values(bytesInByRoute).reduce((sum, value) => sum + value, 0);
+    sendJson(res, 200, { bytesOut, bytesIn, timestamp: Date.now() });
     return true;
   }
 

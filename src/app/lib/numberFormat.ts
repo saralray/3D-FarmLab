@@ -31,3 +31,9 @@ export function formatBytes(bytes: number) {
   }
   return `${formatMaxTwoDecimals(scaled)} ${BYTE_UNITS[unitIndex]}`;
 }
+
+// Same binary-unit formatting as formatBytes, with a "/s" suffix for a live
+// throughput rate (bytes per second).
+export function formatBytesPerSecond(bytesPerSecond: number) {
+  return `${formatBytes(bytesPerSecond)}/s`;
+}

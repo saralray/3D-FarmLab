@@ -64,6 +64,31 @@ export async function fetchNetworkUsage(): Promise<NetworkUsageResponse> {
   return response.json() as Promise<NetworkUsageResponse>;
 }
 
+// Cumulative-since-process-start totals, sampled cheaply (no DB query) so it's
+// safe to poll every couple of seconds. The caller diffs two samples over the
+// elapsed wall-clock time to derive a live bytes/sec rate.
+export interface NetworkUsageLiveSample {
+  bytesOut: number;
+  bytesIn: number;
+  timestamp: number;
+}
+
+export async function fetchNetworkUsageLive(): Promise<NetworkUsageLiveSample> {
+  const response = await fetch('/api/network-usage/live', {
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed with ${response.status}`);
+  }
+
+  return response.json() as Promise<NetworkUsageLiveSample>;
+}
+
 // Friendly labels for the low-cardinality route classes emitted by
 // classifyRoute() in server/metrics.js. Unknown routes fall back to the raw
 // value so a newly added route still renders something sensible.

@@ -23,12 +23,18 @@ import {
 import { toast } from 'sonner';
 import {
   fetchNetworkUsage,
+  fetchNetworkUsageLive,
   routeLabel,
+  type NetworkUsageLiveSample,
   type NetworkUsageResponse,
   type PollerShardTraffic,
 } from '../lib/networkUsageApi';
-import { formatBytes, formatMaxTwoDecimals } from '../lib/numberFormat';
+import { formatBytes, formatBytesPerSecond, formatMaxTwoDecimals } from '../lib/numberFormat';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+
+// How often the live bytes/sec rate is sampled. Cheap (in-memory, no DB
+// query) on the server, so a short interval is fine.
+const LIVE_POLL_MS = 2_000;
 
 // Out (server -> client, e.g. webcam/API responses) and In (client -> server,
 // e.g. print-request/slicer uploads) get distinct, fixed colors throughout —
@@ -68,6 +74,40 @@ function formatDateTime(iso: string): string {
   });
 }
 
+function LiveRateCard({ rateOut, rateIn }: { rateOut: number | null; rateIn: number | null }) {
+  return (
+    <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <span className="relative flex size-2.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-green-500" />
+          </span>
+          <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+            Live — current overall throughput
+          </span>
+        </div>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <ArrowUp className="size-4" style={{ color: COLOR_OUT }} />
+            <span className="text-xl font-bold tabular-nums dark:text-white">
+              {rateOut === null ? '—' : formatBytesPerSecond(rateOut)}
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">out</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <ArrowDown className="size-4" style={{ color: COLOR_IN }} />
+            <span className="text-xl font-bold tabular-nums dark:text-white">
+              {rateIn === null ? '—' : formatBytesPerSecond(rateIn)}
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">in</span>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function OutInLine({ bytesOut, bytesIn }: { bytesOut: number; bytesIn: number }) {
   return (
     <div className="mt-1 space-y-0.5 text-xs text-gray-500 dark:text-gray-400">
@@ -98,6 +138,13 @@ export function NetworkUsage() {
   const hasData = useRef(false);
   const flashTimerRef = useRef<number | undefined>(undefined);
 
+  // Live bytes/sec rate: two cumulative-counter samples diffed over the
+  // elapsed wall-clock time between them, polled independently of (and much
+  // more often than) the historical data above.
+  const [liveRateOut, setLiveRateOut] = useState<number | null>(null);
+  const [liveRateIn, setLiveRateIn] = useState<number | null>(null);
+  const lastLiveSampleRef = useRef<NetworkUsageLiveSample | null>(null);
+
   const load = useCallback(async () => {
     try {
       const next = await fetchNetworkUsage();
@@ -116,6 +163,29 @@ export function NetworkUsage() {
   }, []);
 
   useAutoRefresh(load, 60_000);
+
+  const loadLive = useCallback(async () => {
+    try {
+      const sample = await fetchNetworkUsageLive();
+      const previous = lastLiveSampleRef.current;
+      if (previous) {
+        const elapsedSeconds = (sample.timestamp - previous.timestamp) / 1000;
+        // A counter smaller than the last sample means the process restarted
+        // between polls — clamp to 0 for this one tick rather than showing a
+        // negative rate; the next tick resumes normally.
+        if (elapsedSeconds > 0) {
+          setLiveRateOut(Math.max(0, sample.bytesOut - previous.bytesOut) / elapsedSeconds);
+          setLiveRateIn(Math.max(0, sample.bytesIn - previous.bytesIn) / elapsedSeconds);
+        }
+      }
+      lastLiveSampleRef.current = sample;
+    } catch {
+      // Silent — the main 60s load() already surfaces a connectivity toast;
+      // a live-rate hiccup every 2s shouldn't spam another one.
+    }
+  }, []);
+
+  useAutoRefresh(loadLive, LIVE_POLL_MS);
 
   useEffect(() => {
     return () => window.clearTimeout(flashTimerRef.current);
@@ -170,6 +240,8 @@ export function NetworkUsage() {
           Refresh
         </Button>
       </div>
+
+      <LiveRateCard rateOut={liveRateOut} rateIn={liveRateIn} />
 
       <div
         className={`grid grid-cols-1 gap-4 sm:grid-cols-3 transition-opacity duration-500 ${
