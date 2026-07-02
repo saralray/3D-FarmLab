@@ -510,15 +510,41 @@ export function PrinterDetail() {
       }
     };
 
+    // Pause the interval while the tab is hidden — a backgrounded printer
+    // detail page has no reason to keep polling — and resume with an
+    // immediate refresh when it becomes visible again.
+    let interval: number | undefined;
+    const startInterval = () => {
+      if (interval !== undefined) {
+        return;
+      }
+      interval = window.setInterval(refreshFromServer, 15000);
+    };
+    const stopInterval = () => {
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+        interval = undefined;
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshFromServer();
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+
     refreshFromServer();
-    const interval = window.setInterval(refreshFromServer, 15000);
-    const onVisible = () => { if (document.visibilityState === 'visible') void refreshFromServer(); };
+    if (document.visibilityState === 'visible') {
+      startInterval();
+    }
     window.addEventListener('online', refreshFromServer);
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       isCancelled = true;
-      window.clearInterval(interval);
+      stopInterval();
       window.removeEventListener('online', refreshFromServer);
       document.removeEventListener('visibilitychange', onVisible);
     };
@@ -635,11 +661,39 @@ export function PrinterDetail() {
         if (!cancelled) setCameraHealth(null);
       }
     };
+    // Pause while the tab is hidden — a backgrounded detail page has no
+    // reason to keep polling camera health every 10s.
+    let interval: number | undefined;
+    const startInterval = () => {
+      if (interval !== undefined) {
+        return;
+      }
+      interval = window.setInterval(poll, 10000);
+    };
+    const stopInterval = () => {
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+        interval = undefined;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void poll();
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+
     poll();
-    const interval = window.setInterval(poll, 10000);
+    if (document.visibilityState === 'visible') {
+      startInterval();
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      stopInterval();
     };
   }, [isOnline, printer?.id, printer?.profile]);
 
@@ -686,12 +740,40 @@ export function PrinterDetail() {
       }
     };
 
+    // Pause while the tab is hidden — a backgrounded detail page has no
+    // reason to keep polling Moonraker every 10s.
+    let interval: number | undefined;
+    const startInterval = () => {
+      if (interval !== undefined) {
+        return;
+      }
+      interval = window.setInterval(refreshTaskConfig, 10000);
+    };
+    const stopInterval = () => {
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+        interval = undefined;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshTaskConfig();
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+
     refreshTaskConfig();
-    const interval = window.setInterval(refreshTaskConfig, 10000);
+    if (document.visibilityState === 'visible') {
+      startInterval();
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       isCancelled = true;
-      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      stopInterval();
     };
   }, [isOnline, printer?.id]);
 
@@ -731,12 +813,40 @@ export function PrinterDetail() {
       }
     };
 
+    // Pause while the tab is hidden — a backgrounded detail page has no
+    // reason to keep polling Moonraker every 10s.
+    let interval: number | undefined;
+    const startInterval = () => {
+      if (interval !== undefined) {
+        return;
+      }
+      interval = window.setInterval(refreshLight, 10000);
+    };
+    const stopInterval = () => {
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+        interval = undefined;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshLight();
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+
     refreshLight();
-    const interval = window.setInterval(refreshLight, 10000);
+    if (document.visibilityState === 'visible') {
+      startInterval();
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       isCancelled = true;
-      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      stopInterval();
     };
   }, [isOnline, printer?.id, printer?.profile]);
 

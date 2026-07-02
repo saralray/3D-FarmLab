@@ -58,11 +58,40 @@ export function MaintenanceNotifier() {
       }
     };
 
+    // Pause while the tab is hidden — this notifier is mounted globally on
+    // every page, so a backgrounded tab was otherwise polling forever.
+    let interval: number | undefined;
+    const startInterval = () => {
+      if (interval !== undefined) {
+        return;
+      }
+      interval = window.setInterval(poll, POLL_INTERVAL_MS);
+    };
+    const stopInterval = () => {
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+        interval = undefined;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        poll();
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+
     poll();
-    const interval = window.setInterval(poll, POLL_INTERVAL_MS);
+    if (document.visibilityState === 'visible') {
+      startInterval();
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      stopInterval();
     };
   }, [isStaff]);
 
