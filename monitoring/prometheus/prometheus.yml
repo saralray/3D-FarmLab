@@ -30,11 +30,14 @@ scrape_configs:
 
   # The web tier's own request metrics (printfarm_web_http_*). Scraped straight
   # from the web container over the internal network — nginx returns 404 for
-  # /metrics, so these never reach the public site. Slower cadence than the
-  # printer data: request rate/latency don't need 2s resolution.
+  # /metrics, so these never reach the public site. 5s (rather than the 2s
+  # printer-poll cadence above) balances the live throughput gauges
+  # (printfarm_web_bytes_out_live/_bytes_in_live, sampled server-side every
+  # 2s) looking reasonably real-time in Grafana against scrape overhead —
+  # request rate/latency don't need 2s resolution.
   - job_name: printfarm_web
-    scrape_interval: 15s
-    scrape_timeout: 10s
+    scrape_interval: 5s
+    scrape_timeout: 4s
     static_configs:
       - targets: ["web:5173"]
 

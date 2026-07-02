@@ -34,6 +34,44 @@ const bytesInByRoute = new Map();
 const requestsByRoute = new Map();
 let inFlight = 0;
 
+// Live overall (all routes combined) bytes/sec, sampled every 2s by diffing
+// the cumulative counters above over the elapsed wall-clock time — the same
+// "diff two samples" approach GET /api/network-usage/live uses for the
+// Network Usage page's Live card, just computed here so it's directly
+// queryable as a Prometheus gauge (printfarm_web_bytes_out_live /
+// printfarm_web_bytes_in_live) instead of requiring rate()/irate() in PromQL.
+const LIVE_SAMPLE_INTERVAL_MS = 2000;
+let liveBytesOutPerSec = 0;
+let liveBytesInPerSec = 0;
+let lastLiveSample = null;
+
+function sumMapValues(map) {
+  let total = 0;
+  for (const value of map.values()) {
+    total += value;
+  }
+  return total;
+}
+
+function sampleLiveRates() {
+  const bytesOut = sumMapValues(bytesByRoute);
+  const bytesIn = sumMapValues(bytesInByRoute);
+  const timestamp = Date.now();
+  if (lastLiveSample) {
+    const elapsedSeconds = (timestamp - lastLiveSample.timestamp) / 1000;
+    // A counter smaller than the last sample means bytesByRoute/bytesInByRoute
+    // reset (process restart) — clamp to 0 for this one tick rather than a
+    // negative rate; the next tick resumes normally.
+    if (elapsedSeconds > 0) {
+      liveBytesOutPerSec = Math.max(0, bytesOut - lastLiveSample.bytesOut) / elapsedSeconds;
+      liveBytesInPerSec = Math.max(0, bytesIn - lastLiveSample.bytesIn) / elapsedSeconds;
+    }
+  }
+  lastLiveSample = { bytesOut, bytesIn, timestamp };
+}
+
+setInterval(sampleLiveRates, LIVE_SAMPLE_INTERVAL_MS).unref();
+
 // Collapse a request path to a low-cardinality route label. The resource segment
 // of /api/<resource>/... is a bounded vocabulary (printers, queue, auth, ...),
 // so it is safe to keep; ids deeper in the path are dropped.
@@ -173,6 +211,14 @@ export function renderMetrics() {
   for (const [route, bytes] of bytesInByRoute) {
     lines.push(`printfarm_web_request_bytes_total{route="${route}"} ${bytes}`);
   }
+
+  lines.push('# HELP printfarm_web_bytes_out_live Live overall outbound bytes/sec (all routes combined), sampled every 2s.');
+  lines.push('# TYPE printfarm_web_bytes_out_live gauge');
+  lines.push(`printfarm_web_bytes_out_live ${liveBytesOutPerSec}`);
+
+  lines.push('# HELP printfarm_web_bytes_in_live Live overall inbound bytes/sec (all routes combined), sampled every 2s.');
+  lines.push('# TYPE printfarm_web_bytes_in_live gauge');
+  lines.push(`printfarm_web_bytes_in_live ${liveBytesInPerSec}`);
 
   lines.push('# HELP printfarm_web_http_requests_in_flight HTTP requests currently being served.');
   lines.push('# TYPE printfarm_web_http_requests_in_flight gauge');

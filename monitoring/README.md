@@ -244,6 +244,14 @@ reset.
 | `printfarm_network_usage_bytes_out_today` | gauge | `route` | Outbound bytes served today. |
 | `printfarm_network_usage_bytes_in_today` | gauge | `route` | Inbound bytes received today. |
 
+For genuinely **live** (sub-minute) throughput instead, use the gauges the web
+tier exposes directly at `web:5173/metrics` (job `printfarm_web`, no `route`
+label — already summed overall): `printfarm_web_bytes_out_live` and
+`printfarm_web_bytes_in_live`. The process itself samples these every 2s by
+diffing its cumulative counters over elapsed time, so they can be plotted
+straight into a Grafana timeseries panel with no `rate()`/`irate()` — see the
+"Live — current overall throughput" panel in `monitoring/grafana-dashboard.json`.
+
 ### Exporter self-metrics (gauge)
 
 | Metric | Meaning |
@@ -281,21 +289,19 @@ topk(5, printfarm_network_usage_bytes_out_today)
 # Poller <-> printer traffic (LAN, not web egress) by shard, last cycle
 sum by (shard) (printfarm_poller_bytes_out + printfarm_poller_bytes_in)
 
-# Live overall throughput right now (bytes/sec) — sums the web tier's raw
-# per-request counters (printfarm_web job, true live, not the once-a-minute
-# network_usage_daily-derived series above), matching the Network Usage
+# Live overall throughput right now (bytes/sec) — these are gauges the web
+# server itself computes every 2s (diffing its cumulative byte counters over
+# elapsed time, server/metrics.js), not a PromQL rate()/irate() derivation —
+# plot them directly for a real-time graph. Same numbers as the Network Usage
 # page's "Live" card.
-sum(rate(printfarm_web_response_bytes_total[$__rate_interval]))  # out
-sum(rate(printfarm_web_request_bytes_total[$__rate_interval]))   # in
+printfarm_web_bytes_out_live  # out
+printfarm_web_bytes_in_live   # in
+printfarm_web_bytes_out_live + printfarm_web_bytes_in_live  # combined total
 
-# Instant throughput right now — irate() over just the last two scrapes
-# instead of averaged across a window; use with an "instant" query in a
-# stat panel for the current bytes/sec reading.
-sum(irate(printfarm_web_response_bytes_total[5m]))  # out
-sum(irate(printfarm_web_request_bytes_total[5m]))   # in
-
-# Instant throughput right now, combined out+in into one number
-sum(irate(printfarm_web_response_bytes_total[5m])) + sum(irate(printfarm_web_request_bytes_total[5m]))
+# The rate()/irate() forms above still work too (same underlying counters),
+# useful if you want a window-averaged rate instead of the raw 2s sample:
+sum(rate(printfarm_web_response_bytes_total[$__rate_interval]))  # out, windowed
+sum(irate(printfarm_web_response_bytes_total[5m]))               # out, last-2-scrapes
 ```
 
 ## Security notes
