@@ -516,7 +516,7 @@ classified below requires an admin session.
 
 | Class | Who | Examples |
 | --- | --- | --- |
-| **public read** | anyone | `GET /api/printers`, `GET /api/queue`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/summary`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, `GET /api/settings/favicon`, branding/layout reads |
+| **public read** | anyone | `GET /api/printers`, `GET /api/queue`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/summary`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, `GET /api/settings/favicon`, `GET /api/events`, branding/layout reads |
 | **admin read** | admin only | `GET /api/users`, `GET /api/slicer-keys`, `GET /api/audit-logs`, `GET /api/admin/update-status`, `GET /api/notifications/*`, `GET /api/manager/requests`, `GET /api/settings/saml`, `GET /api/settings/home-assistant*` |
 | **public mutation** | anyone | `POST /api/queue/submit` (student intake), `POST /api/manager/request`, the auth endpoints above |
 | **operator** | operator or admin | `POST /api/printers` (create/edit/reorder), `POST /api/printers/:id/command`, `POST /api/queue/:id/printed`, `POST /api/maintenance/:id/complete`, `POST /api/maintenance/notifications/read` |
@@ -527,6 +527,13 @@ classified below requires an admin session.
 > return connection fields (`ipAddress`, `apiKeyHeader`, `serial`, `url`) only to
 > an operator/admin session. Anonymous, viewer, and student sessions always get
 > the redacted record, regardless of `VITE_PUBLIC_VIEWER_MODE`.
+
+> **Conditional GET:** `GET /api/printers` sets an `ETag` (a sha1 of the
+> serialized body). Send it back as `If-None-Match` and an unchanged response
+> comes back as `304 Not Modified` with no body — the poll that drives
+> `PrintersContext` (every 8s, shared by every page) uses this so a mostly-idle
+> fleet doesn't re-transfer the same JSON every cycle. `Cache-Control: no-store`
+> either way (no shared/browser caching, just this per-request short-circuit).
 
 Denials return `401` (no/expired session) or `403` (insufficient role).
 
@@ -575,6 +582,33 @@ mark-read writes are operator-or-admin; interval config is admin).
 `healthScore` deductions: lubrication overdue −5, nozzle hours >1000 −10, any
 overdue task −15, print failure rate >10% −10 (clamped 0–100). Status bands:
 90–100 Excellent, 70–89 Good, 50–69 Warning, 0–49 Service Required.
+
+---
+
+### Real-time events (frontend `/api/*`)
+
+`GET /api/events` — **public, no auth beyond the session-based event gate
+below**. A Server-Sent Events stream (`Content-Type: text/event-stream`) that
+replaces what used to be discovered by polling `GET /api/queue` every 10s and
+`GET /api/maintenance/notifications` every 30s from every open tab
+(`server/eventStream.js`; in-memory fan-out, single `web` process — the same
+model as the Bambu camera hub's viewer fan-out). The connection opens with a
+`:ok` comment and a `:ping` comment every 25s to keep it alive through
+proxies; nginx disables `proxy_buffering` for this path so events aren't
+batched.
+
+| Event | Payload | Sent to |
+|---|---|---|
+| `queue-added` | `{ id, filename, fileCount, submitterName }` | every connected client, the instant a job is inserted (matches the existing `queue_added` Discord webhook trigger) |
+| `maintenance-notification` | `{ id, printerId, kind, title, body, read, createdAt }` (same shape as `GET /api/maintenance/notifications` rows) | only connections whose session was privileged (admin/operator) at connect time, the instant the 5-minute maintenance worker creates a notification row |
+
+Because SSE offers no event replay, `MaintenanceNotifier` (frontend) still
+polls `GET /api/maintenance/notifications` as a backstop — now every 180s
+instead of 30s — to catch anything missed during a disconnect; a
+maintenance-due alert is treated as worth not losing. The queue-added event
+has no such backstop (no `GET /api/queue` poll left in that notifier) since
+missing a "new job" toast is low-stakes and the Queue page always shows the
+current state on its own.
 
 ---
 
