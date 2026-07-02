@@ -25,19 +25,19 @@
     "semantic_hash": "d97aacbe4b02c3469a771f9713c4820d"
   },
   "go-services/cmd/exporter/main.go": {
-    "mtime": 1782978446.2212565,
-    "ast_hash": "32b8a5cdd6f3e961237e599778aed061",
-    "semantic_hash": ""
+    "mtime": 1782657667.954268,
+    "ast_hash": "a7453f10311a1b1f2a989067d9bb6426",
+    "semantic_hash": "a7453f10311a1b1f2a989067d9bb6426"
   },
   "go-services/cmd/poller/bambu.go": {
-    "mtime": 1782978327.01464,
-    "ast_hash": "2b31493e921aa0ac4c95fabe83102183",
-    "semantic_hash": ""
+    "mtime": 1782713288.885317,
+    "ast_hash": "02ee12a94cced8525cef15afde5bcdd7",
+    "semantic_hash": "02ee12a94cced8525cef15afde5bcdd7"
   },
   "go-services/cmd/poller/bambuftp.go": {
-    "mtime": 1782978334.639161,
-    "ast_hash": "88f9068410d804e359b1e05cb53bd21b",
-    "semantic_hash": ""
+    "mtime": 1782713288.885317,
+    "ast_hash": "c2cd345247337c2ba06355e2b2c391df",
+    "semantic_hash": "c2cd345247337c2ba06355e2b2c391df"
   },
   "go-services/cmd/poller/bambuhms.go": {
     "mtime": 1782657667.955292,
@@ -60,9 +60,9 @@
     "semantic_hash": "15cb0c9475367320a79b305d2198c632"
   },
   "go-services/cmd/poller/net.go": {
-    "mtime": 1782978299.0763073,
-    "ast_hash": "51278bec5c442ccbfa9e2f9a078defa0",
-    "semantic_hash": ""
+    "mtime": 1782657667.955678,
+    "ast_hash": "59c4baa9cbbfe7b0d1ca48a61a598e68",
+    "semantic_hash": "59c4baa9cbbfe7b0d1ca48a61a598e68"
   },
   "go-services/cmd/poller/notify.go": {
     "mtime": 1782657667.9557772,
@@ -85,9 +85,9 @@
     "semantic_hash": "7e10b5d5bfce3cbda09e87876d3a5781"
   },
   "go-services/cmd/poller/run.go": {
-    "mtime": 1782978358.770641,
-    "ast_hash": "41122ea20a7a97645957d5ddaa5c6a38",
-    "semantic_hash": ""
+    "mtime": 1782657667.9561486,
+    "ast_hash": "8f5d3811b7f29a161b9928e7b1a1b749",
+    "semantic_hash": "8f5d3811b7f29a161b9928e7b1a1b749"
   },
   "go-services/cmd/poller/snapmaker.go": {
     "mtime": 1782657667.9562588,
@@ -95,9 +95,9 @@
     "semantic_hash": "a66c3d5a631ddbbf73bc047651e96aa4"
   },
   "go-services/cmd/poller/store.go": {
-    "mtime": 1782978387.2900825,
-    "ast_hash": "594d96aff8b9a150f249592b951668f8",
-    "semantic_hash": ""
+    "mtime": 1782657667.9563897,
+    "ast_hash": "35de82a1e25680b3f6e682df9b69bb10",
+    "semantic_hash": "35de82a1e25680b3f6e682df9b69bb10"
   },
   "go-services/cmd/poller/transitions.go": {
     "mtime": 1782657667.9565225,
@@ -130,9 +130,9 @@
     "semantic_hash": "56b3fc4a4ced23af759948226d242ed7"
   },
   "go-services/cmd/web/camera.go": {
-    "mtime": 1783018954.639366,
-    "ast_hash": "d9c187d63cfdacf648989c7cc676804b",
-    "semantic_hash": ""
+    "mtime": 1782713288.8858335,
+    "ast_hash": "5b29d3c68de1783a8aaa993f8365e27e",
+    "semantic_hash": "5b29d3c68de1783a8aaa993f8365e27e"
   },
   "go-services/cmd/web/command.go": {
     "mtime": 1782713288.8860633,
@@ -280,14 +280,14 @@
     "semantic_hash": "b9a70c58f815249c7cc5c838dcff240d"
   },
   "go-services/internal/metrics/metrics.go": {
-    "mtime": 1782977821.3726707,
-    "ast_hash": "863b84a90e1d8a769c1bd967bef358ec",
-    "semantic_hash": ""
+    "mtime": 1782657667.9603193,
+    "ast_hash": "3d3e4c572bff6d82eb91a13b077c63fb",
+    "semantic_hash": "3d3e4c572bff6d82eb91a13b077c63fb"
   },
   "go-services/internal/procmetrics/procmetrics.go": {
-    "mtime": 1782977833.0972927,
-    "ast_hash": "1da9fa199dbc4e724e9ce0f0b8fae0a3",
-    "semantic_hash": ""
+    "mtime": 1782657667.9603193,
+    "ast_hash": "ba2e1222d6bd1eca5cee1f1af69fed16",
+    "semantic_hash": "ba2e1222d6bd1eca5cee1f1af69fed16"
   },
   "go-services/internal/pwcrypto/pwcrypto.go": {
     "mtime": 1782657667.9603193,
@@ -310,9 +310,9 @@
     "semantic_hash": "570b57b15eead95cdd24d89b3a8e8f3b"
   },
   "monitoring/grafana-dashboard.json": {
-    "mtime": 1783016273.885053,
-    "ast_hash": "aa3950e6739625c752e5f186ca725582",
-    "semantic_hash": ""
+    "mtime": 1781729868.2360396,
+    "ast_hash": "d260069a20b029ad3d189b7ce6be3fbb",
+    "semantic_hash": "d260069a20b029ad3d189b7ce6be3fbb"
   },
   "monitoring/grafana/dashboards/printer-status.json": {
     "mtime": 1780324813.144446,
@@ -345,14 +345,14 @@
     "semantic_hash": "27cf1e3591e961fcb8ee9033cd85bab4"
   },
   "server/app.js": {
-    "mtime": 1783020724.206621,
-    "ast_hash": "c018db5db3252fef86a0a789a4ad2d92",
+    "mtime": 1782970680.4322615,
+    "ast_hash": "b3a8ec20af4df8a4e17808b0340f3073",
     "semantic_hash": ""
   },
   "server/bambuCamera.js": {
-    "mtime": 1783018954.639366,
-    "ast_hash": "625533cdf41523412740799f6e4a539d",
-    "semantic_hash": ""
+    "mtime": 1781431178.4204552,
+    "ast_hash": "0082aa6b7ce5a5e510dd1886bf1b3b54",
+    "semantic_hash": "0082aa6b7ce5a5e510dd1886bf1b3b54"
   },
   "server/logger.js": {
     "mtime": 1781943445.306427,
@@ -360,9 +360,9 @@
     "semantic_hash": "f321cb70209c11d0b218f9760377e204"
   },
   "server/metrics.js": {
-    "mtime": 1783016228.815293,
-    "ast_hash": "f08152ac8e2cab181777bfe31ac83cb3",
-    "semantic_hash": ""
+    "mtime": 1781943445.306427,
+    "ast_hash": "ddb8d882b08f5da77464fde5e2cc10d9",
+    "semantic_hash": "ddb8d882b08f5da77464fde5e2cc10d9"
   },
   "server/oauthGrant.js": {
     "mtime": 1781763755.003165,
@@ -370,9 +370,9 @@
     "semantic_hash": "fe8441176f9a026d2711d5ee86b8a63d"
   },
   "server/postgres.js": {
-    "mtime": 1782978867.9898899,
-    "ast_hash": "245c330720eb6861b7e694827e1d1613",
-    "semantic_hash": ""
+    "mtime": 1782931918.1980066,
+    "ast_hash": "168de7bb11113b4a329ec7b96e3db39e",
+    "semantic_hash": "168de7bb11113b4a329ec7b96e3db39e"
   },
   "server/redis.js": {
     "mtime": 1781943445.307427,
@@ -450,14 +450,14 @@
     "semantic_hash": "c56c5e35d256bb08a698ad35047a65f6"
   },
   "src/app/components/MaintenanceNotifier.tsx": {
-    "mtime": 1783020521.1813898,
-    "ast_hash": "16390f8bb4e17859cec0d7a900dce259",
-    "semantic_hash": ""
+    "mtime": 1782140183.1242726,
+    "ast_hash": "4afb639100912ea3cec476291b1d4a87",
+    "semantic_hash": "4afb639100912ea3cec476291b1d4a87"
   },
   "src/app/components/Navigation.tsx": {
-    "mtime": 1782976018.9755104,
-    "ast_hash": "ccb124071f2ca4c446535a9e5a647279",
-    "semantic_hash": ""
+    "mtime": 1782661734.2616646,
+    "ast_hash": "cbc732920d6ac5facdda4f171405b75d",
+    "semantic_hash": "cbc732920d6ac5facdda4f171405b75d"
   },
   "src/app/components/NotificationBell.tsx": {
     "mtime": 1782661430.6005826,
@@ -470,14 +470,14 @@
     "semantic_hash": "18299aba6d57a6709d4a415caea6defa"
   },
   "src/app/components/PrintRequestDialog.tsx": {
-    "mtime": 1782973966.3271365,
+    "mtime": 1782973134.0559015,
     "ast_hash": "7cffa83bfae1e6e9ceae7a62483d51e4",
     "semantic_hash": ""
   },
   "src/app/components/PrinterCard.tsx": {
-    "mtime": 1783018954.6403658,
-    "ast_hash": "a3edb03683cf12e3ed947622581bf3ce",
-    "semantic_hash": ""
+    "mtime": 1782019582.2204554,
+    "ast_hash": "55a3d6ab639dd190f2ff3633364eea0c",
+    "semantic_hash": "55a3d6ab639dd190f2ff3633364eea0c"
   },
   "src/app/components/PrinterCardLayout.tsx": {
     "mtime": 1779570845.0339108,
@@ -485,9 +485,9 @@
     "semantic_hash": "d4169acbc0be8a0c95e0fab1bd968244"
   },
   "src/app/components/PrinterStatusNotifier.tsx": {
-    "mtime": 1783020483.7302744,
-    "ast_hash": "3e2615005bed271723d4f57e4241f385",
-    "semantic_hash": ""
+    "mtime": 1781705201.740374,
+    "ast_hash": "38c50f1b52c1f6b7a3c936b2a94d8125",
+    "semantic_hash": "38c50f1b52c1f6b7a3c936b2a94d8125"
   },
   "src/app/components/ProtectedRoute.tsx": {
     "mtime": 1782140091.6570866,
@@ -505,8 +505,8 @@
     "semantic_hash": "cd91b5146a0b81d4c9019fc814838a09"
   },
   "src/app/components/SoftwareUpdateSettings.tsx": {
-    "mtime": 1783015242.8752935,
-    "ast_hash": "e048df1e87b230420ac6775d9296f602",
+    "mtime": 1782970698.1752777,
+    "ast_hash": "5836b61905fb8a5998bfbce52dc3fbf9",
     "semantic_hash": ""
   },
   "src/app/components/SpoolIndicator.tsx": {
@@ -750,9 +750,9 @@
     "semantic_hash": "2d68bde3ada0e79b9fbecb498405931c"
   },
   "src/app/contexts/PrintersContext.tsx": {
-    "mtime": 1783020763.359505,
-    "ast_hash": "850e3738160b19d8aef01e2ff603f7e0",
-    "semantic_hash": ""
+    "mtime": 1782657667.962541,
+    "ast_hash": "acff2a03d889cfa2c139dd35b04a741d",
+    "semantic_hash": "acff2a03d889cfa2c139dd35b04a741d"
   },
   "src/app/contexts/SidebarContext.tsx": {
     "mtime": 1778877415.1980305,
@@ -820,9 +820,9 @@
     "semantic_hash": "2c8f207cf77bc53a822a4441ce0623ba"
   },
   "src/app/lib/numberFormat.ts": {
-    "mtime": 1783007537.7480366,
-    "ast_hash": "09cc456f6e906421d5f04c0e5efe7be3",
-    "semantic_hash": ""
+    "mtime": 1779114147.3057158,
+    "ast_hash": "f57ebc7573b56fd6fabb0b3b7f54a87c",
+    "semantic_hash": "f57ebc7573b56fd6fabb0b3b7f54a87c"
   },
   "src/app/lib/oauthApi.ts": {
     "mtime": 1782718266.933946,
@@ -835,9 +835,9 @@
     "semantic_hash": "890f5e459320a6a9351d2dc2be010591"
   },
   "src/app/lib/printersApi.ts": {
-    "mtime": 1783020752.714399,
-    "ast_hash": "3124226b06f5f3822cab3ff6283d9f19",
-    "semantic_hash": ""
+    "mtime": 1781026435.0006607,
+    "ast_hash": "67fa883fb30d9af9cb5b5fe9580d2ad8",
+    "semantic_hash": "67fa883fb30d9af9cb5b5fe9580d2ad8"
   },
   "src/app/lib/publicViewerApi.ts": {
     "mtime": 1781979197.7089832,
@@ -885,9 +885,9 @@
     "semantic_hash": "cbe75995717dcf3541a82702e467b282"
   },
   "src/app/lib/useAutoRefresh.ts": {
-    "mtime": 1782976018.9757292,
-    "ast_hash": "1bea0bc4eb5157905c58b19d6e67e347",
-    "semantic_hash": ""
+    "mtime": 1782657667.962711,
+    "ast_hash": "c94846ff70b3bf2704e3cfeb436de511",
+    "semantic_hash": "c94846ff70b3bf2704e3cfeb436de511"
   },
   "src/app/lib/useDeployDetector.ts": {
     "mtime": 1782657667.9627764,
@@ -930,9 +930,9 @@
     "semantic_hash": "015baa1cc638ead8e90fe93fccb647fd"
   },
   "src/app/pages/Maintenance.tsx": {
-    "mtime": 1783019704.1786075,
-    "ast_hash": "a4b5c7d626cc099aadfe0fcd32bb234c",
-    "semantic_hash": ""
+    "mtime": 1782925000.1657712,
+    "ast_hash": "2d1f61c73c14b49ff7487f458f83d466",
+    "semantic_hash": "2d1f61c73c14b49ff7487f458f83d466"
   },
   "src/app/pages/NotFound.tsx": {
     "mtime": 1778877415.2003548,
@@ -940,13 +940,13 @@
     "semantic_hash": "219688d8a1b1d6865d7c5c689c2b9d87"
   },
   "src/app/pages/PrintRequest.tsx": {
-    "mtime": 1782973966.3273365,
+    "mtime": 1782973113.7794733,
     "ast_hash": "a1b44357f720be709d94499dbe0c868d",
     "semantic_hash": ""
   },
   "src/app/pages/PrinterDetail.tsx": {
-    "mtime": 1783019793.9103467,
-    "ast_hash": "a15463d600abe064e7c01dc16268bb71",
+    "mtime": 1782937869.6965845,
+    "ast_hash": "5be5ddfa9effa2b93c272fabbff28fba",
     "semantic_hash": ""
   },
   "src/app/pages/Queue.tsx": {
@@ -965,9 +965,9 @@
     "semantic_hash": "0f003ea58f1563e42301d695cd44972b"
   },
   "src/app/routes.tsx": {
-    "mtime": 1782976018.9765446,
-    "ast_hash": "6def3c44b21870cfbf7d643ec5c32a9b",
-    "semantic_hash": ""
+    "mtime": 1782318439.4597254,
+    "ast_hash": "23154ad34656b7a34125897a3610f200",
+    "semantic_hash": "23154ad34656b7a34125897a3610f200"
   },
   "src/app/types.ts": {
     "mtime": 1782372190.968883,
@@ -990,14 +990,14 @@
     "semantic_hash": "48d00c382e6de860465311d2332875af"
   },
   "API.md": {
-    "mtime": 1783020892.3471365,
-    "ast_hash": "0fc7705edf36f202b73cfd0e927c9e83",
+    "mtime": 1782970741.775914,
+    "ast_hash": "f4e6a6bdb4513cfddb4101c2b362a6b3",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1783016301.6494734,
-    "ast_hash": "10d9cc4138482cc35371644a98e5c86e",
-    "semantic_hash": ""
+    "mtime": 1782935795.6710389,
+    "ast_hash": "1e81d19895d47a1699b10374526dff0f",
+    "semantic_hash": "1e81d19895d47a1699b10374526dff0f"
   },
   "README.md": {
     "mtime": 1781797854.7462814,
@@ -1025,9 +1025,9 @@
     "semantic_hash": ""
   },
   "docker-compose.yml": {
-    "mtime": 1782980185.7392876,
-    "ast_hash": "34c957036a588125d0d39cde94eb38a0",
-    "semantic_hash": ""
+    "mtime": 1782924039.3297846,
+    "ast_hash": "f6a9ffdbfd1564d5879ea70210aab5cb",
+    "semantic_hash": "f6a9ffdbfd1564d5879ea70210aab5cb"
   },
   "exporter/requirements.txt": {
     "mtime": 1780233980.3003309,
@@ -1045,9 +1045,9 @@
     "semantic_hash": "438d18048255102f73e3634488877e48"
   },
   "monitoring/README.md": {
-    "mtime": 1783016321.193066,
-    "ast_hash": "3bda30d9de6113f9a59a2ac122cd2f9d",
-    "semantic_hash": ""
+    "mtime": 1781797929.0508308,
+    "ast_hash": "d5c1d252a84fc78dd458a804e7a61183",
+    "semantic_hash": "d5c1d252a84fc78dd458a804e7a61183"
   },
   "monitoring/RUNBOOK.md": {
     "mtime": 1781943445.3044271,
@@ -1060,9 +1060,9 @@
     "semantic_hash": "b54e7bb67a2188c567d81a747fbd3933"
   },
   "monitoring/grafana/provisioning/datasources/prometheus.yml": {
-    "mtime": 1783006296.576319,
-    "ast_hash": "4ecd08a9712610e64acc4ce44dbcdfb0",
-    "semantic_hash": ""
+    "mtime": 1780555810.3440995,
+    "ast_hash": "b86ee8bb72d2d1fe563bde3efafb490e",
+    "semantic_hash": "b86ee8bb72d2d1fe563bde3efafb490e"
   },
   "monitoring/prometheus/alerts.yml": {
     "mtime": 1781943445.3044271,
@@ -1070,9 +1070,9 @@
     "semantic_hash": "371f36f4f901e471763b5573c82475cf"
   },
   "monitoring/prometheus/prometheus.yml": {
-    "mtime": 1783016241.6691177,
-    "ast_hash": "385a81dd5d95e48d77492767b6f20a3a",
-    "semantic_hash": ""
+    "mtime": 1781943445.3044271,
+    "ast_hash": "7133711a228c668185e914b623880fcd",
+    "semantic_hash": "7133711a228c668185e914b623880fcd"
   },
   "poller/requirements.txt": {
     "mtime": 1781943445.306427,
@@ -1122,31 +1122,6 @@
   ".github/workflows/claude.yml": {
     "mtime": 1782971952.1745465,
     "ast_hash": "995b9db52dace3af043903f678a61551",
-    "semantic_hash": ""
-  },
-  "go-services/cmd/poller/netbytes.go": {
-    "mtime": 1782978287.3024676,
-    "ast_hash": "b922ce0fd2dbfb180b7bcb9b87784f03",
-    "semantic_hash": ""
-  },
-  "nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh": {
-    "mtime": 1783006258.792992,
-    "ast_hash": "b3e1f982ac8fc6b4ea7e60be8bfebdd8",
-    "semantic_hash": ""
-  },
-  "server/eventStream.js": {
-    "mtime": 1783020370.0705917,
-    "ast_hash": "7a0829ac024463940510370388215e41",
-    "semantic_hash": ""
-  },
-  "src/app/lib/networkUsageApi.ts": {
-    "mtime": 1783007530.3192308,
-    "ast_hash": "b770e7ec4868b6ae030fc91e334a4b12",
-    "semantic_hash": ""
-  },
-  "src/app/pages/NetworkUsage.tsx": {
-    "mtime": 1783007590.619878,
-    "ast_hash": "beb1f54feb037cea1259b148d56466c4",
     "semantic_hash": ""
   }
 }

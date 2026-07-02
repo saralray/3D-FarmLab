@@ -8,7 +8,7 @@ import {
   ReactNode,
 } from 'react';
 import { Printer } from '../types';
-import { fetchPrinters } from '../lib/printersApi';
+import { fetchPrintersIfChanged } from '../lib/printersApi';
 import { normalizePrinter } from '../lib/printerProfiles';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 
@@ -35,12 +35,19 @@ export function PrintersProvider({ children }: { children: ReactNode }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
   const isMountedRef = useRef(false);
+  const etagRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const next = (await fetchPrinters()).map(normalizePrinter);
+      const { printers: next, etag } = await fetchPrintersIfChanged(etagRef.current);
+      etagRef.current = etag;
       if (isMountedRef.current) {
-        setPrinters(next);
+        // A 304 (next === null) means the fleet is unchanged since the last
+        // poll — skip the state update (and every consumer's re-render) rather
+        // than replacing the array with an equivalent copy.
+        if (next) {
+          setPrinters(next.map(normalizePrinter));
+        }
         setLoaded(true);
         setError(false);
       }

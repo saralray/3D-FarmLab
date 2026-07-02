@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Wrench,
   AlertTriangle,
@@ -38,6 +38,7 @@ import {
 } from '../lib/maintenanceApi';
 import { getPrinterNozzleCount } from '../lib/printerProfiles';
 import { MaintenanceIntervalsSettings } from '../components/MaintenanceIntervalsSettings';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 const REFRESH_INTERVAL_MS = 15000;
 
@@ -120,11 +121,9 @@ export function Maintenance() {
     }
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const interval = window.setInterval(refresh, REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(interval);
-  }, [refresh]);
+  // Pauses while the tab is hidden and refreshes immediately on return, instead
+  // of polling a backgrounded tab every REFRESH_INTERVAL_MS for no one to see.
+  useAutoRefresh(refresh, REFRESH_INTERVAL_MS);
 
   const printerName = (id: string) => printerById.get(id)?.name ?? id;
   const printerHours = (id: string) => Number(printerById.get(id)?.totalPrintTime ?? 0);

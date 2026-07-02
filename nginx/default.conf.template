@@ -14,6 +14,17 @@ server {
   client_max_body_size 2m;
   server_tokens off;
 
+  # Every dashboard poll is a JSON response and every page load pulls the
+  # fingerprinted JS/CSS bundle — neither was compressed before, so this cuts
+  # bytes on essentially every request the app makes. Images/JPEG webcam
+  # snapshots and the MJPEG stream aren't in gzip_types, so they're untouched.
+  gzip on;
+  gzip_vary on;
+  gzip_proxied any;
+  gzip_comp_level 6;
+  gzip_min_length 256;
+  gzip_types application/json application/javascript text/javascript text/css text/plain application/xml text/xml image/svg+xml;
+
   add_header X-Content-Type-Options nosniff always;
   add_header X-Frame-Options DENY always;
   add_header Referrer-Policy strict-origin-when-cross-origin always;
@@ -163,6 +174,19 @@ server {
   # endpoint itself) aren't exposed.
   location = /metrics {
     return 404;
+  }
+
+  # Server-Sent Events replacing several browser polling loops (queue-added,
+  # maintenance notifications — see server/eventStream.js). Like the MJPEG
+  # locations above, a long-lived chunked response must not be buffered or
+  # events arrive in batches instead of as they're pushed.
+  location = /api/events {
+    proxy_pass http://web:5173;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
   }
 
   location / {

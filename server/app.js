@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import mqtt from 'mqtt';
 import busboy from 'busboy';
 import { decryptSecret, encryptSecret } from './secretCrypto.js';
+import { addEventSubscriber, broadcastQueueAdded, broadcastMaintenanceNotification } from './eventStream.js';
 import {
   approveManagerRequest,
   clearManagerRequestKeySecret,
@@ -1820,6 +1821,25 @@ function sendJson(res, statusCode, payload, cacheControl = 'no-store') {
   res.end(JSON.stringify(payload));
 }
 
+// For a GET that's polled often but whose payload frequently doesn't change
+// between polls (e.g. /api/printers when the fleet is mostly idle — see
+// PrintersContext.tsx's 8s poll), answer with a 304 and no body instead of
+// re-sending the same JSON. Cheap: one sha1 over the already-serialized body.
+function sendJsonWithEtag(req, res, statusCode, payload) {
+  const body = JSON.stringify(payload);
+  const etag = `"${createHash('sha1').update(body).digest('hex')}"`;
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'no-store');
+  if (statusCode === 200 && req.headers['if-none-match'] === etag) {
+    res.statusCode = 304;
+    res.end();
+    return;
+  }
+  res.statusCode = statusCode;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(body);
+}
+
 function sendEmpty(res, statusCode = 204) {
   res.statusCode = statusCode;
   res.end();
@@ -2005,6 +2025,18 @@ function webhookWantsEvent(webhook, eventKey) {
 async function sendQueueAddedNotifications(jobs) {
   if (!Array.isArray(jobs) || jobs.length === 0) {
     return;
+  }
+
+  // Push to any subscribed browser tab regardless of Discord webhook config —
+  // this is what used to be discovered by polling GET /api/queue. Only a small,
+  // JSON-safe subset of each job (never fileContent, which can be many MB).
+  for (const job of jobs) {
+    broadcastQueueAdded({
+      id: job.id,
+      filename: job.filename,
+      fileCount: job.fileCount,
+      submitterName: job.submitterName,
+    });
   }
 
   const webhooks = await listDiscordWebhooks();
@@ -3437,6 +3469,17 @@ async function handleApi(req, res, requestUrl) {
     return true;
   }
 
+  // Server-push replacement for the queue/maintenance notifiers, which used to
+  // poll GET /api/queue and GET /api/maintenance/notifications every 10s/30s
+  // from every open tab. Public, like those reads were — see eventStream.js.
+  // Maintenance events are only fanned out to a privileged (admin/operator)
+  // session, matching the frontend's existing staff-only gate.
+  if (requestUrl.pathname === '/api/events' && req.method === 'GET') {
+    const session = await resolveSession(req);
+    addEventSubscriber(req, res, { wantsMaintenance: isPrivilegedRole(sessionRole(session)) });
+    return true;
+  }
+
   if (await handleDataApi(req, res, requestUrl)) {
     return true;
   }
@@ -3600,7 +3643,7 @@ async function handleApi(req, res, requestUrl) {
       // list, regardless of PUBLIC_VIEWER_MODE.
       const privileged = isPrivilegedRole(sessionRole(await resolveSession(req)));
       const printers = privileged ? await listPrinters(true) : await listPrintersRedacted();
-      sendJson(res, 200, await overlayLiveTelemetryAll(printers));
+      sendJsonWithEtag(req, res, 200, await overlayLiveTelemetryAll(printers));
       return true;
     }
     if (req.method === 'POST') {
@@ -5959,6 +6002,26 @@ function maintenanceOverdueGrace(intervalHours) {
   return Math.max((Number(intervalHours) || 0) * 0.1, 10);
 }
 
+// Create the notification row and, if one was actually inserted (the partial
+// unique index de-dupes a still-open condition to DO NOTHING), push it to any
+// connected staff tab immediately — the existing GET /api/maintenance/notifications
+// poll (now much less frequent, see MaintenanceNotifier.tsx) remains the backstop
+// for a tab that was disconnected when this fired.
+async function createAndBroadcastMaintenanceNotification({ printerId, kind, title, body }) {
+  const created = await createMaintenanceNotification({ printerId, kind, title, body });
+  if (created) {
+    broadcastMaintenanceNotification({
+      id: created.id,
+      printerId,
+      kind,
+      title,
+      body,
+      read: false,
+      createdAt: new Date().toISOString(),
+    });
+  }
+}
+
 async function runMaintenanceWorkerPass() {
   // Seed schedules for any printer that predates this feature (set-based, cheap).
   await backfillAllMaintenanceSchedules();
@@ -6043,7 +6106,7 @@ async function runMaintenanceWorkerPass() {
       }
     }
     if (overdueToNotify.length > 0) {
-      await createMaintenanceNotification({
+      await createAndBroadcastMaintenanceNotification({
         printerId: printer.id,
         kind: 'overdue',
         title: `${printer.name}: maintenance overdue`,
@@ -6052,7 +6115,7 @@ async function runMaintenanceWorkerPass() {
       await markMaintenanceEventsNotified(overdueToNotify.map((e) => e.id), 'overdue');
     }
     if (dueToNotify.length > 0) {
-      await createMaintenanceNotification({
+      await createAndBroadcastMaintenanceNotification({
         printerId: printer.id,
         kind: 'due',
         title: `${printer.name}: maintenance due`,
@@ -6064,7 +6127,7 @@ async function runMaintenanceWorkerPass() {
     // (previous score was healthy), not every pass while it stays low. It re-alerts
     // after recovering to >= 70 and dropping again.
     if (score < 70 && (!Number.isFinite(previousScore) || previousScore >= 70)) {
-      await createMaintenanceNotification({
+      await createAndBroadcastMaintenanceNotification({
         printerId: printer.id,
         kind: 'health',
         title: `${printer.name}: health ${score} (${healthStatusFromScore(score)})`,
