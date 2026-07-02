@@ -6,7 +6,7 @@ import { Card } from './ui/card';
 import { Progress } from './ui/progress';
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
-import { buildPrinterWebcamSnapshotUrl } from '../lib/printerProfiles';
+import { buildPrinterWebcamSnapshotUrl, printerSupportsLiveMjpeg } from '../lib/printerProfiles';
 import { formatMaxTwoDecimals } from '../lib/numberFormat';
 import { useIsMobile } from './ui/use-mobile';
 
@@ -21,6 +21,17 @@ const SNAPSHOT_REFRESH_MS = 5000;
 // one that's actively printing. Idle printers are also typically the
 // majority of a farm at any given moment, so this materially cuts traffic.
 const SNAPSHOT_REFRESH_IDLE_MS = 30000;
+// The H2-series camera isn't a plain HTTP snapshot — every request is served
+// by the server-side hub that holds one persistent ffmpeg transcoding a live
+// RTSP feed (see server/bambuCamera.js), and a request keeps that transcode
+// running for a further 30s (IDLE_SHUTDOWN_MS) afterward. Polling faster than
+// that window — as the generic cadence above does — never gives the hub a
+// chance to go idle, so the full camera stream runs continuously for every
+// H2 printer visible on the dashboard just to refresh a small thumbnail.
+// These printers get a slower cadence, comfortably past that window, so the
+// hub can actually shut the feed down between refreshes.
+const SNAPSHOT_REFRESH_RTSP_MS = 45000;
+const SNAPSHOT_REFRESH_RTSP_IDLE_MS = 60000;
 
 interface PrinterCardProps {
   printer: Printer;
@@ -72,7 +83,15 @@ export function PrinterCard({
       if (interval !== undefined) {
         return;
       }
-      const refreshMs = printer.status === 'idle' ? SNAPSHOT_REFRESH_IDLE_MS : SNAPSHOT_REFRESH_MS;
+      const isRtspCamera = printerSupportsLiveMjpeg(printer);
+      const refreshMs =
+        printer.status === 'idle'
+          ? isRtspCamera
+            ? SNAPSHOT_REFRESH_RTSP_IDLE_MS
+            : SNAPSHOT_REFRESH_IDLE_MS
+          : isRtspCamera
+            ? SNAPSHOT_REFRESH_RTSP_MS
+            : SNAPSHOT_REFRESH_MS;
       interval = window.setInterval(() => {
         setSnapshotNonce(Date.now());
       }, refreshMs);
@@ -101,7 +120,7 @@ export function PrinterCard({
       document.removeEventListener('visibilitychange', onVisibilityChange);
       stopInterval();
     };
-  }, [isOnline, printer.id, printer.status, isMobile]);
+  }, [isOnline, printer.id, printer.status, printer.profile, isMobile]);
 
   const getActivityIcon = () => {
     switch (printer.status) {
