@@ -1821,6 +1821,25 @@ function sendJson(res, statusCode, payload, cacheControl = 'no-store') {
   res.end(JSON.stringify(payload));
 }
 
+// For a GET that's polled often but whose payload frequently doesn't change
+// between polls (e.g. /api/printers when the fleet is mostly idle — see
+// PrintersContext.tsx's 8s poll), answer with a 304 and no body instead of
+// re-sending the same JSON. Cheap: one sha1 over the already-serialized body.
+function sendJsonWithEtag(req, res, statusCode, payload) {
+  const body = JSON.stringify(payload);
+  const etag = `"${createHash('sha1').update(body).digest('hex')}"`;
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'no-store');
+  if (statusCode === 200 && req.headers['if-none-match'] === etag) {
+    res.statusCode = 304;
+    res.end();
+    return;
+  }
+  res.statusCode = statusCode;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(body);
+}
+
 function sendEmpty(res, statusCode = 204) {
   res.statusCode = statusCode;
   res.end();
@@ -3624,7 +3643,7 @@ async function handleApi(req, res, requestUrl) {
       // list, regardless of PUBLIC_VIEWER_MODE.
       const privileged = isPrivilegedRole(sessionRole(await resolveSession(req)));
       const printers = privileged ? await listPrinters(true) : await listPrintersRedacted();
-      sendJson(res, 200, await overlayLiveTelemetryAll(printers));
+      sendJsonWithEtag(req, res, 200, await overlayLiveTelemetryAll(printers));
       return true;
     }
     if (req.method === 'POST') {
