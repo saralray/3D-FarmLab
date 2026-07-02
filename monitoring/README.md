@@ -287,6 +287,12 @@ sum by (shard) (printfarm_poller_bytes_out + printfarm_poller_bytes_in)
 # page's "Live" card.
 sum(rate(printfarm_web_response_bytes_total[$__rate_interval]))  # out
 sum(rate(printfarm_web_request_bytes_total[$__rate_interval]))   # in
+
+# Instant throughput right now — irate() over just the last two scrapes
+# instead of averaged across a window; use with an "instant" query in a
+# stat panel for the current bytes/sec reading.
+sum(irate(printfarm_web_response_bytes_total[5m]))  # out
+sum(irate(printfarm_web_request_bytes_total[5m]))   # in
 ```
 
 ## Security notes
