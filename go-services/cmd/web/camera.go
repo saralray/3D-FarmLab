@@ -69,7 +69,9 @@ func ffmpegArgs(url string) []string {
 		"-i", url,
 		"-an",
 		"-vsync", "drop",
-		"-vf", "scale=1280:-2",
+		// Cap output to 8 fps: cuts steady-state bandwidth for every viewer with
+		// no visible loss for a monitoring feed. Keep in sync with bambuCamera.js.
+		"-vf", "fps=8,scale=1280:-2",
 		"-q:v", "6",
 		"-f", "mpjpeg",
 		"pipe:1",

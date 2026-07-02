@@ -44,7 +44,11 @@ function ffmpegArgs(url) {
     '-i', url,
     '-an',
     '-vsync', 'drop',
-    '-vf', 'scale=1280:-2',
+    // Cap output to 8 fps: a monitoring feed doesn't need the camera's native
+    // frame rate, and halving/thirding it cuts the stream's steady-state
+    // bandwidth proportionally for every viewer (and every snapshot poller
+    // that keeps the transcode warm) with no visible loss for watching a print.
+    '-vf', 'fps=8,scale=1280:-2',
     '-q:v', '6',
     '-f', 'mpjpeg',
     'pipe:1',

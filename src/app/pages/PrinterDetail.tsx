@@ -436,6 +436,14 @@ export function PrinterDetail() {
   // True when the latest Bambu snapshot failed to load (e.g. the H2S camera
   // rejects the request) so the UI shows a placeholder instead of a broken image.
   const [snapshotErrored, setSnapshotErrored] = useState(false);
+  // Tracks whether this browser tab is in the foreground. The live view (MJPEG
+  // stream, snapshot polling, Snapmaker iframe player) is torn down while the
+  // tab is hidden so a backgrounded/minimized dashboard tab stops pulling
+  // camera bytes — this is the single biggest source of avoidable webcam
+  // network traffic since the feed otherwise runs indefinitely unattended.
+  const [isTabVisible, setIsTabVisible] = useState(
+    () => typeof document === 'undefined' || document.visibilityState === 'visible',
+  );
   // Live-view camera health from the server hub (supervisor status, restarts,
   // frame freshness), polled while an H2/X1 live MJPEG feed is shown.
   const [cameraHealth, setCameraHealth] = useState<CameraHealth | null>(null);
@@ -578,6 +586,20 @@ export function PrinterDetail() {
       return changed ? next : prev;
     });
   }, [printer?.fanSpeeds, fanInFlight]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      const visible = document.visibilityState === 'visible';
+      setIsTabVisible(visible);
+      if (visible) {
+        // Reconnect with a fresh src rather than resuming a stale/broken one.
+        setSnapshotNonce(Date.now());
+        setSnapshotErrored(false);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
 
   useEffect(() => {
     setSnapshotNonce(Date.now());
@@ -1285,7 +1307,14 @@ export function PrinterDetail() {
                 A fixed 16:9 box (aspect-video) is shared by every profile so the live feed
                 fills the card edge-to-edge (object-cover) with no black letterbox bars. */}
             <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-border bg-muted">
-              {isOnline ? (
+              {isOnline && !isTabVisible ? (
+                // Tab is backgrounded: tear the feed down entirely (no iframe/img
+                // mounted) rather than merely hiding it, so the browser drops the
+                // connection and the server-side camera hub can idle-shutdown.
+                <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                  Live view paused (tab inactive)
+                </div>
+              ) : isOnline ? (
                 supportsWebcamStream ? (
                   // Snapmaker's own real-time H264 player (jmuxer → <video>), which
                   // also falls back to snapshots on its own if H264 can't play.
