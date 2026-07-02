@@ -14,12 +14,13 @@
 #   - Grafana on the same Docker network:   http://prometheus:9090/prometheus
 #     (bypasses nginx entirely — no auth needed, as configured below.)
 #   - Grafana on another host (via nginx):  http://<this-host>:8080/prometheus
-#     nginx gates this path with HTTP Basic Auth (Prometheus has no auth of its
-#     own — H-1). Uncomment basicAuth below and set basicAuthUser to match
-#     PROMETHEUS_BASIC_AUTH_USER, then set secureJsonData.basicAuthPassword to
-#     PROMETHEUS_BASIC_AUTH_PASSWORD (Grafana encrypts it at rest — don't put
-#     it in `url`). That env var must be set on the nginx service or every
-#     request 401s.
+#     Prometheus has no auth of its own (H-1). If PROMETHEUS_BASIC_AUTH_PASSWORD
+#     is set on the nginx service, this path requires HTTP Basic Auth — uncomment
+#     basicAuth below, set basicAuthUser to match PROMETHEUS_BASIC_AUTH_USER, and
+#     set secureJsonData.basicAuthPassword to PROMETHEUS_BASIC_AUTH_PASSWORD
+#     (Grafana encrypts it at rest — don't put it in `url`). If that env var is
+#     left unset, nginx serves /prometheus with no auth at all — leave basicAuth
+#     commented out in that case.
 # (In a plain Kubernetes deploy where Prometheus serves at root, drop /prometheus.)
 apiVersion: 1
 

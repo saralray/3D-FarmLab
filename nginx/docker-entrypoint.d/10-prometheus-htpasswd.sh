@@ -1,22 +1,24 @@
 #!/bin/sh
-# Generates the Basic Auth credential file that gates /prometheus (see H-1 in
+# Generates the auth config that gates /prometheus (see H-1 in
 # default.conf.template). Runs automatically: official nginx images execute
 # every executable script under /docker-entrypoint.d/ before nginx starts.
 #
-# No PROMETHEUS_BASIC_AUTH_PASSWORD set -> writes an empty credential file, so
-# every request 401s (still fully blocked, matching the pre-Basic-Auth H-1
-# fix's default posture). Set the password to opt in to exposing /prometheus
-# on the public site for an external Grafana.
+# PROMETHEUS_BASIC_AUTH_PASSWORD set -> /prometheus requires HTTP Basic Auth
+# with that credential. Left unset -> /prometheus is served with no auth at
+# all (opt-out; e.g. a LAN-only deploy where the network boundary is already
+# the trust boundary).
 set -eu
 
 HTPASSWD_FILE=/etc/nginx/prometheus.htpasswd
+AUTH_CONF=/etc/nginx/prometheus_auth.conf
 
 if [ -n "${PROMETHEUS_BASIC_AUTH_PASSWORD:-}" ]; then
   user="${PROMETHEUS_BASIC_AUTH_USER:-admin}"
   hash="$(openssl passwd -apr1 "$PROMETHEUS_BASIC_AUTH_PASSWORD")"
   printf '%s:%s\n' "$user" "$hash" > "$HTPASSWD_FILE"
+  printf 'auth_basic "Prometheus";\nauth_basic_user_file %s;\n' "$HTPASSWD_FILE" > "$AUTH_CONF"
   echo "10-prometheus-htpasswd.sh: /prometheus exposed with Basic Auth (user: $user)"
 else
-  : > "$HTPASSWD_FILE"
-  echo "10-prometheus-htpasswd.sh: PROMETHEUS_BASIC_AUTH_PASSWORD not set — /prometheus stays blocked (empty credential file)"
+  printf 'auth_basic off;\n' > "$AUTH_CONF"
+  echo "10-prometheus-htpasswd.sh: PROMETHEUS_BASIC_AUTH_PASSWORD not set — /prometheus exposed with no auth"
 fi

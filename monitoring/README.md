@@ -61,14 +61,17 @@ docker compose up --build
 
 - Prometheus UI: <http://localhost:8080/prometheus> — Prometheus has **no**
   host port of its own; nginx proxies it under `/prometheus` on the main site
-  (`HTTP_PORT`, default `8080`), gated by **HTTP Basic Auth** since Prometheus
-  has no auth of its own (H-1 — see `nginx/default.conf.template` and
-  `nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh`). Set
+  (`HTTP_PORT`, default `8080`). Prometheus has no auth of its own (H-1 — see
+  `nginx/default.conf.template` and
+  `nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh`), so this route is
+  optionally gated by **HTTP Basic Auth**: set
   `PROMETHEUS_BASIC_AUTH_USER`/`PROMETHEUS_BASIC_AUTH_PASSWORD` in `.env` to
-  open it up; leave the password unset and every request gets a `401` (the
-  default — fully blocked). Also runs with `--web.route-prefix=/prometheus`,
-  so every one of its own routes — UI, API, `/metrics` — lives under that
-  prefix regardless; drop it and you get a `404` even with valid credentials.
+  require it. Leave the password unset (the default) and `/prometheus` is
+  served with **no auth at all** — fine for a LAN-only deploy, but set a
+  password before exposing this host publicly. Also runs with
+  `--web.route-prefix=/prometheus`, so every one of its own routes — UI, API,
+  `/metrics` — lives under that prefix regardless; drop it and you get a `404`
+  even when authenticated.
 - The `exporter` has **no** host port and no auth gate — it is only reachable
   inside the Compose network, which is exactly where Prometheus scrapes it
   from.
@@ -93,8 +96,8 @@ docker compose exec -T web node -e \
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `HTTP_PORT` | `8080` | Host port nginx (and therefore `/prometheus`) is published on. Prometheus has no host port of its own — an external Grafana uses `http://<host>:${HTTP_PORT}/prometheus`, never a direct `:9090`. |
-| `PROMETHEUS_BASIC_AUTH_USER` | `admin` | Basic Auth username for the public `/prometheus` proxy. |
-| `PROMETHEUS_BASIC_AUTH_PASSWORD` | *(unset)* | Basic Auth password. Unset = `/prometheus` stays fully blocked (every request `401`s) — set this to expose it to an external Grafana. |
+| `PROMETHEUS_BASIC_AUTH_USER` | `admin` | Basic Auth username for the public `/prometheus` proxy (only used if the password below is set). |
+| `PROMETHEUS_BASIC_AUTH_PASSWORD` | *(unset)* | Basic Auth password. Unset = `/prometheus` is served with **no auth at all**. Set this to require Basic Auth before exposing it to an external Grafana over an untrusted network. |
 | `EXPORTER_PORT` | `9180` | Port the exporter listens on. Internal only — not published to the host. |
 | `EXPORTER_DB_TIMEOUT_SECONDS` | `5` | Cap on how long one scrape waits to connect to PostgreSQL before giving up. |
 | `DATABASE_URL` | — | PostgreSQL connection the exporter reads (read-only; it never writes or creates schema). |
@@ -107,8 +110,8 @@ history.
 ## Checking that scraping works
 
 Open the Prometheus UI (`http://localhost:8080/prometheus`, or
-`http://<basic-auth-user>:<password>@localhost:8080/prometheus` if
-`PROMETHEUS_BASIC_AUTH_PASSWORD` is set) and confirm the exporter target is
+`http://<basic-auth-user>:<password>@localhost:8080/prometheus` if you've set
+`PROMETHEUS_BASIC_AUTH_PASSWORD`) and confirm the exporter target is
 healthy:
 
 - **Status → Targets** — the `printfarm` job (`exporter:9180`) should be `UP`.
@@ -127,11 +130,12 @@ Prometheus. Two ways to reach it, depending on where Grafana runs:
   that bypasses nginx entirely.
 - **Anywhere else** (a separate host/network): use
   `http://<host>:HTTP_PORT/prometheus` (e.g. `http://<host>:8080/prometheus`)
-  through nginx, with **Basic Auth** credentials
-  (`PROMETHEUS_BASIC_AUTH_USER`/`PROMETHEUS_BASIC_AUTH_PASSWORD`, set in
-  `.env` — unset by default, meaning this path is blocked until you opt in).
-  Grafana's Prometheus datasource has its own **Basic Auth** fields for this
-  (Settings → Auth → Basic auth); don't put the credentials in the URL itself.
+  through nginx. This path is served with **no auth** unless you set
+  `PROMETHEUS_BASIC_AUTH_PASSWORD` (and optionally
+  `PROMETHEUS_BASIC_AUTH_USER`) in `.env` — do that before exposing this host
+  on an untrusted network. Grafana's Prometheus datasource has its own
+  **Basic Auth** fields for this (Settings → Auth → Basic auth); don't put the
+  credentials in the URL itself.
 
 Either way, don't drop the `/prometheus` suffix — Prometheus runs with
 `--web.route-prefix=/prometheus`, so every one of its own routes lives under
