@@ -113,8 +113,10 @@ export function SoftwareUpdateSettings() {
     const result = await applyUpdate();
     if (result.ok) {
       appendLog('Update triggered on the server.');
+      appendLog('Safe to close this tab now — the update runs on the server, not in your browser.');
       toast('Update started', {
-        description: 'See progress in the log below. The site will briefly go offline, then reload once it is back.',
+        description:
+          'The update is running on the server. You can close this tab or navigate away — it will keep going. Reopen Settings later to confirm the new version.',
         duration: Infinity,
       });
       await pollUntilRestarted(previousCurrent);
@@ -185,6 +187,11 @@ export function SoftwareUpdateSettings() {
                   {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   {applying ? 'Updating…' : 'Update now'}
                 </Button>
+                {applying ? (
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    Runs on the server — safe to close this tab or navigate away.
+                  </p>
+                ) : null}
               </div>
             ) : (
               <p className="text-sm text-gray-600 dark:text-gray-400">

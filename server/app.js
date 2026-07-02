@@ -4410,8 +4410,15 @@ async function handleApi(req, res, requestUrl) {
 
   // One-click apply: trigger the Watchtower sidecar to pull the newer :latest
   // images and recreate the app containers. Admin-only (isAdminMutation) and
-  // audited. The web container is typically recreated mid-flight, so the client
-  // treats a dropped response as "update started".
+  // audited. Watchtower's HTTP API blocks the request until the pull+recreate
+  // cycle finishes, which can take well over a minute — and it will recreate
+  // this very `web` container mid-flight, killing this request outright. So
+  // this handler is decoupled from both the client connection (closing the
+  // browser tab has no effect — nothing here listens for the request socket
+  // to close) and from waiting out Watchtower's full run: the guard timeout is
+  // generous (5 min, just a backstop against a truly hung updater) and, unlike
+  // a genuine connect failure, timing it out is treated as "started" rather
+  // than an error, since the trigger had already reached Watchtower.
   if (requestUrl.pathname === '/api/admin/update/apply' && req.method === 'POST') {
     if (!WATCHTOWER_TOKEN) {
       sendJson(res, 503, { error: 'One-click update is not configured on this host' });
@@ -4429,7 +4436,7 @@ async function handleApi(req, res, requestUrl) {
       ip: getClientIp(req),
     });
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    const timer = setTimeout(() => controller.abort(), 5 * 60 * 1000);
     try {
       const resp = await fetch(WATCHTOWER_URL, {
         method: 'POST',
@@ -4442,7 +4449,13 @@ async function handleApi(req, res, requestUrl) {
       }
       sendJson(res, 202, { started: true });
     } catch (err) {
-      sendJson(res, 502, { error: 'Could not reach the updater service' });
+      if (err?.name === 'AbortError') {
+        // Our own backstop fired, not a connect failure — the trigger reached
+        // Watchtower and the update is very likely underway.
+        sendJson(res, 202, { started: true });
+      } else {
+        sendJson(res, 502, { error: 'Could not reach the updater service' });
+      }
     } finally {
       clearTimeout(timer);
     }

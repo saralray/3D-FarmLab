@@ -363,7 +363,7 @@ export function PrintRequest() {
           </div>
 
           <p className="mt-6 text-center text-xs text-gray-400 dark:text-gray-600">
-            STEM Lab Print Farm
+            Saral Assabumrungrat — 3D-FarmLab — &copy; 2026
           </p>
         </div>
       </main>
