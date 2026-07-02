@@ -95,15 +95,29 @@ server {
     proxy_send_timeout 3600s;
   }
 
-  # H-1 FIX: Prometheus is no longer proxied on the public site. Grafana should
-  # reach it directly at http://prometheus:9090 over the internal compose network.
-  # Expose /prometheus only on the loopback (localhost:8081) if needed for local
-  # queries — remove these two locations entirely for a fully locked-down setup.
+  # H-1: Prometheus has no auth of its own, so it's gated behind HTTP Basic
+  # Auth here rather than proxied wide open (the original H-1 finding) or
+  # blocked outright (the H-1 fix, until this revision — internal-network-only
+  # access turned out to be too restrictive for an external Grafana). The
+  # credential file is generated at container start by
+  # nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh from
+  # PROMETHEUS_BASIC_AUTH_USER/_PASSWORD; leaving the password unset writes an
+  # empty credential file, so every request 401s — i.e. still fully blocked by
+  # default, matching the original H-1 fix's posture until an operator opts in.
   location = /prometheus {
-    return 404;
+    # Relative Location so the browser keeps the original host:port (nginx only
+    # knows its internal "listen 80", and would otherwise drop a custom port).
+    absolute_redirect off;
+    return 301 /prometheus/;
   }
   location /prometheus/ {
-    return 404;
+    auth_basic "Prometheus";
+    auth_basic_user_file /etc/nginx/prometheus.htpasswd;
+    proxy_pass http://prometheus:9090;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 3600s;
   }
 
   # In-app print-request form uploads the model file straight into the database.

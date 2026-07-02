@@ -12,7 +12,14 @@
 # In Docker Compose, Prometheus runs under the /prometheus route prefix and is
 # no longer published on its own host port — it is served via nginx instead:
 #   - Grafana on the same Docker network:   http://prometheus:9090/prometheus
+#     (bypasses nginx entirely — no auth needed, as configured below.)
 #   - Grafana on another host (via nginx):  http://<this-host>:8080/prometheus
+#     nginx gates this path with HTTP Basic Auth (Prometheus has no auth of its
+#     own — H-1). Uncomment basicAuth below and set basicAuthUser to match
+#     PROMETHEUS_BASIC_AUTH_USER, then set secureJsonData.basicAuthPassword to
+#     PROMETHEUS_BASIC_AUTH_PASSWORD (Grafana encrypts it at rest — don't put
+#     it in `url`). That env var must be set on the nginx service or every
+#     request 401s.
 # (In a plain Kubernetes deploy where Prometheus serves at root, drop /prometheus.)
 apiVersion: 1
 
@@ -24,7 +31,11 @@ datasources:
     url: http://prometheus:9090/prometheus
     isDefault: false
     editable: true
+    # basicAuth: true
+    # basicAuthUser: admin
     jsonData:
       httpMethod: POST
       # Matches the exporter scrape interval so $__rate_interval behaves well.
       timeInterval: 15s
+    # secureJsonData:
+    #   basicAuthPassword: "$PROMETHEUS_BASIC_AUTH_PASSWORD"

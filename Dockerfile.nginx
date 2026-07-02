@@ -1,10 +1,19 @@
 FROM nginx:1.27-alpine
 
+# openssl CLI (not in the base image) generates the Basic Auth credential file
+# gating /prometheus — see nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh.
+RUN apk add --no-cache openssl
+
 # Templates in /etc/nginx/templates/*.template are run through envsubst by the
 # image's entrypoint at startup, then written to /etc/nginx/conf.d/. Only env
 # vars defined at runtime are substituted, so nginx's own $host/$scheme vars are
 # left intact. SERVER_NAME comes from the environment (see docker-compose.yml).
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
+
+# Executable scripts here run automatically before nginx starts (official
+# image behavior) — generates /etc/nginx/prometheus.htpasswd from
+# PROMETHEUS_BASIC_AUTH_USER/_PASSWORD.
+COPY --chmod=755 nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh /docker-entrypoint.d/10-prometheus-htpasswd.sh
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1/nginx-health >/dev/null || exit 1

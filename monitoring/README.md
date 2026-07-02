@@ -59,9 +59,19 @@ Prometheus and the exporter come up with the rest of the stack:
 docker compose up --build
 ```
 
-- Prometheus UI: <http://localhost:9090> (host port from `PROMETHEUS_PORT`)
-- The `exporter` has **no** host port — it is only reachable inside the Compose
-  network, which is exactly where Prometheus scrapes it from.
+- Prometheus UI: <http://localhost:8080/prometheus> — Prometheus has **no**
+  host port of its own; nginx proxies it under `/prometheus` on the main site
+  (`HTTP_PORT`, default `8080`), gated by **HTTP Basic Auth** since Prometheus
+  has no auth of its own (H-1 — see `nginx/default.conf.template` and
+  `nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh`). Set
+  `PROMETHEUS_BASIC_AUTH_USER`/`PROMETHEUS_BASIC_AUTH_PASSWORD` in `.env` to
+  open it up; leave the password unset and every request gets a `401` (the
+  default — fully blocked). Also runs with `--web.route-prefix=/prometheus`,
+  so every one of its own routes — UI, API, `/metrics` — lives under that
+  prefix regardless; drop it and you get a `404` even with valid credentials.
+- The `exporter` has **no** host port and no auth gate — it is only reachable
+  inside the Compose network, which is exactly where Prometheus scrapes it
+  from.
 - The TSDB persists in the `prometheus_data` named volume.
 
 Inspect just these services:
@@ -69,16 +79,22 @@ Inspect just these services:
 ```bash
 docker compose logs -f prometheus
 docker compose logs -f exporter
-curl -s http://localhost:9090/-/ready          # Prometheus readiness
-docker compose exec exporter \
-  python -c "import urllib.request as u; print(u.urlopen('http://localhost:9180/metrics').read()[:500])"
+# Prometheus readiness, via nginx (needs -u if PROMETHEUS_BASIC_AUTH_PASSWORD is set):
+curl -s http://localhost:8080/prometheus/-/ready
+curl -s -u admin:yourpassword http://localhost:8080/prometheus/-/ready
+# exporter is a distroless Go image (no shell/Python inside to exec into), so
+# fetch it from another container on the same Compose network instead:
+docker compose exec -T web node -e \
+  "fetch('http://exporter:9180/metrics').then(r=>r.text()).then(t=>console.log(t.slice(0,500)))"
 ```
 
 ## Ports and environment
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `PROMETHEUS_PORT` | `9090` | Host port Prometheus is published on (Compose). An external Grafana uses `http://<host>:9090`. |
+| `HTTP_PORT` | `8080` | Host port nginx (and therefore `/prometheus`) is published on. Prometheus has no host port of its own — an external Grafana uses `http://<host>:${HTTP_PORT}/prometheus`, never a direct `:9090`. |
+| `PROMETHEUS_BASIC_AUTH_USER` | `admin` | Basic Auth username for the public `/prometheus` proxy. |
+| `PROMETHEUS_BASIC_AUTH_PASSWORD` | *(unset)* | Basic Auth password. Unset = `/prometheus` stays fully blocked (every request `401`s) — set this to expose it to an external Grafana. |
 | `EXPORTER_PORT` | `9180` | Port the exporter listens on. Internal only — not published to the host. |
 | `EXPORTER_DB_TIMEOUT_SECONDS` | `5` | Cap on how long one scrape waits to connect to PostgreSQL before giving up. |
 | `DATABASE_URL` | — | PostgreSQL connection the exporter reads (read-only; it never writes or creates schema). |
@@ -90,7 +106,10 @@ history.
 
 ## Checking that scraping works
 
-Open the Prometheus UI and confirm the exporter target is healthy:
+Open the Prometheus UI (`http://localhost:8080/prometheus`, or
+`http://<basic-auth-user>:<password>@localhost:8080/prometheus` if
+`PROMETHEUS_BASIC_AUTH_PASSWORD` is set) and confirm the exporter target is
+healthy:
 
 - **Status → Targets** — the `printfarm` job (`exporter:9180`) should be `UP`.
 - **Graph** — run `printfarm_scrape_success`. `1` means the last scrape read the
@@ -100,12 +119,29 @@ Open the Prometheus UI and confirm the exporter target is healthy:
 ## Connecting Grafana
 
 Grafana is **not** part of this stack — run your own and point it at this
-Prometheus.
+Prometheus. Two ways to reach it, depending on where Grafana runs:
 
-1. **Add the datasource.** Either configure it by hand (Prometheus,
-   URL `http://prometheus:9090` if Grafana shares the network, otherwise
-   `http://<host>:9090`), or mount the provisioning file so it's created on
-   startup:
+- **Same Docker network as this stack** (e.g. added as another service in this
+  compose file, or `docker network connect`ed to it): use
+  `http://prometheus:9090/prometheus` directly — no Basic Auth needed, since
+  that bypasses nginx entirely.
+- **Anywhere else** (a separate host/network): use
+  `http://<host>:HTTP_PORT/prometheus` (e.g. `http://<host>:8080/prometheus`)
+  through nginx, with **Basic Auth** credentials
+  (`PROMETHEUS_BASIC_AUTH_USER`/`PROMETHEUS_BASIC_AUTH_PASSWORD`, set in
+  `.env` — unset by default, meaning this path is blocked until you opt in).
+  Grafana's Prometheus datasource has its own **Basic Auth** fields for this
+  (Settings → Auth → Basic auth); don't put the credentials in the URL itself.
+
+Either way, don't drop the `/prometheus` suffix — Prometheus runs with
+`--web.route-prefix=/prometheus`, so every one of its own routes lives under
+that prefix regardless of how you reach it.
+
+1. **Add the datasource.** Configure it by hand as above, or mount the
+   provisioning file so it's created on startup (edit `url` in that file to
+   match which of the two paths above you're using, and fill in
+   `basicAuth`/`basicAuthUser` + a `basicAuthPassword` secure field if you're
+   going through nginx):
 
    ```bash
    # in your Grafana's docker run / compose:
