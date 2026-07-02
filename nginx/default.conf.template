@@ -176,6 +176,19 @@ server {
     return 404;
   }
 
+  # Server-Sent Events replacing several browser polling loops (queue-added,
+  # maintenance notifications — see server/eventStream.js). Like the MJPEG
+  # locations above, a long-lived chunked response must not be buffered or
+  # events arrive in batches instead of as they're pushed.
+  location = /api/events {
+    proxy_pass http://web:5173;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+  }
+
   location / {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;

@@ -1,14 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { Printer } from '../types';
-import { fetchQueueJobs } from '../lib/queueApi';
 import { usePrinters } from '../contexts/PrintersContext';
 import { usePrinterEvents, PrinterEventLevel } from '../contexts/PrinterEventsContext';
 
 type PrinterSnapshot = Pick<Printer, 'id' | 'name' | 'status' | 'currentJob' | 'progress'>;
 
-const QUEUE_POLL_INTERVAL_MS = 10000;
-const SEEN_QUEUE_JOB_IDS_KEY = 'printfarm_seen_queue_job_ids';
 // A printer can briefly read offline between polls (network flicker) without the
 // print actually stopping. Hold the "stopped because offline" toast until the
 // printer has stayed offline for this long, and cancel it silently if it recovers.
@@ -104,35 +101,10 @@ function toPrinterMap(printers: Printer[]) {
   );
 }
 
-function readSeenQueueJobIds() {
-  try {
-    const rawValue = localStorage.getItem(SEEN_QUEUE_JOB_IDS_KEY);
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsed = JSON.parse(rawValue);
-    return Array.isArray(parsed)
-      ? new Set(parsed.filter((value): value is string => typeof value === 'string'))
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeSeenQueueJobIds(jobIds: Set<string>) {
-  try {
-    localStorage.setItem(SEEN_QUEUE_JOB_IDS_KEY, JSON.stringify([...jobIds]));
-  } catch {
-    // Ignore storage failures; notifications can still work for the current page session.
-  }
-}
-
 export function PrinterStatusNotifier() {
   const { printers, loaded } = usePrinters();
   const { addEvent } = usePrinterEvents();
   const previousPrintersRef = useRef<Map<string, PrinterSnapshot> | null>(null);
-  const previousQueueJobIdsRef = useRef<Set<string> | null>(null);
   // printerId -> the job + first time we saw it offline, awaiting confirmation.
   const pendingOfflineRef = useRef<Map<string, { jobName: string; since: number }>>(new Map());
   // Keep a stable reference to addEvent so the effects don't re-run on each render.
@@ -200,78 +172,34 @@ export function PrinterStatusNotifier() {
     previousPrintersRef.current = nextPrinters;
   }, [printers, loaded]);
 
+  // Server-push replacement for the old GET /api/queue poll (every 10s, from
+  // every open tab). The server only broadcasts a genuinely new job at the
+  // moment it's inserted, so there's no "seen job ids" baseline to maintain —
+  // every event received here is new by construction.
   useEffect(() => {
-    let isCancelled = false;
-
-    const refreshQueue = async () => {
+    const source = new EventSource('/api/events');
+    source.addEventListener('queue-added', (event) => {
       try {
-        const { queue } = await fetchQueueJobs();
-        if (isCancelled) {
-          return;
-        }
-
-        const storedJobIds = readSeenQueueJobIds();
-        const baselineJobIds = storedJobIds ?? previousQueueJobIdsRef.current;
-        const nextJobIds = new Set(queue.map((job) => job.id));
-
-        if (baselineJobIds) {
-          const newJobs = queue.filter((job) => !baselineJobIds.has(job.id));
-          for (const job of newJobs) {
-            const fileCount = job.fileCount ?? 1;
-            const who = job.submitterName?.trim() || job.filename || 'Someone';
-            const description = `${who} added a print request (${fileCount} file${fileCount === 1 ? '' : 's'}).`;
-            toast.info('New job added to queue', { description });
-            addEventRef.current({
-              level: 'info',
-              title: 'New job added to queue',
-              description,
-            });
-          }
-        }
-
-        const seenJobIds = new Set([...(storedJobIds ?? []), ...nextJobIds]);
-        previousQueueJobIdsRef.current = nextJobIds;
-        writeSeenQueueJobIds(seenJobIds);
+        const job = JSON.parse((event as MessageEvent).data) as {
+          filename?: string;
+          fileCount?: number;
+          submitterName?: string;
+        };
+        const fileCount = job.fileCount ?? 1;
+        const who = job.submitterName?.trim() || job.filename || 'Someone';
+        const description = `${who} added a print request (${fileCount} file${fileCount === 1 ? '' : 's'}).`;
+        toast.info('New job added to queue', { description });
+        addEventRef.current({
+          level: 'info',
+          title: 'New job added to queue',
+          description,
+        });
       } catch {
-        // Keep notifications quiet when the queue sync is temporarily unavailable.
+        // Ignore a malformed event rather than crash the listener.
       }
-    };
+    });
 
-    // Pause while the tab is hidden — this notifier is mounted globally on
-    // every page, so a backgrounded tab was otherwise polling forever.
-    let interval: number | undefined;
-    const startInterval = () => {
-      if (interval !== undefined) {
-        return;
-      }
-      interval = window.setInterval(refreshQueue, QUEUE_POLL_INTERVAL_MS);
-    };
-    const stopInterval = () => {
-      if (interval !== undefined) {
-        window.clearInterval(interval);
-        interval = undefined;
-      }
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        refreshQueue();
-        startInterval();
-      } else {
-        stopInterval();
-      }
-    };
-
-    refreshQueue();
-    if (document.visibilityState === 'visible') {
-      startInterval();
-    }
-    document.addEventListener('visibilitychange', onVisibilityChange);
-
-    return () => {
-      isCancelled = true;
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      stopInterval();
-    };
+    return () => source.close();
   }, []);
 
   return null;
