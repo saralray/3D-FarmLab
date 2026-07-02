@@ -211,7 +211,7 @@ export function SoftwareUpdateSettings() {
         ) : null}
 
         {updateLog.length > 0 ? (
-          <div className="max-h-40 overflow-y-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-300">
+          <div className="rounded bg-gray-950 p-3 font-mono text-xs text-gray-300">
             {updateLog.map((entry, index) => (
               <div key={index}>
                 <span className="text-gray-500">{new Date(entry.time).toLocaleTimeString()}</span>{' '}
