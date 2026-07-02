@@ -345,7 +345,7 @@
     "semantic_hash": "27cf1e3591e961fcb8ee9033cd85bab4"
   },
   "server/app.js": {
-    "mtime": 1783020724.206621,
+    "mtime": 1783021047.1766453,
     "ast_hash": "c018db5db3252fef86a0a789a4ad2d92",
     "semantic_hash": ""
   },
@@ -450,7 +450,7 @@
     "semantic_hash": "c56c5e35d256bb08a698ad35047a65f6"
   },
   "src/app/components/MaintenanceNotifier.tsx": {
-    "mtime": 1783020521.1813898,
+    "mtime": 1783021047.176868,
     "ast_hash": "16390f8bb4e17859cec0d7a900dce259",
     "semantic_hash": ""
   },
@@ -485,7 +485,7 @@
     "semantic_hash": "d4169acbc0be8a0c95e0fab1bd968244"
   },
   "src/app/components/PrinterStatusNotifier.tsx": {
-    "mtime": 1783020483.7302744,
+    "mtime": 1783021047.1769762,
     "ast_hash": "3e2615005bed271723d4f57e4241f385",
     "semantic_hash": ""
   },
@@ -750,7 +750,7 @@
     "semantic_hash": "2d68bde3ada0e79b9fbecb498405931c"
   },
   "src/app/contexts/PrintersContext.tsx": {
-    "mtime": 1783020763.359505,
+    "mtime": 1783021047.177072,
     "ast_hash": "850e3738160b19d8aef01e2ff603f7e0",
     "semantic_hash": ""
   },
@@ -835,7 +835,7 @@
     "semantic_hash": "890f5e459320a6a9351d2dc2be010591"
   },
   "src/app/lib/printersApi.ts": {
-    "mtime": 1783020752.714399,
+    "mtime": 1783021047.1771655,
     "ast_hash": "3124226b06f5f3822cab3ff6283d9f19",
     "semantic_hash": ""
   },
@@ -930,7 +930,7 @@
     "semantic_hash": "015baa1cc638ead8e90fe93fccb647fd"
   },
   "src/app/pages/Maintenance.tsx": {
-    "mtime": 1783019704.1786075,
+    "mtime": 1783021047.1772916,
     "ast_hash": "a4b5c7d626cc099aadfe0fcd32bb234c",
     "semantic_hash": ""
   },
@@ -945,7 +945,7 @@
     "semantic_hash": ""
   },
   "src/app/pages/PrinterDetail.tsx": {
-    "mtime": 1783019793.9103467,
+    "mtime": 1783021047.1776638,
     "ast_hash": "a15463d600abe064e7c01dc16268bb71",
     "semantic_hash": ""
   },
@@ -990,7 +990,7 @@
     "semantic_hash": "48d00c382e6de860465311d2332875af"
   },
   "API.md": {
-    "mtime": 1783020892.3471365,
+    "mtime": 1783021047.1586852,
     "ast_hash": "0fc7705edf36f202b73cfd0e927c9e83",
     "semantic_hash": ""
   },
@@ -1000,9 +1000,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1781797854.7462814,
-    "ast_hash": "c7d2f0ebfa65fe7afee35d8912a63be1",
-    "semantic_hash": "c7d2f0ebfa65fe7afee35d8912a63be1"
+    "mtime": 1783022846.3254132,
+    "ast_hash": "66a116ea34271c34cde62fda52cedd7f",
+    "semantic_hash": ""
   },
   "SECURITY.md": {
     "mtime": 1781797874.5070055,
@@ -1135,7 +1135,7 @@
     "semantic_hash": ""
   },
   "server/eventStream.js": {
-    "mtime": 1783020370.0705917,
+    "mtime": 1783021047.1767237,
     "ast_hash": "7a0829ac024463940510370388215e41",
     "semantic_hash": ""
   },
