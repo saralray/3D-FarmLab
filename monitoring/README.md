@@ -280,21 +280,28 @@ topk(5, printfarm_network_usage_bytes_out_today)
 
 # Poller <-> printer traffic (LAN, not web egress) by shard, last cycle
 sum by (shard) (printfarm_poller_bytes_out + printfarm_poller_bytes_in)
+
+# Live overall throughput right now (bytes/sec) — sums the web tier's raw
+# per-request counters (printfarm_web job, true live, not the once-a-minute
+# network_usage_daily-derived series above), matching the Network Usage
+# page's "Live" card.
+sum(rate(printfarm_web_response_bytes_total[$__rate_interval]))  # out
+sum(rate(printfarm_web_request_bytes_total[$__rate_interval]))   # in
 ```
 
 ## Security notes
 
 - The **exporter is never proxied through nginx** and publishes no host port, so
-  `printfarm_*` metrics are unreachable from the public `:8080` site. Only
-  Prometheus exposes a host port (`PROMETHEUS_PORT`), and only in Compose.
+  `printfarm_*` metrics are unreachable from the public `:8080` site.
 - The exporter is strictly **read-only**: it never writes to or creates schema in
   PostgreSQL, and it reports a database error as `printfarm_scrape_success 0`
   instead of crashing.
 - No connection secrets (printer IP, API key/access code, serial) are emitted as
   metrics or labels.
-- Prometheus is not published on its own host port; nginx serves it under
-  `/prometheus` on the main site. Gate that path by network or auth if the
-  dashboard is internet-facing.
+- Prometheus has **no host port of its own**; nginx serves it under `/prometheus`
+  on the main site (see "Connecting Grafana" above). That path is served with no
+  auth unless `PROMETHEUS_BASIC_AUTH_PASSWORD` is set — set it before exposing
+  this host on an untrusted network.
 
 ## Troubleshooting
 
