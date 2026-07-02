@@ -16,6 +16,11 @@ import { useIsMobile } from './ui/use-mobile';
 // per-printer, per-open-dashboard — the dominant source of egress traffic on
 // a farm with many printers/viewers.
 const SNAPSHOT_REFRESH_MS = 5000;
+// An idle printer's webcam view isn't changing frame to frame — there's
+// nothing moving to watch — so it doesn't need the same near-live cadence as
+// one that's actively printing. Idle printers are also typically the
+// majority of a farm at any given moment, so this materially cuts traffic.
+const SNAPSHOT_REFRESH_IDLE_MS = 30000;
 
 interface PrinterCardProps {
   printer: Printer;
@@ -67,9 +72,10 @@ export function PrinterCard({
       if (interval !== undefined) {
         return;
       }
+      const refreshMs = printer.status === 'idle' ? SNAPSHOT_REFRESH_IDLE_MS : SNAPSHOT_REFRESH_MS;
       interval = window.setInterval(() => {
         setSnapshotNonce(Date.now());
-      }, SNAPSHOT_REFRESH_MS);
+      }, refreshMs);
     };
     const stopInterval = () => {
       if (interval !== undefined) {
@@ -95,7 +101,7 @@ export function PrinterCard({
       document.removeEventListener('visibilitychange', onVisibilityChange);
       stopInterval();
     };
-  }, [isOnline, printer.id, isMobile]);
+  }, [isOnline, printer.id, printer.status, isMobile]);
 
   const getActivityIcon = () => {
     switch (printer.status) {
