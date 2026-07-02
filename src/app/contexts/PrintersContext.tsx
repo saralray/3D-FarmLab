@@ -17,7 +17,7 @@ import { useAutoRefresh } from '../lib/useAutoRefresh';
 // interval against /api/printers, so an open dashboard hit the endpoint twice
 // every 5s. Centralizing it here means one request per cycle, fanned out to all
 // consumers via context.
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 8000;
 
 interface PrintersContextValue {
   printers: Printer[];

@@ -22,6 +22,11 @@ const KNOWN_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 
 const requestCounts = new Map();
 // duration histogram, keyed by route -> { buckets:number[], sum, count }.
 const durationByRoute = new Map();
+// Response bytes and request counts, keyed by route only (coarser than
+// requestCounts — this feeds both /metrics and the network-usage page's
+// periodic DB flush, neither of which needs the method/status breakdown).
+const bytesByRoute = new Map();
+const requestsByRoute = new Map();
 let inFlight = 0;
 
 // Collapse a request path to a low-cardinality route label. The resource segment
@@ -68,6 +73,7 @@ export function recordRequestEnd(method, statusCode, route, durationMs) {
   const status = Number.isFinite(statusCode) ? String(statusCode) : '0';
   const key = `${normalizeMethod(method)}|${status}|${route}`;
   requestCounts.set(key, (requestCounts.get(key) || 0) + 1);
+  requestsByRoute.set(route, (requestsByRoute.get(route) || 0) + 1);
 
   let hist = durationByRoute.get(route);
   if (!hist) {
@@ -82,6 +88,31 @@ export function recordRequestEnd(method, statusCode, route, durationMs) {
       hist.buckets[i] += 1;
     }
   }
+}
+
+// Called incrementally as each response chunk is written (rather than once at
+// the end), so a long-lived stream — the webcam MJPEG feed above all — is
+// reflected in near-real time instead of only when the connection eventually
+// closes.
+export function recordResponseBytes(route, bytes) {
+  if (!bytes) {
+    return;
+  }
+  bytesByRoute.set(route, (bytesByRoute.get(route) || 0) + bytes);
+}
+
+// Cumulative-since-process-start snapshots, consumed by the network-usage
+// flush worker (server/app.js) to compute deltas for persistence. Returned as
+// plain objects so the caller can't mutate the live maps.
+export function snapshotBytesByRoute() {
+  return Object.fromEntries(bytesByRoute);
+}
+export function snapshotRequestsByRoute() {
+  return Object.fromEntries(requestsByRoute);
+}
+
+export function getProcessStartSeconds() {
+  return PROCESS_START_SECONDS;
 }
 
 // Render the current metrics in Prometheus text exposition format.
@@ -112,6 +143,12 @@ export function renderMetrics() {
     );
     lines.push(`printfarm_web_http_request_duration_seconds_sum{route="${route}"} ${hist.sum}`);
     lines.push(`printfarm_web_http_request_duration_seconds_count{route="${route}"} ${hist.count}`);
+  }
+
+  lines.push('# HELP printfarm_web_response_bytes_total Total response bytes served, by route.');
+  lines.push('# TYPE printfarm_web_response_bytes_total counter');
+  for (const [route, bytes] of bytesByRoute) {
+    lines.push(`printfarm_web_response_bytes_total{route="${route}"} ${bytes}`);
   }
 
   lines.push('# HELP printfarm_web_http_requests_in_flight HTTP requests currently being served.');

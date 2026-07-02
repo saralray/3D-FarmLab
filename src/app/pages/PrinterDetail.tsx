@@ -503,7 +503,7 @@ export function PrinterDetail() {
     };
 
     refreshFromServer();
-    const interval = window.setInterval(refreshFromServer, 10000);
+    const interval = window.setInterval(refreshFromServer, 15000);
     const onVisible = () => { if (document.visibilityState === 'visible') void refreshFromServer(); };
     window.addEventListener('online', refreshFromServer);
     document.addEventListener('visibilitychange', onVisible);
@@ -614,7 +614,7 @@ export function PrinterDetail() {
       }
     };
     poll();
-    const interval = window.setInterval(poll, 5000);
+    const interval = window.setInterval(poll, 10000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);

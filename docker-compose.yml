@@ -161,7 +161,7 @@ services:
       DATABASE_IDLE_TX_TIMEOUT_MS: ${DATABASE_IDLE_TX_TIMEOUT_MS:-60000}
       # Optional Redis acceleration. Empty = disabled (telemetry stays Postgres-only).
       REDIS_URL: ${REDIS_URL:-}
-      PRINTER_POLL_INTERVAL_MS: ${PRINTER_POLL_INTERVAL_MS:-2000}
+      PRINTER_POLL_INTERVAL_MS: ${PRINTER_POLL_INTERVAL_MS:-4000}
       PRINTER_REQUEST_TIMEOUT_MS: ${PRINTER_REQUEST_TIMEOUT_MS:-3000}
       PRINTER_OFFLINE_GRACE_SECONDS: ${PRINTER_OFFLINE_GRACE_SECONDS:-30}
       # The poller writes a printer row only when its telemetry changed; this caps

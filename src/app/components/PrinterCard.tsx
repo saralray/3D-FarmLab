@@ -12,7 +12,15 @@ import { useIsMobile } from './ui/use-mobile';
 
 // How often each dashboard card re-fetches its webcam snapshot for a near-live
 // preview. The printer control/detail page shows the fully live feed instead.
-const SNAPSHOT_REFRESH_MS = 2000;
+// Kept coarse (rather than truly live) because this fetch runs per-card,
+// per-printer, per-open-dashboard — the dominant source of egress traffic on
+// a farm with many printers/viewers.
+const SNAPSHOT_REFRESH_MS = 5000;
+// An idle printer's webcam view isn't changing frame to frame — there's
+// nothing moving to watch — so it doesn't need the same near-live cadence as
+// one that's actively printing. Idle printers are also typically the
+// majority of a farm at any given moment, so this materially cuts traffic.
+const SNAPSHOT_REFRESH_IDLE_MS = 30000;
 
 interface PrinterCardProps {
   printer: Printer;
@@ -56,14 +64,44 @@ export function PrinterCard({
       return;
     }
 
-    const interval = window.setInterval(() => {
-      setSnapshotNonce(Date.now());
-    }, SNAPSHOT_REFRESH_MS);
+    // Pause snapshot polling while the tab/window isn't visible (e.g. a
+    // dashboard left open in a background tab) — refreshing an image no one
+    // can see just burns bandwidth. Refresh immediately on return.
+    let interval: number | undefined;
+    const startInterval = () => {
+      if (interval !== undefined) {
+        return;
+      }
+      const refreshMs = printer.status === 'idle' ? SNAPSHOT_REFRESH_IDLE_MS : SNAPSHOT_REFRESH_MS;
+      interval = window.setInterval(() => {
+        setSnapshotNonce(Date.now());
+      }, refreshMs);
+    };
+    const stopInterval = () => {
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+        interval = undefined;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        setSnapshotNonce(Date.now());
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+
+    if (document.visibilityState === 'visible') {
+      startInterval();
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
-      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      stopInterval();
     };
-  }, [isOnline, printer.id, isMobile]);
+  }, [isOnline, printer.id, printer.status, isMobile]);
 
   const getActivityIcon = () => {
     switch (printer.status) {
