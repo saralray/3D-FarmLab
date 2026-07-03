@@ -14,15 +14,17 @@
 // Dispatch by printer profile:
 //   - snapmaker_u1     → Moonraker HTTP upload (POST /server/files/upload, print=true)
 //   - bambulab_a1_mini → FTPS upload of the .3mf to root + MQTT project_file (bambuddy flow)
-//   - bambulab_h2s     → same Bambu LAN flow as the A1 Mini
-//   - bambulab_h2d     → same Bambu LAN flow as the A1 Mini
-//   - bambulab_h2c     → same Bambu LAN flow as the A1 Mini
+//   - bambulab_h2s     → H2-series firmware rejects FTP writes (553, even at
+//   - bambulab_h2d       root — confirmed live), so instead of FTP we stage the
+//   - bambulab_h2c       file in memory and hand the printer a plain HTTP URL
+//                        (served by this same proxy at /printers/_tmpfile/...)
+//                        to fetch it from, then MQTT project_file as usual.
 // Generic printers have no upload API and are rejected.
 //
 // Connection secrets (IP, API key, access code, serial) are read from the DB
 // inside this container and never echoed back to the slicer.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
 import busboy from 'busboy';
@@ -54,6 +56,27 @@ const SLICER_UPLOAD_MAX_BYTES = Number.parseInt(
   process.env.SLICER_UPLOAD_MAX_BYTES || String(500 * 1024 * 1024),
   10,
 );
+
+// In-memory staging area for the HTTP-delivery Bambu upload path (see
+// uploadToBambu): H2-series firmware rejects FTP writes even to root, so
+// instead of staging the .3mf on the printer's own storage we hold it here and
+// hand the printer a URL to fetch it from itself. Token -> { buffer, filename,
+// expiresAt }. Swept on a timer rather than deleted on first GET, since a
+// printer may re-request the file (retry, or a slow/paused fetch).
+const TMP_FILE_TTL_MS = 20 * 60 * 1000;
+const tmpFiles = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, entry] of tmpFiles) {
+    if (entry.expiresAt < now) tmpFiles.delete(token);
+  }
+}, 60 * 1000).unref();
+
+function registerTmpFile(buffer, filename) {
+  const token = randomBytes(16).toString('hex');
+  tmpFiles.set(token, { buffer, filename, expiresAt: Date.now() + TMP_FILE_TTL_MS });
+  return token;
+}
 
 // H-5 FIX: sanitize a client-supplied filename before using it as a remote FTP
 // path. Strip directory components, null bytes, and characters that are unsafe in
@@ -128,6 +151,17 @@ function defaultAppBase(req) {
   // Direct hit on the proxy's own port: swap it for the dashboard's HTTP_PORT.
   const hostname = String(req.headers.host || `localhost:${port}`).split(':')[0];
   return `${proto}://${hostname}:${httpPort}`;
+}
+
+// Build the URL a printer on the LAN uses to fetch a staged file back from us
+// (see registerTmpFile). Deliberately ignores APP_BASE_URL (that's meant for a
+// browser/SSO callback and may be a public DNS name) and always uses the
+// request's own host — the same LAN address the slicer used to reach the
+// dashboard, which the printer (same network) can reach too — routed through
+// nginx's existing /printers/ location.
+function buildTmpFileUrl(req, token, filename) {
+  const base = defaultAppBase(req).replace(/\/+$/, '');
+  return `${base}/printers/_tmpfile/${token}/${encodeURIComponent(filename)}`;
 }
 
 function sendJson(res, statusCode, payload) {
@@ -266,15 +300,20 @@ async function uploadToMoonraker(printer, file) {
   }
 }
 
-// Bambu LAN print flow (A1 Mini / H2S / H2D), modeled on the bambuddy project
-// (maziggy/bambuddy, backend/app/services/{bambu_ftp,bambu_mqtt}.py).
+// Bambu LAN print flow (A1 Mini / H2S / H2D / H2C), modeled on the bambuddy
+// project (maziggy/bambuddy, backend/app/services/{bambu_ftp,bambu_mqtt}.py).
 //
-// There is no HTTP upload. The sliced .3mf is pushed over implicit FTPS (port
-// 990, user "bblp", password = LAN access code) to the *root* directory, then a
-// `project_file` command is published over MQTT to start it. The print command
-// references the file by name only — `url: ftp://<filename>` — so the file must
-// live at the FTP root, not under a /cache or /mnt/sdcard path.
-async function uploadToBambu(printer, file) {
+// The A1 Mini accepts a plain FTPS (port 990, user "bblp", password = LAN
+// access code) write to its root directory, so the .3mf is staged there and
+// referenced as `url: ftp://<filename>`. The H2-series firmware does not: live
+// testing against real H2S/H2D units showed an empty FTP root and a `553
+// Could not create file` on every STOR attempt, root included — not a bad
+// path, an FTP server with no writable storage exposed at all. So for the H2
+// family we skip FTP entirely: the file is held here in memory
+// (registerTmpFile) and the printer is told to fetch it itself over plain
+// HTTP through this same proxy (`url: http://.../printers/_tmpfile/<token>/...`).
+// Either way a `project_file` command is then published over MQTT to start it.
+async function uploadToBambu(printer, file, req) {
   const accessCode = (printer.apiKeyHeader || '').trim();
   const serial = (printer.serial || '').trim();
   if (!accessCode) {
@@ -291,47 +330,55 @@ async function uploadToBambu(printer, file) {
     ? file.filename
     : `${file.filename.replace(/\.[^.]+$/, '')}.3mf`;
 
-  // Generous timeout: basic-ftp waits for the server's 226 "transfer complete"
-  // before resolving, which confirms the file is flushed to the SD card. An H2D
-  // can take 30+ s to send that 226 after the data channel closes; resolving the
-  // print command before the file is fully written triggers SD read errors.
-  //
-  // The FTP and MQTT stages are wrapped separately so a failure says *which* step
-  // broke (and on which profile): H2-series firmware restricts FTP file access, so
-  // a failed STOR here vs. a rejected print command are different fixes. The slicer
-  // surfaces this text verbatim, and handleUpload writes it to the audit log.
-  const ftp = new FtpClient(60000);
-  try {
-    await ftp.access({
-      host: printer.ipAddress,
-      port: 990,
-      user: 'bblp',
-      password: accessCode,
-      secure: 'implicit',
-      secureOptions: { rejectUnauthorized: false },
-    });
-    // Upload to the root directory so `ftp://<filename>` resolves on the printer.
-    await ftp.uploadFrom(Readable.from(file.buffer), remoteName);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`FTP upload to ${printer.profile} failed: ${detail}`);
-  } finally {
-    ftp.close();
+  let fileUrl;
+  if (printer.profile === 'bambulab_a1_mini') {
+    // Generous timeout: basic-ftp waits for the server's 226 "transfer complete"
+    // before resolving, which confirms the file is flushed to the SD card.
+    //
+    // The FTP and MQTT stages are wrapped separately so a failure says *which*
+    // step broke: a failed STOR here vs. a rejected print command are different
+    // fixes. The slicer surfaces this text verbatim, and handleUpload writes it
+    // to the audit log.
+    const ftp = new FtpClient(60000);
+    try {
+      await ftp.access({
+        host: printer.ipAddress,
+        port: 990,
+        user: 'bblp',
+        password: accessCode,
+        secure: 'implicit',
+        secureOptions: { rejectUnauthorized: false },
+      });
+      // Upload to the root directory so `ftp://<filename>` resolves on the printer.
+      await ftp.uploadFrom(Readable.from(file.buffer), remoteName);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`FTP upload to ${printer.profile} failed: ${detail}`);
+    } finally {
+      ftp.close();
+    }
+    fileUrl = `ftp://${remoteName}`;
+  } else {
+    // H2S / H2D / H2C: stage the file here and let the printer pull it over HTTP.
+    const token = registerTmpFile(file.buffer, remoteName);
+    fileUrl = buildTmpFileUrl(req, token, remoteName);
   }
 
   try {
-    await publishBambuPrint(printer, serial, remoteName);
+    await publishBambuPrint(printer, serial, remoteName, fileUrl);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    // The file is already on the SD card; only the auto-start command failed.
+    // The file is already staged (SD card or our own temp store); only the
+    // auto-start command failed.
     throw new Error(
       `File uploaded to ${printer.profile} but the print command failed: ${detail}`,
     );
   }
 
   // Record the slicer's filament estimate so the poller can show real per-job
-  // usage. Bambu's MQTT report has no filament figure and H2 firmware blocks FTP
-  // file access, so the .3mf we hold here is the only place this number exists.
+  // usage. Bambu's MQTT report has no filament figure, and the poller can't
+  // read it back off the printer either (H2 blocks FTP outright; the .3mf we
+  // hold here is the only place this number exists for any Bambu profile).
   // Best-effort: a parse/DB failure must never fail an already-started print.
   try {
     const grams = extractFilamentGramsFrom3mf(file.buffer);
@@ -353,7 +400,7 @@ function bambuSubtaskName(remoteName) {
   return remoteName.replace(/\.gcode\.3mf$/i, '').replace(/\.3mf$/i, '');
 }
 
-function publishBambuPrint(printer, serial, remoteName) {
+function publishBambuPrint(printer, serial, remoteName, fileUrl) {
   // Unique per-submission identity. Bambu firmware (notably P1S 01.10) clamps
   // task identity fields to int32 max and treats a reused id as a continuation
   // of the prior job, so raw epoch-ms (13 digits) collides every time. Modulo
@@ -362,7 +409,9 @@ function publishBambuPrint(printer, serial, remoteName) {
   const submissionId = String((Date.now() % 2147483647) || 1);
 
   // project_file payload mirrors Bambu Studio / bambuddy. Notable fields:
-  //   url: ftp://<name>  — file referenced by name at the FTP root (see upload)
+  //   url: caller-supplied — ftp://<name> at the FTP root for the A1 Mini, or
+  //                        an http(s) URL the printer fetches from us for the
+  //                        H2 family (see uploadToBambu)
   //   md5: ""            — empty tells firmware to skip md5 validation; a wrong
   //                        digest can hard-fail the job, so we don't synthesize one
   //   use_ams: false     — a slicer push carries no AMS mapping; AMS-on with no
@@ -375,7 +424,7 @@ function publishBambuPrint(printer, serial, remoteName) {
       sequence_id: '20000',
       command: 'project_file',
       param: 'Metadata/plate_1.gcode',
-      url: `ftp://${remoteName}`,
+      url: fileUrl,
       file: remoteName,
       md5: '',
       bed_type: 'auto',
@@ -492,7 +541,7 @@ async function handleUpload(req, res, printerId) {
       printer.profile === 'bambulab_h2d' ||
       printer.profile === 'bambulab_h2c'
     ) {
-      await uploadToBambu(printer, file);
+      await uploadToBambu(printer, file, req);
     } else {
       sendJson(res, 415, { error: `Upload is not supported for printer profile "${printer.profile}"` });
       return;
@@ -589,6 +638,25 @@ async function handleRequest(req, res) {
 
   if (pathname === '/' || pathname === '/healthz') {
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // H2-series HTTP delivery: the printer itself GETs the staged file back from
+  // us (see registerTmpFile / uploadToBambu). Matched before the generic
+  // per-printer route below so "_tmpfile" can never collide with a printer id.
+  const tmpFileMatch = pathname.match(/^\/printers\/_tmpfile\/([0-9a-f]{32})\/[^/]+$/);
+  if (tmpFileMatch && req.method === 'GET') {
+    const entry = tmpFiles.get(tmpFileMatch[1]);
+    if (!entry || entry.expiresAt < Date.now()) {
+      sendJson(res, 404, { error: 'Not found' });
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', String(entry.buffer.length));
+    res.setHeader('Content-Disposition', `attachment; filename="${entry.filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(entry.buffer);
     return;
   }
 
