@@ -15,6 +15,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { NotificationBell } from './NotificationBell';
 import { PrintRequestDialog } from './PrintRequestDialog';
 import { useAuth } from '../contexts/AuthContext';
+import { useSidebar } from '../contexts/SidebarContext';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { PUBLIC_VIEWER_MODE } from '../lib/runtimeConfig';
@@ -43,6 +44,7 @@ export function BottomTabBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { hasUnfinishedQueue, hasPendingMaintenance } = useSidebar();
   const [moreOpen, setMoreOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
 
@@ -81,12 +83,25 @@ export function BottomTabBar() {
         className="fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)] dark:border-gray-700 dark:bg-gray-900 lg:hidden"
         aria-label="Primary"
       >
-        {visibleTabs.map((tab) => (
-          <Link key={tab.path} to={tab.path} className={tabClass(isActive(tab.path))}>
-            <tab.icon className="size-6" />
-            <span>{tab.label}</span>
-          </Link>
-        ))}
+        {visibleTabs.map((tab) => {
+          const showAlertDot =
+            (tab.path === '/queue' && hasUnfinishedQueue) ||
+            (tab.path === '/maintenance' && hasPendingMaintenance);
+          return (
+            <Link key={tab.path} to={tab.path} className={tabClass(isActive(tab.path))}>
+              <span className="relative">
+                <tab.icon className="size-6" />
+                {showAlertDot && (
+                  <span
+                    className="absolute -right-1 -top-1 size-2 rounded-full bg-red-500"
+                    aria-hidden="true"
+                  />
+                )}
+              </span>
+              <span>{tab.label}</span>
+            </Link>
+          );
+        })}
         <button
           type="button"
           onClick={() => setMoreOpen(true)}

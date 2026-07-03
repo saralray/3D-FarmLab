@@ -1213,6 +1213,24 @@ export async function listQueueData() {
   return { queue, history };
 }
 
+// Cheap existence check for the sidebar's real-time queue dot — a COUNT would
+// scan every unfinished row just to throw the number away, so cap it at 1 row.
+export async function hasUnfinishedQueueJobs() {
+  await ensureSchema();
+  const result = await query(
+    `
+    SELECT 1
+    FROM queue_jobs
+    WHERE form_type = $1
+      AND deleted_at IS NULL
+      AND printed_status = 0
+    LIMIT 1;
+  `,
+    [QUEUE_FORM_TYPE],
+  );
+  return result.rows.length > 0;
+}
+
 export async function markQueueJobPrinted(id) {
   await ensureSchema();
   await query(

@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Printer } from '../types';
 import { usePrinters } from '../contexts/PrintersContext';
 import { usePrinterEvents, PrinterEventLevel } from '../contexts/PrinterEventsContext';
+import { acquireEventStream, releaseEventStream } from '../lib/eventStream';
 
 type PrinterSnapshot = Pick<Printer, 'id' | 'name' | 'status' | 'currentJob' | 'progress'>;
 
@@ -177,8 +178,8 @@ export function PrinterStatusNotifier() {
   // moment it's inserted, so there's no "seen job ids" baseline to maintain —
   // every event received here is new by construction.
   useEffect(() => {
-    const source = new EventSource('/api/events');
-    source.addEventListener('queue-added', (event) => {
+    const source = acquireEventStream();
+    const onQueueAdded = (event: Event) => {
       try {
         const job = JSON.parse((event as MessageEvent).data) as {
           filename?: string;
@@ -197,9 +198,13 @@ export function PrinterStatusNotifier() {
       } catch {
         // Ignore a malformed event rather than crash the listener.
       }
-    });
+    };
+    source.addEventListener('queue-added', onQueueAdded);
 
-    return () => source.close();
+    return () => {
+      source.removeEventListener('queue-added', onQueueAdded);
+      releaseEventStream();
+    };
   }, []);
 
   return null;

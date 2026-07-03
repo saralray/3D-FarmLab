@@ -23,7 +23,7 @@ import {
   fetchUsers,
 } from '../lib/usersApi';
 
-interface User {
+export interface User {
   id: string;
   name: string;
   username: string;

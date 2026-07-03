@@ -23,7 +23,7 @@ export function Navigation() {
     logout();
     navigate('/login');
   };
-  const { isCollapsed, toggleSidebar } = useSidebar();
+  const { isCollapsed, toggleSidebar, hasUnfinishedQueue, hasPendingMaintenance } = useSidebar();
   const [formOpen, setFormOpen] = useState(false);
   const [logoWave, setLogoWave] = useState(false);
   const [musicSync, setMusicSync] = useState(false);
@@ -160,20 +160,31 @@ export function Navigation() {
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <div className="space-y-1">
-          {[...navItems, ...adminNavItems].map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`flex items-center rounded-lg px-4 py-3 transition-colors ${
-                isActive(item.path)
-                  ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
-            >
-              <item.icon className="size-5" />
-              {!isCollapsed && <span className="ml-3 whitespace-nowrap">{item.label}</span>}
-            </Link>
-          ))}
+          {[...navItems, ...adminNavItems].map((item) => {
+            const showAlertDot =
+              (item.path === '/queue' && hasUnfinishedQueue) ||
+              (item.path === '/maintenance' && hasPendingMaintenance);
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`relative flex items-center rounded-lg px-4 py-3 transition-colors ${
+                  isActive(item.path)
+                    ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+              >
+                <item.icon className="size-5" />
+                {!isCollapsed && <span className="ml-3 whitespace-nowrap">{item.label}</span>}
+                {showAlertDot && (
+                  <span
+                    className="absolute right-3 top-1/2 size-2 -translate-y-1/2 rounded-full bg-red-500"
+                    aria-hidden="true"
+                  />
+                )}
+              </Link>
+            );
+          })}
           <a
             href="/request"
             onClick={(e) => {

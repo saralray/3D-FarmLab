@@ -9,6 +9,7 @@ import {
   markMaintenanceNotificationsRead,
   type MaintenanceNotification,
 } from '../lib/maintenanceApi';
+import { acquireEventStream, releaseEventStream } from '../lib/eventStream';
 
 // The server pushes a maintenance-notification SSE event the instant the
 // worker creates one (see server/eventStream.js), so this poll is now just a
@@ -60,8 +61,8 @@ export function MaintenanceNotifier() {
   useEffect(() => {
     if (!isStaff) return;
 
-    const source = new EventSource('/api/events');
-    source.addEventListener('maintenance-notification', (event) => {
+    const source = acquireEventStream();
+    const onMaintenanceNotification = (event: Event) => {
       try {
         const note = JSON.parse((event as MessageEvent).data) as MaintenanceNotification;
         surface(note);
@@ -72,9 +73,13 @@ export function MaintenanceNotifier() {
       } catch {
         // Ignore a malformed event rather than crash the listener.
       }
-    });
+    };
+    source.addEventListener('maintenance-notification', onMaintenanceNotification);
 
-    return () => source.close();
+    return () => {
+      source.removeEventListener('maintenance-notification', onMaintenanceNotification);
+      releaseEventStream();
+    };
   }, [isStaff]);
 
   useEffect(() => {

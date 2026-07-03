@@ -55,6 +55,28 @@ export function broadcastMaintenanceNotification(notification) {
   }
 }
 
+// Current "is there an unfinished job" state, pushed after every mutation that
+// can change it (submit/printed/delete/reset) so the sidebar's Queue dot
+// tracks the queue live in both directions — `queue-added` alone only ever
+// turns the dot on, never off. Public, like the queue read itself.
+export function broadcastQueueStatus(status) {
+  for (const subscriber of subscribers) {
+    writeEvent(subscriber.res, 'queue-status', status);
+  }
+}
+
+// Same idea for the Maintenance dot: pushed after a task is completed (turns
+// it off) and from the worker pass that creates new pending tasks (turns it
+// on), so the badge doesn't rely solely on the point-in-time maintenance
+// worker.
+export function broadcastMaintenanceStatus(status) {
+  for (const subscriber of subscribers) {
+    if (subscriber.wantsMaintenance) {
+      writeEvent(subscriber.res, 'maintenance-status', status);
+    }
+  }
+}
+
 // Keep intermediary proxies/load balancers from timing out an otherwise-silent
 // connection, and prune any subscriber whose write already started failing.
 setInterval(() => {

@@ -600,7 +600,18 @@ batched.
 | Event | Payload | Sent to |
 |---|---|---|
 | `queue-added` | `{ id, filename, fileCount, submitterName }` | every connected client, the instant a job is inserted (matches the existing `queue_added` Discord webhook trigger) |
+| `queue-status` | `{ hasUnfinished: boolean }` | every connected client, after any mutation that can change whether an unfinished job exists (submit/printed/delete/reset, both the frontend `/api/queue/*` and `/api/v1/queue/*` routes) |
 | `maintenance-notification` | `{ id, printerId, kind, title, body, read, createdAt }` (same shape as `GET /api/maintenance/notifications` rows) | only connections whose session was privileged (admin/operator) at connect time, the instant the 5-minute maintenance worker creates a notification row |
+| `maintenance-status` | `{ hasPending: boolean }` | only privileged connections, after a task is completed or a worker pass finishes (mirrors `GET /api/maintenance/summary`'s `printersRequiringMaintenance > 0`) |
+
+`queue-status`/`maintenance-status` are the authoritative "is there anything
+unfinished right now?" signal — unlike `queue-added`/`maintenance-notification`,
+which only ever fire on creation, these also fire when the condition clears
+(a job gets printed/deleted, a task gets completed), so a client can track the
+current state live in both directions instead of just "turns on". They back
+the sidebar's Queue/Maintenance alert dots (`SidebarContext.tsx`, operator/admin
+only), which also read `queue-added`/`maintenance-notification` as an
+even-earlier "turn on" signal at the point of creation.
 
 Because SSE offers no event replay, `MaintenanceNotifier` (frontend) still
 polls `GET /api/maintenance/notifications` as a backstop — now every 180s
@@ -608,7 +619,16 @@ instead of 30s — to catch anything missed during a disconnect; a
 maintenance-due alert is treated as worth not losing. The queue-added event
 has no such backstop (no `GET /api/queue` poll left in that notifier) since
 missing a "new job" toast is low-stakes and the Queue page always shows the
-current state on its own.
+current state on its own. The sidebar alert dots run their own 180s backstop
+poll (`GET /api/queue` + `GET /api/maintenance/summary`) for the same reason.
+
+All three frontend SSE consumers (`PrinterStatusNotifier`, `MaintenanceNotifier`,
+`SidebarContext`) share a single `EventSource` per tab via
+`src/app/lib/eventStream.ts` (`acquireEventStream`/`releaseEventStream`,
+refcounted) rather than each opening its own connection — enough concurrent
+`EventSource`s to a single origin can hit the browser's ~6-connections-per-host
+cap on HTTP/1.1 (this app is proxied over 1.1, not h2), which was observed to
+silently stall a new connection after a page reload.
 
 ---
 

@@ -10,7 +10,13 @@ import { promisify } from 'node:util';
 import mqtt from 'mqtt';
 import busboy from 'busboy';
 import { decryptSecret, encryptSecret } from './secretCrypto.js';
-import { addEventSubscriber, broadcastQueueAdded, broadcastMaintenanceNotification } from './eventStream.js';
+import {
+  addEventSubscriber,
+  broadcastQueueAdded,
+  broadcastMaintenanceNotification,
+  broadcastQueueStatus,
+  broadcastMaintenanceStatus,
+} from './eventStream.js';
 import {
   approveManagerRequest,
   clearManagerRequestKeySecret,
@@ -40,6 +46,7 @@ import {
   getPrinterById,
   getPrinterByIdOrName,
   getQueueJobFileMeta,
+  hasUnfinishedQueueJobs,
   readQueueJobFileChunk,
   importQueueJobs,
   insertQueueSubmission,
@@ -2022,6 +2029,18 @@ function webhookWantsEvent(webhook, eventKey) {
   return events.includes(eventKey);
 }
 
+// Pushes the current "any unfinished job?" state to every connected tab.
+// Called after any mutation that can flip it (submit/printed/delete/reset) so
+// the sidebar's Queue dot updates instantly in both directions, not just on
+// new submissions (queue-added).
+async function broadcastQueueStatusUpdate() {
+  try {
+    broadcastQueueStatus({ hasUnfinished: await hasUnfinishedQueueJobs() });
+  } catch (error) {
+    logger.error('failed to broadcast queue status', error);
+  }
+}
+
 async function sendQueueAddedNotifications(jobs) {
   if (!Array.isArray(jobs) || jobs.length === 0) {
     return;
@@ -2940,6 +2959,7 @@ async function handleDataApiQueue(req, res, { apiKey, method, id, sub, requestUr
       return true;
     }
     const deleted = await deleteQueueJobs(ids);
+    broadcastQueueStatusUpdate();
     auditDataApi(req, apiKey, 'queue.delete', null, { ids, deleted });
     sendJson(res, 200, { deleted });
     return true;
@@ -2995,6 +3015,7 @@ async function handleDataApiQueue(req, res, { apiKey, method, id, sub, requestUr
         return true;
       }
       const added = await upsertQueueJobs(jobs);
+      broadcastQueueStatusUpdate();
       auditDataApi(req, apiKey, 'queue.upsert', null, { count: jobs.length });
       sendJson(res, 200, { added });
       return true;
@@ -3004,18 +3025,21 @@ async function handleDataApiQueue(req, res, { apiKey, method, id, sub, requestUr
 
   if (id === 'reset' && method === 'POST') {
     await resetQueueJobs();
+    broadcastQueueStatusUpdate();
     auditDataApi(req, apiKey, 'queue.reset', null);
     sendEmpty(res);
     return true;
   }
   if (sub === 'printed' && method === 'POST') {
     await markQueueJobPrinted(id);
+    broadcastQueueStatusUpdate();
     auditDataApi(req, apiKey, 'queue.printed', id);
     sendEmpty(res);
     return true;
   }
   if (method === 'DELETE') {
     await deleteQueueJob(id);
+    broadcastQueueStatusUpdate();
     auditDataApi(req, apiKey, 'queue.delete', id);
     sendEmpty(res);
     return true;
@@ -3081,6 +3105,7 @@ async function handleDataApiMaintenance(req, res, { apiKey, method, id, sub, req
       sendJson(res, 404, { error: 'Pending maintenance task not found' });
       return true;
     }
+    broadcastMaintenanceStatusUpdate();
     auditDataApi(req, apiKey, 'maintenance.complete', id, { notes });
     sendJson(res, 200, event);
     return true;
@@ -3761,6 +3786,7 @@ async function handleApi(req, res, requestUrl) {
       sendJson(res, 404, { error: 'Pending maintenance task not found' });
       return true;
     }
+    broadcastMaintenanceStatusUpdate();
     sendJson(res, 200, event);
     return true;
   }
@@ -3949,6 +3975,7 @@ async function handleApi(req, res, requestUrl) {
         logger.error('failed to send queue add notification', error);
       },
     );
+    broadcastQueueStatusUpdate();
     sendJson(res, 201, { ok: true, id });
     return true;
   }
@@ -3972,6 +3999,7 @@ async function handleApi(req, res, requestUrl) {
 
   if (requestUrl.pathname === '/api/queue/reset' && req.method === 'POST') {
     await resetQueueJobs();
+    broadcastQueueStatusUpdate();
     sendEmpty(res);
     return true;
   }
@@ -3979,12 +4007,14 @@ async function handleApi(req, res, requestUrl) {
   if (requestUrl.pathname.startsWith('/api/queue/') && requestUrl.pathname.endsWith('/printed') && req.method === 'POST') {
     const jobId = decodeURIComponent(requestUrl.pathname.slice('/api/queue/'.length, -'/printed'.length));
     await markQueueJobPrinted(jobId);
+    broadcastQueueStatusUpdate();
     sendEmpty(res);
     return true;
   }
 
   if (requestUrl.pathname.startsWith('/api/queue/') && req.method === 'DELETE') {
     await deleteQueueJob(decodeURIComponent(requestUrl.pathname.slice('/api/queue/'.length)));
+    broadcastQueueStatusUpdate();
     sendEmpty(res);
     return true;
   }
@@ -6022,6 +6052,18 @@ async function createAndBroadcastMaintenanceNotification({ printerId, kind, titl
   }
 }
 
+// Pushes the current "any printer needs maintenance?" state to privileged
+// tabs. Called after a task is completed (can turn the dot off) and at the
+// end of a worker pass (can turn it on from newly-created pending tasks).
+async function broadcastMaintenanceStatusUpdate() {
+  try {
+    const summary = await getMaintenanceSummary();
+    broadcastMaintenanceStatus({ hasPending: summary.printersRequiringMaintenance > 0 });
+  } catch (error) {
+    logger.error('failed to broadcast maintenance status', error);
+  }
+}
+
 async function runMaintenanceWorkerPass() {
   // Seed schedules for any printer that predates this feature (set-based, cheap).
   await backfillAllMaintenanceSchedules();
@@ -6137,6 +6179,7 @@ async function runMaintenanceWorkerPass() {
   }
 
   await bulkUpdateHealthScores(healthUpdates);
+  broadcastMaintenanceStatusUpdate();
 }
 
 let maintenanceWorkerRunning = false;
