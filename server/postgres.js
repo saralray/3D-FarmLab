@@ -1769,7 +1769,82 @@ export async function getMaintenanceDefaultIntervals() {
 export async function setMaintenanceDefaultIntervals(intervals) {
   const normalized = normalizeIntervals(intervals);
   await setAppSetting(MAINTENANCE_INTERVALS_KEY, normalized);
+  await reconcileMaintenanceSchedules(normalized);
   return normalized;
+}
+
+// Applies an admin's edited interval list to every printer's existing schedules.
+// Without this, editing e.g. "Deep Clean" from 500h to 400h only ever inserted a
+// *new* (printer, type, 400h) schedule row (backfillAllMaintenanceSchedules /
+// seedMaintenanceSchedules both key off the (printer_id, type, interval_hours)
+// unique index and ON CONFLICT DO NOTHING) while the old 500h row — and any
+// pending event already generated from it — stuck around forever, so staff saw
+// the old-interval task sitting right next to the newly generated one.
+async function reconcileMaintenanceSchedules(intervals) {
+  const payload = JSON.stringify(
+    intervals.map((i) => ({ type: i.type, interval_hours: i.intervalHours, description: i.description })),
+  );
+
+  // Collapse any pre-existing duplicate (printer, type) schedule rows — left over
+  // from the old insert-only bug — down to one before retargeting it below, or
+  // the retarget UPDATE could collide with the unique index.
+  await query(
+    `DELETE FROM maintenance_schedules s
+     USING maintenance_schedules s2
+     WHERE s.printer_id = s2.printer_id
+       AND s.maintenance_type = s2.maintenance_type
+       AND (s.created_at, s.id) < (s2.created_at, s2.id);`,
+  );
+
+  // Retarget each printer's existing schedule for a type onto the new
+  // interval/description in place, instead of leaving the old-interval row behind.
+  await query(
+    `UPDATE maintenance_schedules s
+     SET interval_hours = d.interval_hours,
+         description = d.description
+     FROM jsonb_to_recordset($1::jsonb)
+       AS d(type text, interval_hours double precision, description text)
+     WHERE s.maintenance_type = d.type
+       AND s.interval_hours IS DISTINCT FROM d.interval_hours;`,
+    [payload],
+  );
+
+  // Seed any printer/type combo that doesn't have a schedule yet (a newly added
+  // task type).
+  await query(
+    `INSERT INTO maintenance_schedules (printer_id, maintenance_type, interval_hours, description)
+     SELECT p.id, d.type, d.interval_hours, d.description
+     FROM printers p
+     CROSS JOIN jsonb_to_recordset($1::jsonb)
+       AS d(type text, interval_hours double precision, description text)
+     ON CONFLICT (printer_id, maintenance_type, interval_hours) DO NOTHING;`,
+    [payload],
+  );
+
+  // Drop schedules for task types the admin removed from the list.
+  await query(
+    `DELETE FROM maintenance_schedules s
+     WHERE NOT EXISTS (
+       SELECT 1 FROM jsonb_to_recordset($1::jsonb)
+         AS d(type text, interval_hours double precision, description text)
+       WHERE d.type = s.maintenance_type
+     );`,
+    [payload],
+  );
+
+  // Clear pending events that no longer match any schedule (their type's interval
+  // changed, or the type was removed) so the stale old-interval task disappears
+  // instead of sitting next to the newly generated one.
+  await query(
+    `DELETE FROM maintenance_events e
+     WHERE e.status = 'pending'
+       AND NOT EXISTS (
+         SELECT 1 FROM maintenance_schedules s
+         WHERE s.printer_id = e.printer_id
+           AND s.maintenance_type = e.maintenance_type
+           AND s.interval_hours = e.interval_hours
+       );`,
+  );
 }
 
 // Seed a single printer's schedules from the global defaults. Idempotent: the
