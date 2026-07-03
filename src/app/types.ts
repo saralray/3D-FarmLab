@@ -29,6 +29,12 @@ export interface Printer {
   ipAddress: string;
   apiKeyHeader: string;
   serial?: string; // Bambu Lab printers: device serial for the MQTT report topic
+  // H2-series Bambu printers only: LAN address (e.g. "http://192.168.1.50:8080")
+  // this specific printer uses to fetch a staged print file back from
+  // slicer-proxy over HTTP (their firmware refuses FTP writes). Overrides the
+  // site-wide default set in Settings -> Slicer Upload -- needed when printers
+  // sit on different subnets, since one global URL can't reach all of them.
+  callbackUrl?: string;
   status: PrinterStatus;
   currentJob?: PrintJob;
   temperature: {

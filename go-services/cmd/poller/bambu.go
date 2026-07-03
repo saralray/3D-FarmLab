@@ -632,6 +632,15 @@ func fetchBambuStatus(printer pmap) (pmap, error) {
 	if v, ok := decodeBambuChamberTemp(printData); ok {
 		chamberTemperature = round(v)
 	}
+	// chamber_target: prefer an explicit value from the live report; otherwise
+	// carry forward whatever's already stored. Confirmed live on an H2S that
+	// this unit's firmware never reports an explicit chamber target field at
+	// all (mc_target_cham / ctc.info.target always absent), so this fallback
+	// is what's actually in effect for chamber, unlike bed/nozzle which do get
+	// an explicit field back. That made a stale DB value persist forever
+	// regardless of new set_temperature commands; the web server now writes
+	// its own optimistic value on every command (setPrinterTemperatureTarget)
+	// so this fallback carries forward a value that's actually current.
 	chamberTarget := mFloatDef(printer, "chamberTarget", 0)
 	if v, ok := decodeBambuChamberTarget(printData); ok {
 		chamberTarget = round(v)

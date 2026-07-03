@@ -32,13 +32,18 @@ import { Client as FtpClient } from 'basic-ftp';
 import mqtt from 'mqtt';
 import {
   findSlicerApiKeyByHash,
+  getAppSetting,
   getPrinterById,
   recordAuditLog,
   recordSlicerPrintEstimate,
   touchSlicerApiKey,
 } from '../server/postgres.js';
 import { mintSlicerGrant } from '../server/slicerGrant.js';
-import { extractFilamentGramsFrom3mf, extractPlateGcodeFrom3mf } from './parse3mf.js';
+import {
+  extractFilamentGramsFrom3mf,
+  extractPlateGcodeFrom3mf,
+  patchBambuToolheadCameraDetection,
+} from './parse3mf.js';
 import {
   buildFilamentManagerSelections,
   buildFilamentManagerSpools,
@@ -76,6 +81,35 @@ function registerTmpFile(buffer, filename) {
   const token = randomBytes(16).toString('hex');
   tmpFiles.set(token, { buffer, filename, expiresAt: Date.now() + TMP_FILE_TTL_MS });
   return token;
+}
+
+// Parse a single-range "Range: bytes=start-end" header (see the H2-http tmpfile
+// route). Returns null for a missing/absent header (caller serves the whole
+// file), or `false` for a present-but-unsatisfiable/malformed one (caller
+// returns 416) -- distinguished from null so the caller can tell "no Range"
+// from "bad Range". Multi-range ("bytes=0-10,20-30") is rare for this use case
+// and is treated as unsupported (served in full) rather than implemented.
+function parseRangeHeader(headerValue, totalLength) {
+  if (!headerValue) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(headerValue).trim());
+  if (!match) return null;
+  const [, startStr, endStr] = match;
+  if (!startStr && !endStr) return null;
+  let start;
+  let end;
+  if (startStr === '') {
+    // Suffix range "bytes=-N": the last N bytes.
+    const suffixLength = Number.parseInt(endStr, 10);
+    start = Math.max(0, totalLength - suffixLength);
+    end = totalLength - 1;
+  } else {
+    start = Number.parseInt(startStr, 10);
+    end = endStr === '' ? totalLength - 1 : Number.parseInt(endStr, 10);
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start < 0 || start >= totalLength) {
+    return false;
+  }
+  return { start, end: Math.min(end, totalLength - 1) };
 }
 
 // H-5 FIX: sanitize a client-supplied filename before using it as a remote FTP
@@ -153,15 +187,58 @@ function defaultAppBase(req) {
   return `${proto}://${hostname}:${httpPort}`;
 }
 
+// Admin-settable override (Settings → Slicer Upload, app_settings key
+// "printer_callback_url" — keep in sync with PRINTER_CALLBACK_URL_KEY in
+// server/app.js) for the LAN address H2-series printers use to fetch a staged
+// file back from us. This can't be reliably auto-detected: two things we tried
+// both failed on real hardware —
+//   1. The request's Host header: works only if the slicer's Print Farm URL
+//      happens to be a LAN address. It's commonly "http://localhost:8080"
+//      when the slicer runs on the same machine as the farm server, which the
+//      physical printer can't resolve to anything reachable.
+//   2. Asking the OS which local interface it would use to reach the
+//      printer's IP: inside this Docker container that returns the
+//      container's own bridge-network address (e.g. 172.20.0.x), not the
+//      Docker host's real LAN IP — also unreachable from the printer.
+// So this needs an explicit, admin-configured value; header-detection is kept
+// only as a best-effort fallback for setups where it happens to be correct.
+function normalizePrinterCallbackUrl(raw) {
+  const base = String(raw || '').trim();
+  return base ? base.replace(/\/+$/, '') : '';
+}
+
+async function getConfiguredPrinterCallbackUrl() {
+  const stored = await getAppSetting('printer_callback_url');
+  return normalizePrinterCallbackUrl(stored?.url);
+}
+
 // Build the URL a printer on the LAN uses to fetch a staged file back from us
-// (see registerTmpFile). Deliberately ignores APP_BASE_URL (that's meant for a
-// browser/SSO callback and may be a public DNS name) and always uses the
-// request's own host — the same LAN address the slicer used to reach the
-// dashboard, which the printer (same network) can reach too — routed through
-// nginx's existing /printers/ location.
-function buildTmpFileUrl(req, token, filename) {
-  const base = defaultAppBase(req).replace(/\/+$/, '');
-  return `${base}/printers/_tmpfile/${token}/${encodeURIComponent(filename)}`;
+// (see registerTmpFile). `printerCallbackUrl` is that printer's own override
+// (printers.callback_url, set on its edit page) and wins over the site-wide
+// default — needed when printers span multiple subnets/sites, since the
+// site-wide setting is a single value that can't reach all of them.
+async function buildTmpFileUrl(req, token, filename, printerCallbackUrl) {
+  const configured = normalizePrinterCallbackUrl(printerCallbackUrl) || (await getConfiguredPrinterCallbackUrl());
+  let base;
+  if (configured) {
+    base = configured;
+  } else {
+    const hostHeader = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+      .split(',')[0]
+      .trim();
+    const hostname = hostHeader.split(':')[0].toLowerCase();
+    if (!hostHeader || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+      throw new Error(
+        'No printer callback URL is configured, and this request arrived via ' +
+          `"${hostHeader || 'an unknown host'}", which the printer can't use to fetch the file back. ` +
+          'Set a LAN-reachable "Printer callback URL" in Settings → Slicer Upload ' +
+          '(e.g. http://192.168.1.50:8080).',
+      );
+    }
+    const proto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
+    base = `${proto}://${hostHeader}`;
+  }
+  return `${base.replace(/\/+$/, '')}/printers/_tmpfile/${token}/${encodeURIComponent(filename)}`;
 }
 
 function sendJson(res, statusCode, payload) {
@@ -323,6 +400,13 @@ async function uploadToBambu(printer, file, req) {
     throw new Error('Bambu printer is missing its serial number');
   }
 
+  // Strip the hardcoded "Toolhead camera detection" check some H2-series
+  // units fail on every farm-pushed print (confirmed live) — see
+  // patchBambuToolheadCameraDetection's own comment for the full story. A
+  // no-op when the file has no plate gcode or doesn't contain that line
+  // (non-H2 profiles, or an already-patched resend).
+  file = { ...file, buffer: patchBambuToolheadCameraDetection(file.buffer) };
+
   // Bambu's 3mf naming: keep the slicer's name but ensure a .3mf extension.
   // A sliced Orca/Studio export is "<name>.gcode.3mf", which already ends in
   // ".3mf" and is preserved as-is.
@@ -361,11 +445,22 @@ async function uploadToBambu(printer, file, req) {
   } else {
     // H2S / H2D / H2C: stage the file here and let the printer pull it over HTTP.
     const token = registerTmpFile(file.buffer, remoteName);
-    fileUrl = buildTmpFileUrl(req, token, remoteName);
+    fileUrl = await buildTmpFileUrl(req, token, remoteName, printer.callbackUrl);
+    console.log(`[h2-http] staged ${remoteName} for ${printer.id} at ${fileUrl}`);
   }
 
+  // The project_file command must reference whichever plate this .3mf actually
+  // contains gcode for -- a multi-plate Orca project exported from a plate
+  // other than the first has no Metadata/plate_1.gcode entry at all. Sending
+  // "plate_1" unconditionally (the old behavior) made the firmware fail with
+  // "content of print file is unreadable" whenever the exported plate wasn't
+  // #1, even though the download itself succeeded and the archive was valid
+  // (confirmed live: a real upload's only gcode entry was Metadata/plate_6.gcode).
+  const plate = extractPlateGcodeFrom3mf(file.buffer);
+  const plateParam = plate?.name ?? 'Metadata/plate_1.gcode';
+
   try {
-    await publishBambuPrint(printer, serial, remoteName, fileUrl);
+    await publishBambuPrint(printer, serial, remoteName, fileUrl, plateParam);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     // The file is already staged (SD card or our own temp store); only the
@@ -400,7 +495,7 @@ function bambuSubtaskName(remoteName) {
   return remoteName.replace(/\.gcode\.3mf$/i, '').replace(/\.3mf$/i, '');
 }
 
-function publishBambuPrint(printer, serial, remoteName, fileUrl) {
+function publishBambuPrint(printer, serial, remoteName, fileUrl, plateParam = 'Metadata/plate_1.gcode') {
   // Unique per-submission identity. Bambu firmware (notably P1S 01.10) clamps
   // task identity fields to int32 max and treats a reused id as a continuation
   // of the prior job, so raw epoch-ms (13 digits) collides every time. Modulo
@@ -409,32 +504,56 @@ function publishBambuPrint(printer, serial, remoteName, fileUrl) {
   const submissionId = String((Date.now() % 2147483647) || 1);
 
   // project_file payload mirrors Bambu Studio / bambuddy. Notable fields:
+  //   param: caller-supplied — the archive's actual "Metadata/plate_<n>.gcode"
+  //                        entry (see uploadToBambu). A multi-plate export
+  //                        that isn't plate 1 has no plate_1 entry at all;
+  //                        hardcoding it here made the firmware report
+  //                        "content of print file is unreadable" even though
+  //                        the file itself was perfectly valid.
   //   url: caller-supplied — ftp://<name> at the FTP root for the A1 Mini, or
   //                        an http(s) URL the printer fetches from us for the
   //                        H2 family (see uploadToBambu)
   //   md5: ""            — empty tells firmware to skip md5 validation; a wrong
   //                        digest can hard-fail the job, so we don't synthesize one
-  //   use_ams: false     — a slicer push carries no AMS mapping; AMS-on with no
-  //                        mapping fails with "Failed to get AMS mapping table"
-  //   bed_leveling       — American spelling is what firmware reads (not "levelling")
+  //   use_ams: false     — a slicer push carries no AMS mapping
+  //   ams_mapping: []    — must accompany use_ams: false, not just be omitted:
+  //                        confirmed live that use_ams: false alone still left
+  //                        the firmware trying to resolve AMS trays, pausing
+  //                        mid-print with "Failed to get AMS mapping table;
+  //                        please select 'Resume' to retry" (bambuddy sends
+  //                        this same empty array for a non-AMS push)
+  //   bed_leveling: false — American spelling is what firmware reads (not
+  //                        "levelling"). Auto bed leveling needs the camera to
+  //                        locate the buildplate marker (xcam module
+  //                        "buildplate_marker_detector"); on a unit with a
+  //                        genuine camera-hardware fault (confirmed live: HMS
+  //                        camera-family faults on every farm-pushed print,
+  //                        pausing at 0% every time regardless of the
+  //                        xcam_control_set disables below, which only cover
+  //                        the *monitoring* modules, not the leveling
+  //                        calibration step itself) requesting it is exactly
+  //                        what triggers the pause. Off farm-wide rather than
+  //                        per-printer: this is a real quality tradeoff, not
+  //                        free, but the alternative is a farm push that can
+  //                        silently never get past 0%.
   //   extrude_cali_flag 2 / nozzle_offset_cali 2 — "skip"; we don't drive calibration
   const subtaskName = bambuSubtaskName(remoteName);
   const payload = {
     print: {
       sequence_id: '20000',
       command: 'project_file',
-      param: 'Metadata/plate_1.gcode',
+      param: plateParam,
       url: fileUrl,
       file: remoteName,
       md5: '',
       bed_type: 'auto',
       timelapse: false,
-      bed_leveling: true,
-      auto_bed_leveling: 1,
+      bed_leveling: false,
       flow_cali: false,
       vibration_cali: true,
       layer_inspect: false,
       use_ams: false,
+      ams_mapping: [],
       cfg: '0',
       extrude_cali_flag: 2,
       extrude_cali_manual_mode: 0,
@@ -446,6 +565,37 @@ function publishBambuPrint(printer, serial, remoteName, fileUrl) {
       task_id: submissionId,
     },
   };
+
+  // Real Orca/Bambu Studio maintains the camera-based AI monitoring features
+  // (spaghetti/pileup/clump/airprint detection, first-layer inspection) as a
+  // *separate* xcam_control_set channel, independent of project_file's own
+  // `layer_inspect`/`timelapse` flags -- see command_xcam_control_* in
+  // src/slic3r/GUI/DeviceManager.cpp. A farm push never sent any of these, so
+  // the printer's vision subsystem was left however it last was, which
+  // correlates with the H2S repeatedly pausing mid-print on "Camera fault" /
+  // an HMS code from the same camera-hardware family (confirmed live: two
+  // farm-pushed prints both paused this way; explicitly disabling every
+  // xcam module before the print starts is what a slicer would send when
+  // none of these features are wanted, so the firmware isn't left guessing.
+  const xcamModules = [
+    'printing_monitor',
+    'spaghetti_detector',
+    'pileup_detector',
+    'clump_detector',
+    'airprint_detector',
+    'first_layer_inspector',
+    'buildplate_marker_detector',
+  ];
+  const xcamPayloads = xcamModules.map((moduleName, index) => ({
+    xcam: {
+      command: 'xcam_control_set',
+      sequence_id: String((Number(submissionId) + index + 1) % 2147483647 || 1),
+      module_name: moduleName,
+      control: false,
+      enable: false,
+      print_halt: false,
+    },
+  }));
 
   return new Promise((resolve, reject) => {
     const client = mqtt.connect(`mqtts://${printer.ipAddress}:8883`, {
@@ -466,16 +616,31 @@ function publishBambuPrint(printer, serial, remoteName, fileUrl) {
     };
     const timer = setTimeout(() => fail(new Error('MQTT print command timed out')), 6000);
 
+    // Publish one payload at a time (rather than Promise.all) so a slow
+    // broker can't reorder xcam disables after project_file already started
+    // the job.
+    function publishNext(index) {
+      if (settled) return;
+      if (index >= xcamPayloads.length) {
+        client.publish(`device/${serial}/request`, JSON.stringify(payload), { qos: 0 }, (error) => {
+          if (error) return fail(error);
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          // Graceful close so the queued packet flushes before the socket closes.
+          client.end(false, {}, () => resolve());
+        });
+        return;
+      }
+      client.publish(`device/${serial}/request`, JSON.stringify(xcamPayloads[index]), { qos: 0 }, (error) => {
+        if (error) return fail(error);
+        publishNext(index + 1);
+      });
+    }
+
     client.once('error', fail);
     client.once('connect', () => {
-      client.publish(`device/${serial}/request`, JSON.stringify(payload), { qos: 0 }, (error) => {
-        if (error) return fail(error);
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        // Graceful close so the queued packet flushes before the socket closes.
-        client.end(false, {}, () => resolve());
-      });
+      publishNext(0);
     });
   });
 }
@@ -643,20 +808,65 @@ async function handleRequest(req, res) {
 
   // H2-series HTTP delivery: the printer itself GETs the staged file back from
   // us (see registerTmpFile / uploadToBambu). Matched before the generic
-  // per-printer route below so "_tmpfile" can never collide with a printer id.
-  const tmpFileMatch = pathname.match(/^\/printers\/_tmpfile\/([0-9a-f]{32})\/[^/]+$/);
-  if (tmpFileMatch && req.method === 'GET') {
+  // per-printer route below so "_tmpfile" can never collide with a printer id,
+  // and regardless of method so a HEAD probe (some HTTP clients check
+  // Content-Length before GET-ing the body) is visible in the log too.
+  const tmpFileMatch = pathname.match(/^\/printers\/_tmpfile\/([0-9a-f]{32})\/([^/]+)$/);
+  if (tmpFileMatch) {
+    const ip = getClientIp(req);
     const entry = tmpFiles.get(tmpFileMatch[1]);
     if (!entry || entry.expiresAt < Date.now()) {
+      console.log(`[h2-http] ${req.method} ${pathname} from ${ip}: 404 (token unknown or expired)`);
       sendJson(res, 404, { error: 'Not found' });
       return;
     }
-    res.statusCode = 200;
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      console.log(`[h2-http] ${req.method} ${pathname} from ${ip}: 405`);
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+    // Bambu firmware reads a .3mf (a zip) with random-access byte-range
+    // requests -- e.g. to seek straight to the central directory at the end --
+    // rather than downloading it sequentially start to finish. Ignoring Range
+    // and always sending the whole file back as a 200 is exactly the class of
+    // bug that produces "content of print file is unreadable": the firmware
+    // asked for bytes N-M and got the entire file starting at 0 instead, so
+    // whatever it parsed at that offset was garbage even though the transfer
+    // itself "succeeded". Serve real 206 Partial Content when Range is present.
+    const total = entry.buffer.length;
+    const range = parseRangeHeader(req.headers.range, total);
+    if (req.headers.range && !range) {
+      console.log(`[h2-http] ${req.method} ${pathname} from ${ip}: 416 (bad Range "${req.headers.range}")`);
+      res.statusCode = 416;
+      res.setHeader('Content-Range', `bytes */${total}`);
+      res.end();
+      return;
+    }
+
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Length', String(entry.buffer.length));
     res.setHeader('Content-Disposition', `attachment; filename="${entry.filename}"`);
     res.setHeader('Cache-Control', 'no-store');
-    res.end(entry.buffer);
+
+    if (range) {
+      const { start, end } = range;
+      console.log(
+        `[h2-http] ${req.method} ${pathname} from ${ip}: serving ${entry.filename} bytes ${start}-${end}/${total}`,
+      );
+      res.statusCode = 206;
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+      res.setHeader('Content-Length', String(end - start + 1));
+      res.end(req.method === 'HEAD' ? undefined : entry.buffer.subarray(start, end + 1));
+      return;
+    }
+
+    console.log(
+      `[h2-http] ${req.method} ${pathname} from ${ip}: serving ${entry.filename} (${total} bytes)`,
+    );
+    res.statusCode = 200;
+    res.setHeader('Content-Length', String(total));
+    res.end(req.method === 'HEAD' ? undefined : entry.buffer);
     return;
   }
 

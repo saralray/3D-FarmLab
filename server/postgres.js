@@ -64,6 +64,12 @@ ALTER TABLE printers ADD COLUMN IF NOT EXISTS total_print_hours DOUBLE PRECISION
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS current_nozzle_hours DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS last_maintenance_at TIMESTAMPTZ;
 ALTER TABLE printers ADD COLUMN IF NOT EXISTS health_score INTEGER NOT NULL DEFAULT 100;
+-- Per-printer override of the site-wide "Printer callback URL" setting
+-- (app_settings key printer_callback_url) -- the LAN address an H2-series
+-- Bambu printer uses to fetch a staged print file back from slicer-proxy over
+-- HTTP. Needed when printers span multiple subnets, since the global setting
+-- is a single value. NULL/blank means "use the site-wide default".
+ALTER TABLE printers ADD COLUMN IF NOT EXISTS callback_url TEXT;
 CREATE TABLE IF NOT EXISTS analytics_daily (
   analytics_date DATE PRIMARY KEY,
   completed_jobs INTEGER NOT NULL DEFAULT 0,
@@ -484,6 +490,7 @@ function buildPrinterListSelect(includeSensitive = true) {
       'ipAddress', ${includeSensitive ? 'ip_address' : "''"},
       'apiKeyHeader', ${includeSensitive ? 'api_key_header' : "''"},
       'serial', ${includeSensitive ? 'serial' : "''"},
+      'callbackUrl', ${includeSensitive ? 'callback_url' : "''"},
       'status', status,
       'temperature', json_build_object(
         'nozzle', ROUND(temperature_nozzle::numeric, 2),
@@ -599,6 +606,7 @@ export async function getPrinterById(id) {
       'ipAddress', ip_address,
       'apiKeyHeader', api_key_header,
       'serial', serial,
+      'callbackUrl', callback_url,
       'status', status,
       'temperature', json_build_object(
         'nozzle', ROUND(temperature_nozzle::numeric, 2),
@@ -692,6 +700,7 @@ export async function upsertPrinter(printer) {
       ip_address,
       api_key_header,
       serial,
+      callback_url,
       status,
       temperature_nozzle,
       temperature_bed,
@@ -716,6 +725,7 @@ export async function upsertPrinter(printer) {
       data->>'ipAddress',
       data->>'apiKeyHeader',
       data->>'serial',
+      NULLIF(data->>'callbackUrl', ''),
       data->>'status',
       COALESCE((data->'temperature'->>'nozzle')::double precision, 0),
       COALESCE((data->'temperature'->>'bed')::double precision, 0),
@@ -753,6 +763,7 @@ export async function upsertPrinter(printer) {
       ip_address = EXCLUDED.ip_address,
       api_key_header = EXCLUDED.api_key_header,
       serial = EXCLUDED.serial,
+      callback_url = EXCLUDED.callback_url,
       last_maintenance = EXCLUDED.last_maintenance;
   `,
     [JSON.stringify(stored)],
@@ -763,6 +774,40 @@ export async function upsertPrinter(printer) {
   // block creating/editing the printer.
   if (printer?.id) {
     await seedMaintenanceSchedules(printer.id).catch(() => {});
+  }
+}
+
+// Optimistic write for a just-sent Bambu set_temperature command. Bambu's MQTT
+// report reliably echoes back an explicit *_target_temper field for nozzle/bed,
+// which the poller decodes into nozzle_targets/bed_target on its own -- but not
+// every Bambu unit's firmware includes an equivalent explicit field for the
+// chamber heater. Without an explicit field, the poller's decode falls back to
+// carrying forward whatever chamber_target already exists in the DB (see
+// decodeBambuChamberTarget in go-services/cmd/poller/bambu.go), so a command
+// that changes the physical setpoint but never lands in an explicit report
+// field left the stored target stuck at whatever it was set to once, however
+// long ago -- observed live as chamber_target reverting to a stale 60 no
+// matter what the user set it to. Persist the command's own target directly so
+// the display reflects what was actually just sent; the poller's next cycle
+// still wins if the live report does carry an explicit value.
+export async function setPrinterTemperatureTarget(id, heater, target, nozzleIndex = 0) {
+  await ensureSchema();
+  if (heater === 'bed') {
+    await query('UPDATE printers SET bed_target = $2 WHERE id = $1;', [id, target]);
+  } else if (heater === 'chamber') {
+    await query('UPDATE printers SET chamber_target = $2 WHERE id = $1;', [id, target]);
+  } else if (heater === 'nozzle') {
+    await query(
+      `UPDATE printers
+       SET nozzle_targets = jsonb_set(
+         COALESCE(nozzle_targets, '[]'::jsonb),
+         ARRAY[$2::text],
+         to_jsonb($3::double precision),
+         true
+       )
+       WHERE id = $1;`,
+      [id, String(Math.max(0, Number(nozzleIndex) || 0)), target],
+    );
   }
 }
 

@@ -145,6 +145,15 @@ export function isBambuProfile(profile: PrinterProfile): boolean {
   );
 }
 
+// The H2 family only — unlike the A1 Mini, their firmware refuses FTP writes
+// to onboard storage, so slicer-proxy delivers a print over HTTP instead and
+// needs a LAN address the printer can reach it at (see the printer's edit
+// page "Printer callback URL" override, and Settings -> Slicer Upload for the
+// site-wide default).
+export function isH2Profile(profile: PrinterProfile): boolean {
+  return profile === 'bambulab_h2s' || profile === 'bambulab_h2d' || profile === 'bambulab_h2c';
+}
+
 // A controllable cooling fan. `id` keys the poller's reported speed; `bambuPort`
 // is the M106 P-index used over MQTT (Bambu only — Snapmaker has one part fan).
 export interface FanDescriptor {

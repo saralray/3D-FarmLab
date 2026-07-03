@@ -72,6 +72,7 @@ import {
   savePublicViewerSetting,
 } from '../lib/publicViewerApi';
 import { fetchSsoPublicUrl, saveSsoPublicUrl } from '../lib/ssoApi';
+import { fetchPrinterCallbackUrl, savePrinterCallbackUrl } from '../lib/printerCallbackApi';
 
 const IPV4_PATTERN =
   /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
@@ -153,6 +154,10 @@ export function Settings() {
   const [ssoPublicUrl, setSsoPublicUrl] = useState('');
   const [ssoPublicUrlEnvFallback, setSsoPublicUrlEnvFallback] = useState('');
   const [savingSsoPublicUrl, setSavingSsoPublicUrl] = useState(false);
+  // LAN address H2-series Bambu printers use to fetch a staged print file back
+  // from slicer-proxy (see the "Printer callback URL" card in Slicer Upload).
+  const [printerCallbackUrl, setPrinterCallbackUrl] = useState('');
+  const [savingPrinterCallbackUrl, setSavingPrinterCallbackUrl] = useState(false);
   // Controlled so the desktop tab bar and the mobile section dropdown stay in sync.
   const [activeTab, setActiveTab] = useState<string>('manage-printers');
 
@@ -224,6 +229,12 @@ export function Settings() {
       .catch(() => {
         /* non-fatal — blank falls back to APP_BASE_URL / header detection */
       });
+
+    fetchPrinterCallbackUrl()
+      .then((setting) => setPrinterCallbackUrl(setting.url))
+      .catch(() => {
+        /* non-fatal — blank falls back to best-effort header detection */
+      });
   }, []);
 
   const handleTogglePublicViewer = async (enabled: boolean) => {
@@ -267,6 +278,26 @@ export function Settings() {
       );
     } finally {
       setSavingSsoPublicUrl(false);
+    }
+  };
+
+  const handleSavePrinterCallbackUrl = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (user?.role !== 'admin') {
+      toast.error('Only admins can change the printer callback URL.');
+      return;
+    }
+    setSavingPrinterCallbackUrl(true);
+    try {
+      const saved = await savePrinterCallbackUrl(printerCallbackUrl.trim());
+      setPrinterCallbackUrl(saved.url);
+      toast.success('Printer callback URL saved.');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Unable to save the printer callback URL.',
+      );
+    } finally {
+      setSavingPrinterCallbackUrl(false);
     }
   };
 
@@ -1956,6 +1987,46 @@ export function Settings() {
                 </div>
               </div>
             )}
+          </Card>
+
+          <Card className="mt-6 p-6 dark:bg-gray-900 dark:border-gray-800">
+            <form onSubmit={handleSavePrinterCallbackUrl} className="space-y-2">
+              <Label htmlFor="printer-callback-url">Printer callback URL (site-wide default)</Label>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Bambu Lab H2-series printers (H2S / H2D / H2C) refuse FTP writes
+                to their own storage, so a print sent through the slicer is
+                staged here instead and the printer fetches it back over HTTP.
+                For that to work, this must be a LAN address the{' '}
+                <span className="font-medium">printer itself</span> can reach —
+                e.g. <code>http://192.168.1.50:8080</code> — not{' '}
+                <code>localhost</code>, which only resolves on the machine
+                running the farm server. Leave blank to fall back to a
+                best-effort guess from the incoming request, which is wrong
+                whenever the slicer connects via <code>localhost</code>. If
+                your H2 printers sit on different subnets, this single value
+                can't reach all of them — set a per-printer override instead
+                on each printer's detail page (Edit → "Printer callback URL
+                (override)"), which takes precedence over this default.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  id="printer-callback-url"
+                  value={printerCallbackUrl}
+                  onChange={(e) => setPrinterCallbackUrl(e.target.value)}
+                  placeholder="http://192.168.1.50:8080"
+                  disabled={user?.role !== 'admin'}
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="flex-1"
+                />
+                <Button
+                  type="submit"
+                  disabled={user?.role !== 'admin' || savingPrinterCallbackUrl}
+                >
+                  {savingPrinterCallbackUrl ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </form>
           </Card>
         </TabsContent>
 

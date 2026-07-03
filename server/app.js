@@ -71,6 +71,7 @@ import {
   resetQueueJobs,
   deleteManagerRequest,
   setAppSetting,
+  setPrinterTemperatureTarget,
   touchSlicerApiKey,
   upsertPrinter,
   upsertQueueJobs,
@@ -646,6 +647,23 @@ async function getOAuthSigningSecret() {
 // fix SSO callback URLs at runtime with no redeploy when the reverse-proxy setup
 // doesn't produce a correct Host / X-Forwarded-Host.
 const SSO_PUBLIC_URL_KEY = 'sso_public_url';
+
+// Admin-settable LAN address the H2-series Bambu printers use to fetch a
+// staged print file back from slicer-proxy over HTTP (see uploadToBambu /
+// buildTmpFileUrl in slicer-proxy/index.js — the H2 family's firmware refuses
+// FTP writes, so slicer-proxy hosts the file itself and hands the printer a
+// URL instead). Auto-detecting this from request headers is unreliable: the
+// slicer's Print Farm URL is often "http://localhost:8080" when it runs on the
+// same machine as the farm server, which the physical printer obviously can't
+// resolve to anything useful. Read directly by slicer-proxy via
+// getAppSetting('printer_callback_url') — keep this key literal in sync with
+// the one there if it ever changes.
+const PRINTER_CALLBACK_URL_KEY = 'printer_callback_url';
+
+function normalizePrinterCallbackUrl(raw) {
+  const base = String(raw || '').trim();
+  return base ? base.replace(/\/+$/, '') : '';
+}
 
 // Strip a trailing slash so callers can safely append a path (e.g.
 // "/api/auth/saml/acs"). Does not validate scheme — the PUT handler does that.
@@ -3709,6 +3727,14 @@ async function handleApi(req, res, requestUrl) {
       modeId,
       submode,
     });
+    // Optimistic write so the displayed target reflects what was just sent —
+    // see setPrinterTemperatureTarget's comment for why this is needed
+    // (chamber_target in particular can otherwise get stuck on a stale value).
+    if (command === 'set_temperature') {
+      await setPrinterTemperatureTarget(id, heater, target, nozzleIndex).catch((error) => {
+        console.error('Failed to persist optimistic temperature target', error);
+      });
+    }
     sendEmpty(res);
     return true;
   }
@@ -5154,6 +5180,35 @@ async function handleApi(req, res, requestUrl) {
         publicUrl,
         envFallback: normalizeSsoPublicUrl(process.env.APP_BASE_URL),
       });
+      return true;
+    }
+  }
+
+  // Admin override for the LAN address H2-series Bambu printers use to fetch a
+  // staged print file back from slicer-proxy (Settings → Slicer Upload) — see
+  // PRINTER_CALLBACK_URL_KEY above. Not sensitive: GET is world-readable like
+  // /api/settings/sso-public-url; PUT is admin-only via the /api/settings/*
+  // catch-all in isAdminMutation. slicer-proxy reads the stored value directly
+  // from Postgres (getAppSetting), so no further wiring is needed there.
+  if (requestUrl.pathname === '/api/settings/printer-callback-url') {
+    if (req.method === 'GET') {
+      const stored = await getAppSetting(PRINTER_CALLBACK_URL_KEY);
+      sendJson(res, 200, { url: normalizePrinterCallbackUrl(stored?.url) });
+      return true;
+    }
+    if (req.method === 'PUT') {
+      const body = await readJsonBody(req);
+      if (typeof body?.url !== 'string') {
+        sendJson(res, 400, { error: 'url must be a string' });
+        return true;
+      }
+      const url = normalizePrinterCallbackUrl(body.url);
+      if (url && !/^https?:\/\//i.test(url)) {
+        sendJson(res, 400, { error: 'url must start with http:// or https://' });
+        return true;
+      }
+      await setAppSetting(PRINTER_CALLBACK_URL_KEY, { url });
+      sendJson(res, 200, { url });
       return true;
     }
   }

@@ -52,6 +52,7 @@ import {
   getNozzleLabel,
   getNozzleDisplayOrder,
   isBambuProfile,
+  isH2Profile,
   printerSupportsAirFilter,
   printerSupportsCoolingControl,
   printerSupportsFilamentControl,
@@ -358,6 +359,7 @@ interface PrinterInfoDraft {
   ipAddress: string;
   apiKeyHeader: string;
   serial: string;
+  callbackUrl: string;
   lastMaintenance: string;
 }
 
@@ -1243,6 +1245,7 @@ export function PrinterDetail() {
       ipAddress: printer.ipAddress,
       apiKeyHeader: printer.apiKeyHeader,
       serial: printer.serial ?? '',
+      callbackUrl: printer.callbackUrl ?? '',
       lastMaintenance: printer.lastMaintenance,
     });
     setIsEditOpen(true);
@@ -1259,6 +1262,7 @@ export function PrinterDetail() {
     const ipAddress = editDraft.ipAddress.trim();
     const apiKeyHeader = editDraft.apiKeyHeader.trim();
     const serial = editDraft.serial.trim();
+    const callbackUrl = editDraft.callbackUrl.trim();
     const lastMaintenance = editDraft.lastMaintenance.trim();
     const profileConfig = PRINTER_PROFILES[printer.profile];
 
@@ -1277,6 +1281,11 @@ export function PrinterDetail() {
       return;
     }
 
+    if (callbackUrl && !/^https?:\/\//i.test(callbackUrl)) {
+      toast.error('Printer callback URL must start with http:// or https://');
+      return;
+    }
+
     setEditSaving(true);
 
     // Recompute the base URL from the (possibly changed) IP so the proxy and
@@ -1289,6 +1298,7 @@ export function PrinterDetail() {
       url: profileConfig.buildBaseUrl(ipAddress),
       apiKeyHeader,
       serial: serial || undefined,
+      callbackUrl: callbackUrl || undefined,
       lastMaintenance,
     };
 
@@ -2321,6 +2331,32 @@ export function PrinterDetail() {
                     autoCorrect="off"
                     spellCheck={false}
                     required
+                  />
+                </div>
+              )}
+
+              {isH2Profile(printer.profile) && (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-printer-callback-url">Printer callback URL (override)</Label>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    This printer's firmware fetches a staged print file back from the
+                    farm server over HTTP rather than accepting an FTP write. Set a LAN
+                    address <span className="font-medium">this printer</span> can reach
+                    (e.g. <code>http://192.168.1.50:8080</code>) if it's on a different
+                    subnet than the site-wide default in Settings → Slicer Upload. Leave
+                    blank to use that default.
+                  </p>
+                  <Input
+                    id="edit-printer-callback-url"
+                    value={editDraft.callbackUrl}
+                    onChange={(event) =>
+                      setEditDraft((prev) =>
+                        prev ? { ...prev, callbackUrl: event.target.value.trim() } : prev,
+                      )
+                    }
+                    placeholder="http://192.168.1.50:8080"
+                    spellCheck={false}
+                    autoComplete="off"
                   />
                 </div>
               )}
