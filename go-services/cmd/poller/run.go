@@ -149,10 +149,12 @@ func run() {
 
 				// Filament reader (plan §3a): catalog any Bambu spool the AMS's
 				// own RFID reader already identified over MQTT — read-only, no
-				// publish. No-op for Snapmaker/generic printers since their
-				// spool entries never carry trayUuid/tagUid.
+				// publish (except auto-assignment for a known third-party
+				// tag_uid match, which just queues a row for the existing
+				// replay pipeline below to push). No-op for Snapmaker/generic
+				// printers since their spool entries never carry trayUuid/tagUid.
 				if bambuProfiles[mStr(nextPrinter, "profile")] {
-					if err := matchOrCreateFilamentSpools(ctx, conn, nextPrinter["spools"]); err != nil {
+					if err := matchOrCreateFilamentSpools(ctx, conn, mStr(printer, "id"), nextPrinter["spools"]); err != nil {
 						log.Printf("filament tag matcher error for printer %s: %v", mStr(printer, "id"), err)
 					}
 					// Deferred-assignment replay, detection half (plan §4) —

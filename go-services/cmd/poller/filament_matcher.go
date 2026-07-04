@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -55,10 +56,19 @@ func normalizeTrayUUID(value string) string {
 // non-empty value — mirrors spool_tag_matcher.is_valid_tag.
 func isValidTag(tagUID, trayUUID string) bool {
 	uid := normalizeTagUID(tagUID)
-	uuid := normalizeTrayUUID(trayUUID)
 	uidValid := uid != "" && uid != zeroTagUID && uid != strings.Repeat("0", len(uid))
-	uuidValid := uuid != "" && uuid != zeroTrayUUID && uuid != strings.Repeat("0", len(uuid))
-	return uidValid || uuidValid
+	return uidValid || isValidTrayUUID(trayUUID)
+}
+
+// isValidTrayUUID reports whether trayUUID is a genuinely decoded Bambu
+// tray_uuid (as opposed to empty/zero — which is what the AMS reports when
+// it detected *something* in the tray but couldn't decode Bambu-format data
+// from it, e.g. a third-party NTAG tag). Split out from isValidTag because
+// the auto-assignment path below must never fire for a genuine Bambu tag —
+// the printer already has that one right from its own RFID read.
+func isValidTrayUUID(trayUUID string) bool {
+	uuid := normalizeTrayUUID(trayUUID)
+	return uuid != "" && uuid != zeroTrayUUID && uuid != strings.Repeat("0", len(uuid))
 }
 
 // parseMaterialSubtype ports create_spool_from_tray's tray_sub_brands parse
@@ -153,12 +163,81 @@ func nullIfZero(v int) any {
 	return v
 }
 
+// parseSlotID parses buildBambuSpools' slot id format ("ams<unit>-<tray>", or
+// the literal "external") back into (ams_id, tray_id) — the addressing
+// filament_station_assignments uses. "external" maps to ams_id=255/tray_id=254,
+// the same convention bambuCommands.js's set_filament handler already uses.
+func parseSlotID(slotID string) (amsID, trayID int, ok bool) {
+	if slotID == "external" {
+		return 255, 254, true
+	}
+	var unit, tray int
+	n, err := fmt.Sscanf(slotID, "ams%d-%d", &unit, &tray)
+	if err != nil || n != 2 {
+		return 0, 0, false
+	}
+	return unit, tray, true
+}
+
+// ensureAutoAssignment auto-creates (or refreshes) a filament_station_assignments
+// row for a known spool sitting in a printer's slot — the same shape a
+// manual "Assign spool" (pending_config=true, empty fingerprint) would
+// produce. Reuses the existing deferred-replay pipeline unchanged:
+// assignments.go's detectBambuAssignmentTriggers sees the tray is already
+// loaded on its next pass and sets needs_trigger_at, and the Node replay
+// worker (server/app.js) pushes the ams_filament_setting MQTT override —
+// exactly as if the operator had assigned it by hand. No-op if this slot is
+// already assigned to the same spool (avoids re-triggering every poll cycle).
+func ensureAutoAssignment(ctx context.Context, conn *pgx.Conn, printerID, slotID, spoolID string) error {
+	amsID, trayID, ok := parseSlotID(slotID)
+	if !ok {
+		return nil
+	}
+
+	var existingSpoolID string
+	err := conn.QueryRow(ctx, `
+		SELECT spool_id FROM filament_station_assignments
+		WHERE printer_id = $1 AND ams_id = $2 AND tray_id = $3`,
+		printerID, amsID, trayID,
+	).Scan(&existingSpoolID)
+	if err != nil && err != pgx.ErrNoRows {
+		return err
+	}
+	if existingSpoolID == spoolID {
+		return nil // already assigned here, nothing to do
+	}
+
+	_, err = conn.Exec(ctx, `
+		INSERT INTO filament_station_assignments (spool_id, printer_id, ams_id, tray_id, pending_config)
+		VALUES ($1,$2,$3,$4,TRUE)
+		ON CONFLICT (printer_id, ams_id, tray_id) DO UPDATE SET
+		  spool_id = EXCLUDED.spool_id,
+		  pending_config = TRUE,
+		  fingerprint_color = NULL,
+		  fingerprint_type = NULL,
+		  needs_trigger_at = NULL`,
+		spoolID, printerID, amsID, trayID,
+	)
+	return err
+}
+
 // matchOrCreateFilamentSpools scans a Bambu printer's live spool list (as
 // built by buildBambuSpools, now carrying trayUuid/tagUid) and catalogs any
 // tagged tray that isn't already in filament_spools. No-op for entries
 // without a valid tag (untagged trays, and — since Snapmaker's
 // buildSpoolsFromTaskConfig never sets trayUuid/tagUid — Snapmaker entries).
-func matchOrCreateFilamentSpools(ctx context.Context, conn *pgx.Conn, spoolsAny any) error {
+//
+// A tag already known by tag_uid alone (no genuine decoded tray_uuid — i.e.
+// a phone-written OpenSpool tag on a third-party spool, not a genuine Bambu
+// tag) additionally gets auto-assigned to its current slot, so the printer
+// picks up the right material/color over MQTT without a manual "Assign
+// spool" step. NEEDS REAL-HARDWARE CONFIRMATION: this assumes the Bambu
+// AMS's own reader reports *some* raw tag_uid for a tag it can't decode as
+// Bambu format (an NTAG, not a MIFARE Classic chip) — if the AMS reports
+// nothing at all for a non-Bambu tag type, this path simply never fires;
+// it can't misfire since genuine Bambu tags (valid tray_uuid) are always
+// excluded from it.
+func matchOrCreateFilamentSpools(ctx context.Context, conn *pgx.Conn, printerID string, spoolsAny any) error {
 	for _, entryAny := range asSlice(spoolsAny) {
 		spool := asMap(entryAny)
 		if spool == nil {
@@ -174,11 +253,21 @@ func matchOrCreateFilamentSpools(ctx context.Context, conn *pgx.Conn, spoolsAny 
 		if err != nil {
 			return err
 		}
-		if existingID != "" {
-			continue // already cataloged
+
+		if existingID == "" {
+			if err := createFilamentSpoolFromTray(ctx, conn, spool, tagUID, trayUUID); err != nil {
+				return err
+			}
+			continue
 		}
-		if err := createFilamentSpoolFromTray(ctx, conn, spool, tagUID, trayUUID); err != nil {
-			return err
+
+		// Already cataloged. Only auto-assign for a third-party tag match
+		// (tag_uid only, no genuine tray_uuid) — never for a genuine Bambu
+		// tag, which the printer already displays correctly on its own.
+		if !isValidTrayUUID(trayUUID) {
+			if err := ensureAutoAssignment(ctx, conn, printerID, mStr(spool, "id"), existingID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

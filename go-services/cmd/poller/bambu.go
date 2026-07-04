@@ -243,7 +243,14 @@ func buildBambuSpools(printData pmap) any {
 			return
 		}
 		material := mStr(t, "tray_type")
-		if material == "" {
+		tagUID := strings.TrimSpace(mStr(t, "tag_uid"))
+		trayUUID := strings.TrimSpace(mStr(t, "tray_uuid"))
+		// A third-party/unrecognized tag the AMS can't decode as Bambu format
+		// reports empty tray_type but may still carry a raw tag_uid from the
+		// anti-collision phase — needed for filament_matcher.go's auto-catalog/
+		// auto-assign (plan §3a) to ever see it. Only skip when there's truly
+		// nothing to report (no material and no tag identifier at all).
+		if material == "" && tagUID == "" && trayUUID == "" {
 			return
 		}
 		colorRaw := "808080FF"
@@ -280,8 +287,8 @@ func buildBambuSpools(printData pmap) any {
 			"remaining":     float64(remaining),
 			"weight":        weight,
 			"traySubBrands": strings.TrimSpace(mStr(t, "tray_sub_brands")),
-			"trayUuid":      strings.TrimSpace(mStr(t, "tray_uuid")),
-			"tagUid":        strings.TrimSpace(mStr(t, "tag_uid")),
+			"trayUuid":      trayUUID,
+			"tagUid":        tagUID,
 			"nozzleTempMin": mInt(t, "nozzle_temp_min"),
 			"nozzleTempMax": mInt(t, "nozzle_temp_max"),
 			"trayWeight":    fullWeight,
