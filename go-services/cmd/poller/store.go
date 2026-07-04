@@ -127,6 +127,38 @@ CREATE TABLE IF NOT EXISTS poller_health (
 -- existing deployment picks it up without a backfill.
 ALTER TABLE poller_health ADD COLUMN IF NOT EXISTS bytes_out BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE poller_health ADD COLUMN IF NOT EXISTS bytes_in BIGINT NOT NULL DEFAULT 0;
+-- Filament Station inventory table (see server/postgres.js's SCHEMA_SQL for
+-- the full definition with all three filament_station_* tables — this is
+-- just filament_spools, the one this poller reads/writes directly via
+-- filament_matcher.go's auto-catalog. Duplicated here, like every other
+-- shared table in this file, so the poller can bootstrap it on a fresh DB
+-- even if the web service hasn't started yet.
+CREATE TABLE IF NOT EXISTS filament_spools (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  material TEXT NOT NULL,
+  subtype TEXT,
+  color_name TEXT,
+  rgba TEXT NOT NULL DEFAULT 'FFFFFFFF',
+  brand TEXT,
+  label_weight DOUBLE PRECISION NOT NULL DEFAULT 0,
+  core_weight DOUBLE PRECISION NOT NULL DEFAULT 0,
+  weight_used DOUBLE PRECISION NOT NULL DEFAULT 0,
+  nozzle_temp_min INTEGER,
+  nozzle_temp_max INTEGER,
+  bed_temp_min INTEGER,
+  bed_temp_max INTEGER,
+  diameter DOUBLE PRECISION NOT NULL DEFAULT 1.75,
+  tag_uid TEXT,
+  tray_uuid TEXT,
+  data_origin TEXT,
+  archived BOOLEAN NOT NULL DEFAULT FALSE,
+  last_scale_weight DOUBLE PRECISION,
+  last_weighed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS filament_spools_tag_uid_idx ON filament_spools (tag_uid) WHERE tag_uid IS NOT NULL;
+CREATE INDEX IF NOT EXISTS filament_spools_tray_uuid_idx ON filament_spools (tray_uuid) WHERE tray_uuid IS NOT NULL;
 SELECT pg_advisory_unlock(90210);
 `
 

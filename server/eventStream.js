@@ -77,6 +77,16 @@ export function broadcastMaintenanceStatus(status) {
   }
 }
 
+// Filament Station (SpoolBuddy port) events — tag scans, scale readings,
+// device online/offline, assignment triggers. Public like queue events; no
+// per-subscriber filter (unlike maintenance) since there's no staff-only gate
+// on this feature today.
+export function broadcastFilamentStationEvent(eventName, data) {
+  for (const subscriber of subscribers) {
+    writeEvent(subscriber.res, eventName, data);
+  }
+}
+
 // Keep intermediary proxies/load balancers from timing out an otherwise-silent
 // connection, and prune any subscriber whose write already started failing.
 setInterval(() => {

@@ -147,6 +147,22 @@ func run() {
 				}
 				notifyForTransition(webhooks, printer, nextPrinter)
 
+				// Filament reader (plan §3a): catalog any Bambu spool the AMS's
+				// own RFID reader already identified over MQTT — read-only, no
+				// publish. No-op for Snapmaker/generic printers since their
+				// spool entries never carry trayUuid/tagUid.
+				if bambuProfiles[mStr(nextPrinter, "profile")] {
+					if err := matchOrCreateFilamentSpools(ctx, conn, nextPrinter["spools"]); err != nil {
+						log.Printf("filament tag matcher error for printer %s: %v", mStr(printer, "id"), err)
+					}
+					// Deferred-assignment replay, detection half (plan §4) —
+					// actuation happens in the Node replay worker once
+					// needs_trigger_at is set here.
+					if err := detectBambuAssignmentTriggers(ctx, conn, mStr(printer, "id"), rawBambuTrays(printer)); err != nil {
+						log.Printf("assignment trigger detection error for printer %s: %v", mStr(printer, "id"), err)
+					}
+				}
+
 				id := mStr(printer, "id")
 				sig := persistSignature(nextPrinter)
 				if shouldPersistPrinter(id, sig, now) {

@@ -10,6 +10,7 @@ import {
   ClipboardList,
   ScrollText,
   Wrench,
+  Boxes,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { NotificationBell } from './NotificationBell';
@@ -54,6 +55,12 @@ export function BottomTabBar() {
   const canSeeMaintenance = !PUBLIC_VIEWER_MODE && !!user && !isReadOnlyRole(user.role);
   const visibleTabs = canSeeMaintenance ? [...primaryTabs, maintenanceTab] : primaryTabs;
 
+  // Staff-only (operator/admin), same gate as Maintenance — surfaced in the
+  // "More" sheet rather than a primary tab so the bottom bar doesn't get
+  // crowded. This is the only way to reach it from a phone, which matters
+  // here since Filament Station's NFC scan/write is meant to be used on one.
+  const staffNavItems = canSeeMaintenance ? [{ path: '/filament-station', label: 'Filament Station', icon: Boxes }] : [];
+
   const adminNavItems =
     !PUBLIC_VIEWER_MODE && user?.role === 'admin'
       ? [
@@ -62,7 +69,7 @@ export function BottomTabBar() {
         ]
       : [];
 
-  const moreIsActive = adminNavItems.some((item) => isActive(item.path));
+  const moreIsActive = [...staffNavItems, ...adminNavItems].some((item) => isActive(item.path));
   const showUserProfile = user && user.role !== 'viewer';
 
   const handleLogout = () => {
@@ -139,7 +146,7 @@ export function BottomTabBar() {
             )}
 
             <div className="space-y-1">
-              {adminNavItems.map((item) => (
+              {[...staffNavItems, ...adminNavItems].map((item) => (
                 <Link
                   key={item.path}
                   to={item.path}

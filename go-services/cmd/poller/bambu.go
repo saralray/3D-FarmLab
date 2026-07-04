@@ -266,13 +266,25 @@ func buildBambuSpools(printData pmap) any {
 		if remainValid && fullWeight > 0 {
 			weight = round1(fullWeight * float64(remaining) / 100)
 		}
+		// tray_uuid/tag_uid: the AMS's own RFID reader already read these off a
+		// genuine Bambu tag over MQTT — this is the "filament reader" data
+		// filament_matcher.go uses to auto-catalog the spool into
+		// filament_spools (plan §3a), same fields Bambuddy's
+		// spool_tag_matcher.py keys on. Additive: existing consumers of
+		// "spools" only read the keys they already expect.
 		spools = append(spools, pmap{
-			"id":        slotID,
-			"color":     "#" + color,
-			"material":  material,
-			"vendor":    vendor,
-			"remaining": float64(remaining),
-			"weight":    weight,
+			"id":            slotID,
+			"color":         "#" + color,
+			"material":      material,
+			"vendor":        vendor,
+			"remaining":     float64(remaining),
+			"weight":        weight,
+			"traySubBrands": strings.TrimSpace(mStr(t, "tray_sub_brands")),
+			"trayUuid":      strings.TrimSpace(mStr(t, "tray_uuid")),
+			"tagUid":        strings.TrimSpace(mStr(t, "tag_uid")),
+			"nozzleTempMin": mInt(t, "nozzle_temp_min"),
+			"nozzleTempMax": mInt(t, "nozzle_temp_max"),
+			"trayWeight":    fullWeight,
 		})
 	}
 
@@ -328,6 +340,53 @@ func bambuActiveSpoolID(printData pmap) any {
 		return nil
 	}
 	return fmt.Sprintf("ams%d-%d", globalIndex/4, globalIndex%4)
+}
+
+// bambuTrayKey is the (ams_id, tray_id) addressing scheme filament_station_assignments
+// uses, matching the ams_id=255/tray_id=254 convention already used by
+// bambuCommands.js's set_filament handler for the external spool.
+func bambuTrayKey(amsID, trayID int) string {
+	return fmt.Sprintf("%d:%d", amsID, trayID)
+}
+
+// rawBambuTrays returns every AMS tray keyed by "ams_id:tray_id" — including
+// empty ones (no material) — for the deferred-assignment replay detector
+// (assignments.go). Independent of buildBambuSpools's flattened, "material
+// required" projection used for printers.spools JSONB: replay detection needs
+// to see an empty tray's raw state (state/tray_uuid/tray_type), which
+// buildBambuSpools skips entirely. Re-reads the same in-memory cached MQTT
+// report buildBambuSpools/fetchBambuStatus already used this cycle — cheap,
+// not a second poll (see bambuClient.latestReport).
+func rawBambuTrays(printer pmap) map[string]pmap {
+	client := getBambuClient(printer)
+	printData := client.latestReport()
+	if printData == nil {
+		return nil
+	}
+
+	out := map[string]pmap{}
+	amsRoot := asMap(printData["ams"])
+	if amsRoot != nil {
+		for _, unitAny := range mSlice(amsRoot, "ams") {
+			unit := asMap(unitAny)
+			if unit == nil {
+				continue
+			}
+			unitID := mInt(unit, "id")
+			for _, trayAny := range mSlice(unit, "tray") {
+				tray := asMap(trayAny)
+				if tray == nil {
+					continue
+				}
+				trayID := mInt(tray, "id")
+				out[bambuTrayKey(unitID, trayID)] = tray
+			}
+		}
+	}
+	if vt := asMap(printData["vt_tray"]); vt != nil {
+		out[bambuTrayKey(255, 254)] = vt
+	}
+	return out
 }
 
 // ── filament-used AMS delta baseline ────────────────────────────────────────

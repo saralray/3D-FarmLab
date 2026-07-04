@@ -309,6 +309,63 @@ CREATE TABLE IF NOT EXISTS network_usage_daily (
 -- separate column rather than renaming 'bytes' so existing rows don't need a
 -- backfill.
 ALTER TABLE network_usage_daily ADD COLUMN IF NOT EXISTS bytes_in BIGINT NOT NULL DEFAULT 0;
+-- Filament Station: local spool inventory, identified via a phone-written
+-- NFC tag (Android Web NFC / iOS Core NFC) or a genuine Bambu RFID tag the
+-- AMS itself already read. filament_spools is the inventory source of
+-- truth; printers.spools JSONB stays live, read-only, printer-reported
+-- telemetry and is never written from here. tag_uid/tray_uuid identify a
+-- spool either by the phone-written OpenSpool tag or by a genuine Bambu tag
+-- (auto-cataloged by the poller's filament tag matcher, filament_matcher.go).
+CREATE TABLE IF NOT EXISTS filament_spools (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  material TEXT NOT NULL,
+  subtype TEXT,
+  color_name TEXT,
+  rgba TEXT NOT NULL DEFAULT 'FFFFFFFF',
+  brand TEXT,
+  label_weight DOUBLE PRECISION NOT NULL DEFAULT 0,
+  core_weight DOUBLE PRECISION NOT NULL DEFAULT 0,
+  weight_used DOUBLE PRECISION NOT NULL DEFAULT 0,
+  nozzle_temp_min INTEGER,
+  nozzle_temp_max INTEGER,
+  bed_temp_min INTEGER,
+  bed_temp_max INTEGER,
+  diameter DOUBLE PRECISION NOT NULL DEFAULT 1.75,
+  tag_uid TEXT,
+  tray_uuid TEXT,
+  data_origin TEXT,
+  archived BOOLEAN NOT NULL DEFAULT FALSE,
+  last_scale_weight DOUBLE PRECISION,
+  last_weighed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS filament_spools_tag_uid_idx ON filament_spools (tag_uid) WHERE tag_uid IS NOT NULL;
+CREATE INDEX IF NOT EXISTS filament_spools_tray_uuid_idx ON filament_spools (tray_uuid) WHERE tray_uuid IS NOT NULL;
+
+-- Per-printer-lane assignment: the deferred/pending-config replay source of
+-- truth for both Bambu (real ams_id/tray_id) and Snapmaker U1 (ams_id=0,
+-- tray_id=lane 0-3). Mirrors Bambuddy's SpoolAssignment.
+CREATE TABLE IF NOT EXISTS filament_station_assignments (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  spool_id TEXT NOT NULL REFERENCES filament_spools(id) ON DELETE CASCADE,
+  printer_id TEXT NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+  ams_id INTEGER NOT NULL DEFAULT 0,
+  tray_id INTEGER NOT NULL,
+  fingerprint_color TEXT,
+  fingerprint_type TEXT,
+  fingerprint_present BOOLEAN,
+  pending_config BOOLEAN NOT NULL DEFAULT FALSE,
+  needs_trigger_at TIMESTAMPTZ,
+  last_trigger_result TEXT,
+  last_triggered_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (printer_id, ams_id, tray_id)
+);
+CREATE INDEX IF NOT EXISTS filament_station_assignments_trigger_idx
+  ON filament_station_assignments (needs_trigger_at) WHERE needs_trigger_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS filament_station_assignments_spool_idx
+  ON filament_station_assignments (spool_id);
 -- Versioned migrations applied after this idempotent baseline (see MIGRATIONS).
 -- This baseline schema is the forward-only "version 0"; ordered migrations record
 -- their version here so each runs exactly once and the DB's schema level is visible.
@@ -2466,4 +2523,234 @@ export async function listAuditLogs(limit = 200) {
   );
 
   return result.rows[0].data;
+}
+
+// ── Filament Station (SpoolBuddy port) ──────────────────────────────────────
+
+function filamentSpoolRowToJs(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    material: row.material,
+    subtype: row.subtype,
+    colorName: row.color_name,
+    rgba: row.rgba,
+    brand: row.brand,
+    labelWeight: row.label_weight,
+    coreWeight: row.core_weight,
+    weightUsed: row.weight_used,
+    nozzleTempMin: row.nozzle_temp_min,
+    nozzleTempMax: row.nozzle_temp_max,
+    bedTempMin: row.bed_temp_min,
+    bedTempMax: row.bed_temp_max,
+    diameter: row.diameter,
+    tagUid: row.tag_uid,
+    trayUuid: row.tray_uuid,
+    dataOrigin: row.data_origin,
+    archived: row.archived,
+    lastScaleWeight: row.last_scale_weight,
+    lastWeighedAt: row.last_weighed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function listFilamentSpools({ includeArchived = false } = {}) {
+  await ensureSchema();
+  const result = await query(
+    `SELECT * FROM filament_spools
+     WHERE archived = FALSE OR $1
+     ORDER BY created_at DESC;`,
+    [includeArchived],
+  );
+  return result.rows.map(filamentSpoolRowToJs);
+}
+
+export async function getFilamentSpool(id) {
+  await ensureSchema();
+  const result = await query('SELECT * FROM filament_spools WHERE id = $1;', [id]);
+  return filamentSpoolRowToJs(result.rows[0]);
+}
+
+export async function createFilamentSpool(spool) {
+  await ensureSchema();
+  const result = await query(
+    `INSERT INTO filament_spools (
+       material, subtype, color_name, rgba, brand, label_weight, core_weight,
+       weight_used, nozzle_temp_min, nozzle_temp_max, bed_temp_min, bed_temp_max,
+       diameter, tag_uid, tray_uuid, data_origin
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+     RETURNING *;`,
+    [
+      spool.material,
+      spool.subtype ?? null,
+      spool.colorName ?? null,
+      spool.rgba ?? 'FFFFFFFF',
+      spool.brand ?? null,
+      spool.labelWeight ?? 0,
+      spool.coreWeight ?? 0,
+      spool.weightUsed ?? 0,
+      spool.nozzleTempMin ?? null,
+      spool.nozzleTempMax ?? null,
+      spool.bedTempMin ?? null,
+      spool.bedTempMax ?? null,
+      spool.diameter ?? 1.75,
+      spool.tagUid ?? null,
+      spool.trayUuid ?? null,
+      spool.dataOrigin ?? 'manual',
+    ],
+  );
+  return filamentSpoolRowToJs(result.rows[0]);
+}
+
+export async function updateFilamentSpool(id, patch) {
+  await ensureSchema();
+  const result = await query(
+    `UPDATE filament_spools SET
+       material = COALESCE($2, material),
+       subtype = COALESCE($3, subtype),
+       color_name = COALESCE($4, color_name),
+       rgba = COALESCE($5, rgba),
+       brand = COALESCE($6, brand),
+       label_weight = COALESCE($7, label_weight),
+       core_weight = COALESCE($8, core_weight),
+       weight_used = COALESCE($9, weight_used),
+       nozzle_temp_min = COALESCE($10, nozzle_temp_min),
+       nozzle_temp_max = COALESCE($11, nozzle_temp_max),
+       archived = COALESCE($12, archived),
+       updated_at = NOW()
+     WHERE id = $1
+     RETURNING *;`,
+    [
+      id,
+      patch.material ?? null,
+      patch.subtype ?? null,
+      patch.colorName ?? null,
+      patch.rgba ?? null,
+      patch.brand ?? null,
+      patch.labelWeight ?? null,
+      patch.coreWeight ?? null,
+      patch.weightUsed ?? null,
+      patch.nozzleTempMin ?? null,
+      patch.nozzleTempMax ?? null,
+      patch.archived ?? null,
+    ],
+  );
+  return filamentSpoolRowToJs(result.rows[0]);
+}
+
+// Link a physical tag's UID to a spool after a successful NFC write (or an
+// auto-catalog match) — separate from updateFilamentSpool because tag_uid
+// isn't a user-editable field in the CRUD form, it's set by the write-result
+// callback / filament tag matcher.
+export async function setFilamentSpoolTagUid(id, tagUid) {
+  await ensureSchema();
+  const result = await query(
+    `UPDATE filament_spools SET tag_uid = $2, updated_at = NOW() WHERE id = $1 RETURNING *;`,
+    [id, tagUid || null],
+  );
+  return filamentSpoolRowToJs(result.rows[0]);
+}
+
+export async function deleteFilamentSpool(id) {
+  await ensureSchema();
+  await query('DELETE FROM filament_spools WHERE id = $1;', [id]);
+}
+
+export async function findFilamentSpoolByTag({ tagUid = null, trayUuid = null } = {}) {
+  await ensureSchema();
+  if (!tagUid && !trayUuid) return null;
+  // tray_uuid preferred over tag_uid, matching Bambuddy's get_spool_by_tag precedence.
+  const result = await query(
+    `SELECT * FROM filament_spools
+     WHERE (tray_uuid IS NOT NULL AND tray_uuid = $1)
+        OR (tag_uid IS NOT NULL AND tag_uid = $2)
+     ORDER BY (tray_uuid = $1) DESC
+     LIMIT 1;`,
+    [trayUuid, tagUid],
+  );
+  return filamentSpoolRowToJs(result.rows[0]);
+}
+
+function filamentStationAssignmentRowToJs(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    spoolId: row.spool_id,
+    printerId: row.printer_id,
+    amsId: row.ams_id,
+    trayId: row.tray_id,
+    fingerprintColor: row.fingerprint_color,
+    fingerprintType: row.fingerprint_type,
+    fingerprintPresent: row.fingerprint_present,
+    pendingConfig: row.pending_config,
+    needsTriggerAt: row.needs_trigger_at,
+    lastTriggerResult: row.last_trigger_result,
+    lastTriggeredAt: row.last_triggered_at,
+    createdAt: row.created_at,
+  };
+}
+
+export async function listFilamentStationAssignments() {
+  await ensureSchema();
+  const result = await query('SELECT * FROM filament_station_assignments ORDER BY created_at ASC;');
+  return result.rows.map(filamentStationAssignmentRowToJs);
+}
+
+export async function upsertFilamentStationAssignment({ spoolId, printerId, amsId = 0, trayId, pendingConfig }) {
+  await ensureSchema();
+  const result = await query(
+    `INSERT INTO filament_station_assignments (spool_id, printer_id, ams_id, tray_id, pending_config)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (printer_id, ams_id, tray_id) DO UPDATE SET
+       spool_id = EXCLUDED.spool_id,
+       pending_config = EXCLUDED.pending_config,
+       fingerprint_color = NULL,
+       fingerprint_type = NULL,
+       fingerprint_present = NULL,
+       needs_trigger_at = NULL
+     RETURNING *;`,
+    [spoolId, printerId, amsId, trayId, pendingConfig],
+  );
+  return filamentStationAssignmentRowToJs(result.rows[0]);
+}
+
+export async function deleteFilamentStationAssignment(printerId, amsId, trayId) {
+  await ensureSchema();
+  await query(
+    'DELETE FROM filament_station_assignments WHERE printer_id = $1 AND ams_id = $2 AND tray_id = $3;',
+    [printerId, amsId, trayId],
+  );
+}
+
+// Deferred-assignment replay, actuation half (plan §4) — the Go poller sets
+// needs_trigger_at (assignments.go); this is what the Node replay worker
+// polls to find rows ready to actuate.
+export async function listAssignmentsNeedingTrigger() {
+  await ensureSchema();
+  const result = await query(`
+    SELECT a.*, s.material, s.rgba, s.brand
+    FROM filament_station_assignments a
+    JOIN filament_spools s ON s.id = a.spool_id
+    WHERE a.needs_trigger_at IS NOT NULL;
+  `);
+  return result.rows.map((row) => ({
+    ...filamentStationAssignmentRowToJs(row),
+    spoolMaterial: row.material,
+    spoolRgba: row.rgba,
+    spoolBrand: row.brand,
+  }));
+}
+
+export async function recordAssignmentTriggerResult(id, { success, message }) {
+  await ensureSchema();
+  await query(
+    `UPDATE filament_station_assignments SET
+       needs_trigger_at = NULL,
+       pending_config = FALSE,
+       last_trigger_result = $2,
+       last_triggered_at = NOW()
+     WHERE id = $1;`,
+    [id, success ? 'ok' : message ?? 'failed'],
+  );
 }

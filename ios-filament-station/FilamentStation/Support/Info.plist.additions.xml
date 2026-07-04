@@ -1,0 +1,23 @@
+<!--
+  Not a full Info.plist — just the keys this app needs beyond Xcode's
+  generated defaults. Copy these into the project's actual Info.plist
+  (Xcode 13+ usually manages this via the target's Info tab instead of a
+  raw file; either way, these two keys must exist).
+-->
+<plist version="1.0">
+<dict>
+  <key>NFCReaderUsageDescription</key>
+  <string>Filament Station uses NFC to scan and write filament spool tags.</string>
+</dict>
+</plist>
+
+<!--
+  Entitlement (goes in FilamentStation.entitlements, added automatically by
+  Xcode when you enable the "Near Field Communication Tag Reading"
+  capability in Signing & Capabilities — listed here for reference only):
+
+  <key>com.apple.developer.nfc.readersession.formats</key>
+  <array>
+    <string>NDEF</string>
+  </array>
+-->

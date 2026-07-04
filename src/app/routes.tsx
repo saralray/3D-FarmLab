@@ -19,6 +19,9 @@ const Analytics = lazy(() =>
 const Maintenance = lazy(() =>
   import('./pages/Maintenance').then((module) => ({ default: module.Maintenance }))
 );
+const FilamentStation = lazy(() =>
+  import('./pages/FilamentStation').then((module) => ({ default: module.FilamentStation }))
+);
 const Settings = lazy(() =>
   import('./pages/Settings').then((module) => ({ default: module.Settings }))
 );
@@ -87,6 +90,14 @@ export const router = createBrowserRouter([
         element: withSuspense(
           <StaffRoute>
             <Maintenance />
+          </StaffRoute>
+        ),
+      },
+      {
+        path: 'filament-station',
+        element: withSuspense(
+          <StaffRoute>
+            <FilamentStation />
           </StaffRoute>
         ),
       },

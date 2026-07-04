@@ -7,7 +7,6 @@ import { Readable } from 'node:stream';
 import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import mqtt from 'mqtt';
 import busboy from 'busboy';
 import { decryptSecret, encryptSecret } from './secretCrypto.js';
 import {
@@ -16,6 +15,7 @@ import {
   broadcastMaintenanceNotification,
   broadcastQueueStatus,
   broadcastMaintenanceStatus,
+  broadcastFilamentStationEvent,
 } from './eventStream.js';
 import {
   approveManagerRequest,
@@ -47,10 +47,12 @@ import {
   getPrinterByIdOrName,
   getQueueJobFileMeta,
   hasUnfinishedQueueJobs,
+  listAssignmentsNeedingTrigger,
   readQueueJobFileChunk,
   importQueueJobs,
   insertQueueSubmission,
   pingDatabase,
+  recordAssignmentTriggerResult,
   setQueueJobFile,
   listDailyAnalytics,
   listNetworkUsageDaily,
@@ -93,6 +95,8 @@ import {
   healthStatusFromScore,
 } from './postgres.js';
 import { verifySlicerGrant } from './slicerGrant.js';
+import { handleFilamentStation } from './filamentStation.js';
+import { sendBambuCommand } from './bambuCommands.js';
 import {
   isRedisEnabled,
   redisDel,
@@ -1626,6 +1630,13 @@ function isAdminMutation(method, pathname) {
   if (pathname.startsWith('/api/queue/') && method === 'DELETE') return true;
   if (pathname.startsWith('/api/printers/') && method === 'DELETE') return true;
   if (pathname.startsWith('/api/manager/requests/') && !pathname.endsWith('/status')) return true;
+  // Filament Station: deleting a spool/device/assignment or issuing a system
+  // command (reboot/shutdown/restart) to the physical kiosk — same
+  // destructive-ish class as deleting a printer.
+  if (pathname.startsWith('/api/filament-station/')) {
+    if (method === 'DELETE') return true;
+    if (pathname.endsWith('/system/command') && method === 'POST') return true;
+  }
   return false;
 }
 
@@ -1639,6 +1650,11 @@ function isOperatorMutation(method, pathname) {
   if (pathname === '/api/queue' && method === 'POST') return true;
   if (pathname.startsWith('/api/maintenance/') && pathname.endsWith('/complete') && method === 'POST') return true;
   if (pathname === '/api/maintenance/notifications/read' && method === 'POST') return true;
+  // Filament Station: spool/assignment CRUD, tag writes, and calibration/
+  // display tuning — operator-level, same class as printer command/queue.
+  if (pathname.startsWith('/api/filament-station/') && (method === 'POST' || method === 'PUT')) {
+    if (!pathname.endsWith('/system/command')) return true;
+  }
   return false;
 }
 
@@ -2169,323 +2185,10 @@ function parsePrintRequest(req) {
   });
 }
 
-// Bambu printers have no HTTP control API; pause/resume/cancel and the chamber
-// light are MQTT commands published to device/<serial>/request. We open a
-// short-lived publish-only connection (no subscribe), which coexists with the
-// poller's connection.
-const BAMBU_PRINT_ACTIONS = { pause: 'pause', resume: 'resume', cancel: 'stop' };
-
-// Generic Bambu filament presets keyed by material type. `idx` is Bambu's
-// tray_info_idx code (the generic profile for each material); `min`/`max` are
-// the nozzle temperature window. Used by the ams_filament_setting command when
-// staff edit a tray's material. Codes/temps may need per-model tuning.
-const BAMBU_FILAMENT_PRESETS = {
-  PLA: { idx: 'GFL99', type: 'PLA', min: 190, max: 230 },
-  PETG: { idx: 'GFG99', type: 'PETG', min: 230, max: 260 },
-  ABS: { idx: 'GFB99', type: 'ABS', min: 240, max: 270 },
-  ASA: { idx: 'GFB98', type: 'ASA', min: 240, max: 270 },
-  TPU: { idx: 'GFU99', type: 'TPU', min: 200, max: 240 },
-  PC: { idx: 'GFC99', type: 'PC', min: 260, max: 280 },
-  PA: { idx: 'GFN99', type: 'PA', min: 260, max: 290 },
-  PVA: { idx: 'GFS99', type: 'PVA', min: 190, max: 220 },
-};
-
-// Map a heater target to the M-code Bambu accepts over `gcode_line`.
-function buildBambuTemperatureGcode(heater, target, nozzleIndex = 0) {
-  const value = Math.round(Number(target));
-  if (!Number.isFinite(value) || value < 0 || value > 350) {
-    throw new Error('Temperature target is out of range');
-  }
-  if (heater === 'nozzle') {
-    const tool = Number(nozzleIndex) > 0 ? ` T${Number(nozzleIndex)}` : '';
-    return `M104${tool} S${value}\n`;
-  }
-  if (heater === 'bed') {
-    return `M140 S${value}\n`;
-  }
-  if (heater === 'chamber') {
-    // The H2 chamber heater is driven by M141; a valid target is 0–60 °C
-    // (0 turns active chamber heating off).
-    if (value > 60) {
-      throw new Error('Chamber temperature target is out of range');
-    }
-    return `M141 S${value}\n`;
-  }
-  throw new Error(`Unsupported heater: ${heater}`);
-}
-
-// Motion control posts raw G-code, but only a safe motion subset is honored
-// over this endpoint — never heater or firmware-config commands, so a stray or
-// hostile request can't drive the hotend or flash the board.
-const ALLOWED_MOTION_GCODE = /^(?:G0|G1|G28|G90|G91|M84|M18)\b/i;
-
-function sanitizeMotionGcode(gcode) {
-  if (typeof gcode !== 'string') {
-    throw new Error('gcode must be a string');
-  }
-  const lines = gcode
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length === 0 || lines.length > 8) {
-    throw new Error('gcode must contain between 1 and 8 commands');
-  }
-  for (const line of lines) {
-    if (!ALLOWED_MOTION_GCODE.test(line)) {
-      throw new Error(`Disallowed motion command: ${line}`);
-    }
-  }
-  return `${lines.join('\n')}\n`;
-}
-
-// One `system` ledctrl message for a single LED node.
-function buildBambuLedPayload(node, on, sequenceId) {
-  return {
-    system: {
-      sequence_id: sequenceId,
-      command: 'ledctrl',
-      led_node: node,
-      led_mode: on ? 'on' : 'off',
-      led_on_time: 500,
-      led_off_time: 500,
-      loop_times: 0,
-      interval_time: 0,
-    },
-  };
-}
-
-// The H2 series lights its chamber with two LED bars, each its own ledctrl node,
-// so one toggle has to drive both. Other Bambu models only expose chamber_light.
-const BAMBU_LIGHT_NODES = {
-  bambulab_h2s: ['chamber_light', 'chamber_light2'],
-  bambulab_h2d: ['chamber_light', 'chamber_light2'],
-  bambulab_h2c: ['chamber_light', 'chamber_light2'],
-};
-
-function bambuLightNodes(profile) {
-  return BAMBU_LIGHT_NODES[profile] ?? ['chamber_light'];
-}
-
-// Print actions go under `print`; the chamber light is a `system` ledctrl
-// message. Light commands may return several payloads (one per LED node).
-function buildBambuCommandPayload(command, params = {}, profile) {
-  const sequenceId = String(Date.now() % 1000000);
-
-  if (command === 'light_on' || command === 'light_off') {
-    const on = command === 'light_on';
-    return bambuLightNodes(profile).map((node, index) =>
-      // Distinct sequence ids so the printer doesn't dedupe the second message.
-      buildBambuLedPayload(node, on, String((Date.now() + index) % 1000000)),
-    );
-  }
-
-  if (command === 'set_temperature') {
-    return {
-      print: {
-        command: 'gcode_line',
-        param: buildBambuTemperatureGcode(params.heater, params.target, params.nozzleIndex),
-        sequence_id: sequenceId,
-      },
-    };
-  }
-
-  if (command === 'gcode') {
-    return {
-      print: {
-        command: 'gcode_line',
-        param: sanitizeMotionGcode(params.gcode),
-        sequence_id: sequenceId,
-      },
-    };
-  }
-
-  if (command === 'set_fan') {
-    // Bambu addresses its fans by M106 P-index: P1 part cooling, P2 auxiliary,
-    // P3 chamber. Speed is an 8-bit PWM value (0 = off).
-    const port = Number(params.fanPort);
-    const speed = Math.round(Number(params.speed));
-    if (!Number.isInteger(port) || port < 1 || port > 3) {
-      throw new Error('Fan port is out of range');
-    }
-    if (!Number.isFinite(speed) || speed < 0 || speed > 255) {
-      throw new Error('Fan speed is out of range');
-    }
-    return {
-      print: {
-        command: 'gcode_line',
-        param: `M106 P${port} S${speed}\n`,
-        sequence_id: sequenceId,
-      },
-    };
-  }
-
-  if (command === 'set_airduct') {
-    // The H2 series routes chamber air through a mode-based "air duct" system
-    // rather than an individually-addressable filter fan, so the activated-carbon
-    // filter is engaged by selecting a mode, not by spinning a fan. Bambu Studio
-    // sets it with a `set_airduct` MQTT command. Modes (from BambuStudio's
-    // AIR_DUCT enum): 0 cooling+filter, 1 heating+filter, 2 exhaust, 3 full
-    // cooling. `submode` defaults to -1, matching Studio.
-    const modeId = Number(params.modeId);
-    if (!Number.isInteger(modeId) || modeId < 0 || modeId > 3) {
-      throw new Error('Air duct mode is out of range');
-    }
-    const submode = params.submode === undefined ? -1 : Number(params.submode);
-    if (!Number.isInteger(submode)) {
-      throw new Error('Air duct submode must be an integer');
-    }
-    return {
-      print: {
-        command: 'set_airduct',
-        modeId,
-        submode,
-        sequence_id: sequenceId,
-      },
-    };
-  }
-
-  if (command === 'load_filament' || command === 'unload_filament') {
-    // ams_change_filament: `target` is the global tray id (AMS unit * 4 + tray,
-    // or 254 for the external spool). 255 tells the printer to unload whatever
-    // is currently loaded. `tar_temp` preheats the hotend for the swap; the
-    // printer applies its own filament profile when handed 0.
-    const isUnload = command === 'unload_filament';
-    const target = isUnload ? 255 : Number(params.trayId);
-    if (!Number.isFinite(target) || target < 0 || target > 255) {
-      throw new Error('Filament tray target is out of range');
-    }
-    const tarTemp = isUnload ? 0 : Math.round(Number(params.target) || 220);
-    return {
-      print: {
-        command: 'ams_change_filament',
-        target,
-        curr_temp: 0,
-        tar_temp: tarTemp,
-        sequence_id: sequenceId,
-      },
-    };
-  }
-
-  if (command === 'set_filament') {
-    // ams_filament_setting: change the material/color the printer thinks is in a
-    // tray. `trayId` is the global tray id (AMS unit * 4 + tray, or 254 for the
-    // external spool). Bambu splits it into ams_id (the unit) and tray_id (0-3
-    // within the unit); the external spool uses ams_id 255 / tray_id 254.
-    // `tray_info_idx` is Bambu's filament code (e.g. generic PLA = GFL99) and
-    // `tray_color` is RRGGBBAA. These codes/temps are device-specific and may
-    // need live tuning per printer model.
-    const target = Number(params.trayId);
-    if (!Number.isFinite(target) || target < 0 || target > 255) {
-      throw new Error('Filament tray target is out of range');
-    }
-    const isExternal = target === 254;
-    const amsId = isExternal ? 255 : Math.floor(target / 4);
-    const trayId = isExternal ? 254 : target % 4;
-    const type = String(params.type || '').toUpperCase().trim();
-    const preset = BAMBU_FILAMENT_PRESETS[type] || BAMBU_FILAMENT_PRESETS.PLA;
-    const color = String(params.color || '#808080').replace('#', '').slice(0, 6).toUpperCase();
-    const trayColor = `${color.padEnd(6, '0')}FF`;
-    // Optional brand/vendor label. Bambu stores it as the tray's filament setting
-    // name (`tray_id_name`) and reports it back, so the card's vendor round-trips.
-    // Kept short and free of control chars; empty string leaves it unset.
-    const vendor = String(params.vendor || '')
-      .replace(/[^\x20-\x7e]/g, '')
-      .trim()
-      .slice(0, 32);
-    return {
-      print: {
-        command: 'ams_filament_setting',
-        ams_id: amsId,
-        tray_id: trayId,
-        tray_info_idx: preset.idx,
-        tray_color: trayColor,
-        nozzle_temp_min: preset.min,
-        nozzle_temp_max: preset.max,
-        tray_type: preset.type,
-        tray_id_name: vendor,
-        setting_id: '',
-        sequence_id: sequenceId,
-      },
-    };
-  }
-
-  const action = BAMBU_PRINT_ACTIONS[command];
-  if (!action) {
-    throw new Error(`Unsupported command: ${command}`);
-  }
-  const printCommand = { command: action, sequence_id: sequenceId };
-  if (action === 'stop') {
-    printCommand.param = '';
-  }
-  return { print: printCommand };
-}
-
-function sendBambuCommand(printer, command, params) {
-  // A command may expand to several MQTT messages (e.g. one per LED node).
-  const payloads = [].concat(buildBambuCommandPayload(command, params, printer.profile));
-  const serial = (printer.serial || '').trim();
-  if (!serial) {
-    throw new Error('Bambu printer is missing its serial number');
-  }
-
-  if (command === 'load_filament' || command === 'unload_filament' || command === 'set_filament') {
-    // Publishing is QoS 0 with no ack from the printer, so a successful publish
-    // here does not prove the firmware applied it. Logging the exact payload
-    // lets it be diffed against a packet capture of Bambu Studio's own command
-    // for the same tray, which is the only way to spot a profile-specific field
-    // mismatch (e.g. H2-series AMS/nozzle addressing).
-    logger.debug('bambu filament command', {
-      printerId: printer.id,
-      profile: printer.profile,
-      command,
-      params,
-      payloads,
-    });
-  }
-
-  return new Promise((resolve, reject) => {
-    const client = mqtt.connect(`mqtts://${printer.ipAddress}:8883`, {
-      username: 'bblp',
-      password: (printer.apiKeyHeader || '').trim(),
-      rejectUnauthorized: false,
-      reconnectPeriod: 0,
-      connectTimeout: 4000,
-    });
-
-    let settled = false;
-    const fail = (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      client.end(true);
-      reject(error);
-    };
-    const timer = setTimeout(() => fail(new Error('MQTT command timed out')), 6000);
-
-    client.once('error', fail);
-    client.once('connect', () => {
-      // QoS 0 (the printer's broker isn't guaranteed to PUBACK on this topic, and
-      // the poller already proves request-topic commands are honored). The fix for
-      // the original dropped command is the graceful close below, not the QoS.
-      const topic = `device/${serial}/request`;
-      let remaining = payloads.length;
-      let firstError = null;
-      payloads.forEach((payload) => {
-        client.publish(topic, JSON.stringify(payload), { qos: 0 }, (error) => {
-          if (error && !firstError) firstError = error;
-          remaining -= 1;
-          if (remaining > 0 || settled) return;
-          if (firstError) return fail(firstError);
-          settled = true;
-          clearTimeout(timer);
-          // Close gracefully so the queued packets are flushed to the socket
-          // before it closes — a force close here can drop commands in transit.
-          client.end(false, {}, () => resolve());
-        });
-      });
-    });
-  });
-}
+// Bambu MQTT command builder + sender moved to bambuCommands.js so
+// filamentStation.js can reuse sendBambuCommand('set_filament', ...) (the AMS
+// override, plan §2a) without app.js <-> filamentStation.js importing each
+// other. See that file for buildBambuCommandPayload/sendBambuCommand.
 
 // The A1 Mini has no HTTP webcam; its chamber camera is a length-prefixed JPEG
 // stream over a raw TLS socket on port 6000 (auth: user "bblp" + LAN access
@@ -2683,6 +2386,7 @@ const DATA_API_RESOURCES = [
   'admin-credential',
   'manager-requests',
   'maintenance',
+  'filament-station',
 ];
 
 function extractApiKey(req) {
@@ -2786,6 +2490,8 @@ async function handleDataApi(req, res, requestUrl) {
       return handleDataApiManagerRequests(req, res, { apiKey, method, id, sub });
     case 'maintenance':
       return handleDataApiMaintenance(req, res, { apiKey, method, id, sub, requestUrl });
+    case 'filament-station':
+      return handleFilamentStation(req, res, { method, segments: segments.slice(1), requestUrl });
     default:
       sendJson(res, 404, { error: `Unknown resource '${entity}'.`, resources: DATA_API_RESOURCES });
       return true;
@@ -3560,6 +3266,21 @@ async function handleApi(req, res, requestUrl) {
   // React UI merely hides. Denied requests are answered here (401/403).
   if (!(await authorizeFrontendApi(req, res, requestUrl))) {
     return true;
+  }
+
+  // Filament Station: the SPA's cookie-session-gated surface. Reuses the exact
+  // same handler as the key-gated /api/v1/filament-station/* the physical
+  // daemon calls (handleFilamentStation itself doesn't check apiKey — auth
+  // already happened above, same as it does in handleDataApi) — one route
+  // implementation, two auth front doors, matching the existing distinction
+  // between the browser's /api/* surface and the /api/v1/* automation surface.
+  if (requestUrl.pathname.startsWith('/api/filament-station/')) {
+    const segments = requestUrl.pathname
+      .slice('/api/filament-station/'.length)
+      .split('/')
+      .filter(Boolean)
+      .map((part) => decodeURIComponent(part));
+    return handleFilamentStation(req, res, { method: req.method, segments, requestUrl });
   }
 
   // Manager access request endpoints ──────────────────────────────────────────
@@ -6294,6 +6015,83 @@ function scheduleMaintenanceWorker() {
   }, MAINTENANCE_WORKER_INTERVAL_MS).unref();
 }
 scheduleMaintenanceWorker();
+
+// ---------------------------------------------------------------------------
+// Filament Station deferred-assignment replay worker (plan §4, actuation half)
+// ---------------------------------------------------------------------------
+// The Go poller (go-services/cmd/poller/assignments.go) detects a
+// pending_config assignment's slot transitioning from empty to loaded and
+// sets needs_trigger_at — it never publishes MQTT itself (its Bambu client is
+// subscribe-only, see bambu.go). This worker is the actuation half: it owns
+// the same ephemeral-MQTT-publish path as the /command endpoint
+// (server/bambuCommands.js), so it's the one place in the stack that pushes
+// the §2a ams_filament_setting override. Short interval (default 5s, vs the
+// maintenance worker's 5 minutes) since "spool physically inserted" is a
+// user-facing, latency-sensitive moment — mirrors Bambuddy's "SpoolBuddy
+// pre-config replay" (bambuddy/backend/app/main.py:1231-1281).
+const FILAMENT_REPLAY_INTERVAL_MS = (() => {
+  const raw = Number.parseInt(process.env.FILAMENT_REPLAY_INTERVAL_MS ?? '', 10);
+  return Number.isFinite(raw) && raw >= 1000 ? raw : 5000;
+})();
+
+async function runFilamentAssignmentReplayPass() {
+  const pending = await listAssignmentsNeedingTrigger();
+  for (const assignment of pending) {
+    const printer = await getPrinterById(assignment.printerId).catch(() => null);
+    if (!printer || !BAMBU_PROFILES.has(printer.profile)) {
+      // Not (or no longer) a Bambu printer — nothing safe to actuate yet
+      // (Snapmaker's gcode fallback isn't wired in until its macros are
+      // verified against real firmware, plan §3b/§8). Clear the trigger so
+      // it doesn't spin forever; the assignment itself is left in place.
+      await recordAssignmentTriggerResult(assignment.id, {
+        success: false,
+        message: 'No printer or non-Bambu profile — nothing to actuate',
+      });
+      continue;
+    }
+
+    const globalTrayId = assignment.amsId === 255 ? 254 : assignment.amsId * 4 + assignment.trayId;
+    try {
+      await sendBambuCommand(printer, 'set_filament', {
+        trayId: globalTrayId,
+        type: assignment.spoolMaterial,
+        color: assignment.spoolRgba,
+        vendor: assignment.spoolBrand,
+      });
+      await recordAssignmentTriggerResult(assignment.id, { success: true });
+      broadcastFilamentStationEvent('filament-station-assignment-triggered', {
+        assignmentId: assignment.id,
+        printerId: assignment.printerId,
+        spoolId: assignment.spoolId,
+        success: true,
+      });
+    } catch (error) {
+      logger.warn(`Filament assignment replay failed for printer ${printer.id}: ${error.message}`);
+      await recordAssignmentTriggerResult(assignment.id, { success: false, message: error.message });
+      broadcastFilamentStationEvent('filament-station-assignment-triggered', {
+        assignmentId: assignment.id,
+        printerId: assignment.printerId,
+        spoolId: assignment.spoolId,
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+}
+
+let filamentReplayWorkerRunning = false;
+function scheduleFilamentAssignmentReplayWorker() {
+  setInterval(() => {
+    if (filamentReplayWorkerRunning) return; // never overlap passes
+    filamentReplayWorkerRunning = true;
+    runFilamentAssignmentReplayPass()
+      .catch((error) => logger.error('filament assignment replay pass failed', error))
+      .finally(() => {
+        filamentReplayWorkerRunning = false;
+      });
+  }, FILAMENT_REPLAY_INTERVAL_MS).unref();
+}
+scheduleFilamentAssignmentReplayWorker();
 
 createServer(handleRequest).listen(port, host, () => {
   logger.info('Print Farm server listening', { host, port });

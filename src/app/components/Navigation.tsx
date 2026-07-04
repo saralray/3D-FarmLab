@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { LayoutDashboard, List, BarChart3, LogOut, Settings, ClipboardList, ScrollText, Music, Wrench, Wifi } from 'lucide-react';
+import { LayoutDashboard, List, BarChart3, LogOut, Settings, ClipboardList, ScrollText, Music, Wrench, Wifi, Boxes } from 'lucide-react';
 import { PrintRequestDialog } from './PrintRequestDialog';
 import { ThemeToggle } from './ThemeToggle';
 import { NotificationBell } from './NotificationBell';
@@ -69,6 +69,7 @@ export function Navigation() {
     { path: '/queue', label: 'Queue', icon: List },
     { path: '/analytics', label: 'Analytics', icon: BarChart3 },
     ...(canSeeMaintenance ? [{ path: '/maintenance', label: 'Maintenance', icon: Wrench }] : []),
+    ...(canSeeMaintenance ? [{ path: '/filament-station', label: 'Filament Station', icon: Boxes }] : []),
   ];
   const adminNavItems = !PUBLIC_VIEWER_MODE && user?.role === 'admin'
     ? [
