@@ -19,6 +19,7 @@ import {
 } from './eventStream.js';
 import {
   approveManagerRequest,
+  buildBackupSnapshot,
   clearManagerRequestKeySecret,
   createDiscordWebhook,
   createManagerRequest,
@@ -93,7 +94,10 @@ import {
   markMaintenanceEventsNotified,
   recalcHealthScore,
   healthStatusFromScore,
+  reviveBackupTables,
+  restoreBackupSnapshot,
 } from './postgres.js';
+import { createZip, readZip } from './zipArchive.js';
 import { verifySlicerGrant } from './slicerGrant.js';
 import { handleFilamentStation } from './filamentStation.js';
 import { sendBambuCommand } from './bambuCommands.js';
@@ -170,6 +174,15 @@ const ANALYTICS_LAYOUT_KEY = 'analytics_layout';
 // memory; the matching nginx location lifts its body cap to the same ceiling.
 const QUEUE_UPLOAD_MAX_BYTES = Number.parseInt(
   process.env.QUEUE_UPLOAD_MAX_BYTES ?? String(50 * 1024 * 1024),
+  10,
+);
+
+// A restore upload is a full backup archive (every table, including every
+// stored queue-job model file), so its ceiling is far higher than a single
+// print-request upload; the matching nginx location lifts its body cap to
+// the same value.
+const BACKUP_UPLOAD_MAX_BYTES = Number.parseInt(
+  process.env.BACKUP_UPLOAD_MAX_BYTES ?? String(500 * 1024 * 1024),
   10,
 );
 // Print-request intake only accepts printable mesh formats (STL / 3MF / OBJ).
@@ -1594,6 +1607,9 @@ function isSensitiveRead(pathname) {
   if (pathname === '/api/admin/update-status') {
     return true; // software-update status is admin-only (not viewer-readable)
   }
+  if (pathname === '/api/admin/backup/download') {
+    return true; // full data backup — every connection secret and API key
+  }
   if (pathname === '/api/network-usage' || pathname === '/api/network-usage/live') {
     return true; // internal traffic breakdown is admin-only, like audit logs
   }
@@ -1622,6 +1638,7 @@ function isAdminMutation(method, pathname) {
   if (pathname.startsWith('/api/slicer-keys/') && method === 'DELETE') return true;
   if (pathname === '/api/admin/credential' && method === 'PUT') return true;
   if (pathname === '/api/admin/update/apply' && method === 'POST') return true;
+  if (pathname === '/api/admin/backup/restore' && method === 'POST') return true;
   if (pathname.startsWith('/api/notifications/')) return true;
   if (pathname === '/api/settings/saml' || pathname === '/api/settings/saml/test') return true;
   if (pathname.startsWith('/api/settings/') && method !== 'GET') return true;
@@ -4374,6 +4391,104 @@ async function handleApi(req, res, requestUrl) {
     } finally {
       clearTimeout(timer);
     }
+    return true;
+  }
+
+  // Full-data backup. Every table the app considers "data" (printers,
+  // filament inventory, queue jobs + their stored model files, app_settings —
+  // branding/automation/SSO/staff users/admin credential all live there —
+  // API keys, audit logs, maintenance, network usage) is serialized to one
+  // JSON file per table plus a manifest.json, zipped in memory (buildZip
+  // needs the whole archive assembled to know the central-directory offsets)
+  // and streamed back as a download. Admin-only (isSensitiveRead); this is
+  // deliberately not redacted like the public printer list, since it's the
+  // whole point of a backup.
+  if (requestUrl.pathname === '/api/admin/backup/download' && req.method === 'GET') {
+    const { manifest, tables } = await buildBackupSnapshot();
+    const entries = [{ name: 'manifest.json', data: Buffer.from(JSON.stringify(manifest)) }];
+    for (const [name, rows] of Object.entries(tables)) {
+      entries.push({ name: `tables/${name}.json`, data: Buffer.from(JSON.stringify(rows)) });
+    }
+    const zip = createZip(entries);
+    const timestamp = manifest.generatedAt.replace(/[:.]/g, '-');
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Length', zip.length);
+    res.setHeader('Content-Disposition', `attachment; filename="printfarm-backup-${timestamp}.zip"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(zip);
+    return true;
+  }
+
+  // Restore from a backup archive produced by the endpoint above. Destructive:
+  // TRUNCATEs and replaces every table named in the archive inside one
+  // transaction (restoreBackupSnapshot). Admin-only (isAdminMutation) and
+  // audited. The upload is the raw zip bytes as the request body (not
+  // multipart) — simpler for a single-file upload, matching the
+  // /api/v1/queue/:id/file PUT pattern.
+  if (requestUrl.pathname === '/api/admin/backup/restore' && req.method === 'POST') {
+    let archive;
+    try {
+      archive = await readBodyBounded(req, BACKUP_UPLOAD_MAX_BYTES);
+    } catch {
+      const limitMb = Math.round(BACKUP_UPLOAD_MAX_BYTES / (1024 * 1024));
+      sendJson(res, 413, { error: `Backup archive exceeds the ${limitMb} MB upload limit.` });
+      return true;
+    }
+
+    let entries;
+    try {
+      entries = readZip(archive);
+    } catch (error) {
+      sendJson(res, 400, { error: `Not a valid backup archive: ${error.message}` });
+      return true;
+    }
+
+    const rawTables = {};
+    let manifest = null;
+    for (const entry of entries) {
+      try {
+        if (entry.name === 'manifest.json') {
+          manifest = JSON.parse(entry.data.toString('utf8'));
+        } else if (entry.name.startsWith('tables/') && entry.name.endsWith('.json')) {
+          const tableName = entry.name.slice('tables/'.length, -'.json'.length);
+          rawTables[tableName] = JSON.parse(entry.data.toString('utf8'));
+        }
+      } catch (error) {
+        sendJson(res, 400, { error: `Corrupt backup archive entry "${entry.name}": ${error.message}` });
+        return true;
+      }
+    }
+    if (!manifest || Object.keys(rawTables).length === 0) {
+      sendJson(res, 400, { error: 'Backup archive is missing manifest.json or table data.' });
+      return true;
+    }
+
+    const session = await resolveSession(req);
+    try {
+      const tables = reviveBackupTables(rawTables);
+      await restoreBackupSnapshot(tables);
+    } catch (error) {
+      logger.error('backup restore failed', { err: error instanceof Error ? error.message : error });
+      sendJson(res, 500, { error: 'Restore failed; no changes were committed.' });
+      return true;
+    }
+
+    const restoredTables = Object.entries(rawTables).map(([name, rows]) => ({
+      name,
+      rowCount: Array.isArray(rows) ? rows.length : 0,
+    }));
+    await recordAuditLog({
+      actorName: session ? session.name : null,
+      actorUsername: session ? session.username : null,
+      actorRole: session ? session.role : null,
+      action: 'backup.restore',
+      target: null,
+      details: { sourceGeneratedAt: manifest.generatedAt || null, tables: restoredTables },
+      source: 'web',
+      ip: getClientIp(req),
+    });
+    sendJson(res, 200, { ok: true, tables: restoredTables });
     return true;
   }
 

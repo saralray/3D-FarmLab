@@ -23,6 +23,7 @@ import { Switch } from '../components/ui/switch';
 import { buttonVariants } from '../components/ui/button';
 import { cn } from '../components/ui/utils';
 import { SoftwareUpdateSettings } from '../components/SoftwareUpdateSettings';
+import { BackupSettings } from '../components/BackupSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { ADMIN_USERNAME } from '../lib/runtimeConfig';
 import { Printer, PrinterProfile } from '../types';
@@ -2129,6 +2130,7 @@ export function Settings() {
         <TabsContent value="system">
           <div className="space-y-6">
             {user?.role === 'admin' && <SoftwareUpdateSettings />}
+            {user?.role === 'admin' && <BackupSettings />}
           </div>
         </TabsContent>
 
