@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { decryptSecret, encryptSecret, isEncryptionEnabled } from './secretCrypto.js';
+import { logger } from './logger.js';
 
 const { Pool } = pg;
 
@@ -2753,4 +2754,176 @@ export async function recordAssignmentTriggerResult(id, { success, message }) {
      WHERE id = $1;`,
     [id, success ? 'ok' : message ?? 'failed'],
   );
+}
+
+// ── Backup & Restore ─────────────────────────────────────────────────────────
+// A full-data backup: everything an admin would consider "the print farm's
+// data" (printers, filament inventory, queue history + uploaded model files,
+// app_settings — which is where branding/automation/SSO/staff users/admin
+// credential all live as key/value rows — API keys, audit logs, maintenance,
+// network usage) round-trips through this pair. Table order only matters for
+// the restore's INSERT phase: filament_station_assignments is the only table
+// with foreign keys in this schema (→ printers, → filament_spools), so it
+// must be inserted last; TRUNCATE names every table in one statement, so it's
+// order-independent there. Deliberately excluded: schema_migrations
+// (app-managed, not user data) and poller_health (ephemeral, repopulates on
+// the poller's next cycle).
+const BACKUP_TABLES = [
+  'printers',
+  'filament_spools',
+  'analytics_daily',
+  'queue_jobs',
+  'discord_webhooks',
+  'app_settings',
+  'slicer_api_keys',
+  'slicer_print_estimates',
+  'audit_logs',
+  'manager_requests',
+  'sessions',
+  'maintenance_schedules',
+  'maintenance_events',
+  'maintenance_notifications',
+  'network_usage_daily',
+  'filament_station_assignments',
+];
+
+// bytea columns (only queue_jobs.file_content / photo_content in this schema)
+// come back from `pg` as Buffer, which JSON has no native type for. Tag them
+// on the way out, untag on the way in. This only needs to look at top-level
+// row values — bytea never appears nested inside a JSONB column here.
+function prepareRowForJson(row) {
+  const out = {};
+  for (const [key, value] of Object.entries(row)) {
+    out[key] = Buffer.isBuffer(value) ? { __bytea__: value.toString('base64') } : value;
+  }
+  return out;
+}
+
+function reviveRowFromJson(row) {
+  const out = {};
+  for (const [key, value] of Object.entries(row)) {
+    out[key] = (
+      value && typeof value === 'object' && !Array.isArray(value)
+      && typeof value.__bytea__ === 'string' && Object.keys(value).length === 1
+    ) ? Buffer.from(value.__bytea__, 'base64') : value;
+  }
+  return out;
+}
+
+// Query parameters aren't auto-serialized by `pg`: JSONB columns need an
+// explicit JSON.stringify (matching every other write path in this file),
+// while bytea (Buffer) and plain scalars pass straight through.
+function toInsertParam(value) {
+  if (value === null || value === undefined) return null;
+  if (Buffer.isBuffer(value)) return value;
+  if (typeof value === 'object') return JSON.stringify(value);
+  return value;
+}
+
+// Returns { manifest, tables } — `tables` maps table name to its rows
+// (bytea-tagged via prepareRowForJson, ready to JSON.stringify), `manifest`
+// summarizes what's inside for the archive's manifest.json.
+export async function buildBackupSnapshot() {
+  await ensureSchema();
+
+  const tables = {};
+  const manifestTables = [];
+
+  for (const table of BACKUP_TABLES) {
+    const result = await query(`SELECT * FROM ${table};`);
+    tables[table] = result.rows.map(prepareRowForJson);
+    manifestTables.push({ name: table, rowCount: result.rows.length });
+  }
+
+  return {
+    manifest: {
+      generatedAt: new Date().toISOString(),
+      appVersion: process.env.APP_VERSION || 'dev',
+      tables: manifestTables,
+    },
+    tables,
+  };
+}
+
+// Reverses prepareRowForJson on every row of every table in a parsed backup
+// archive. Called once, right after reading tables/<name>.json back out of
+// the uploaded zip.
+export function reviveBackupTables(rawTables) {
+  const tables = {};
+  for (const [name, rows] of Object.entries(rawTables)) {
+    tables[name] = Array.isArray(rows) ? rows.map(reviveRowFromJson) : rows;
+  }
+  return tables;
+}
+
+// Replaces all data in every BACKUP_TABLES table with the rows in `tables`
+// (shape: { [tableName]: row[] }, already revived via reviveBackupTables).
+// Runs as one transaction on a dedicated client: TRUNCATE everything named in
+// the archive, insert rows back respecting the one FK relationship in this
+// schema, then commit. Any error rolls the whole thing back so a bad/partial
+// upload can't half-apply. Tables missing from the archive (e.g. an older
+// backup taken before a table existed) are left untouched.
+export async function restoreBackupSnapshot(tables) {
+  await ensureSchema();
+
+  const knownTables = BACKUP_TABLES.filter((name) => Array.isArray(tables[name]));
+  if (knownTables.length === 0) {
+    throw new Error('Backup archive contained no recognized tables');
+  }
+
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`TRUNCATE TABLE ${knownTables.join(', ')};`);
+
+    for (const table of knownTables) {
+      const rows = tables[table];
+      if (rows.length === 0) continue;
+
+      // A backup can predate a column drop/rename that never got a matching
+      // migration (ensureSchema only ever ADDs columns, never drops them —
+      // so a column removed from the schema code can still be lingering, or
+      // gone, on any given database). Restoring into a database whose live
+      // schema differs from the one the backup was taken on should degrade
+      // gracefully rather than fail the whole restore: only insert columns
+      // that exist on both sides, dropping anything the backup has that this
+      // database's queue_jobs (etc.) does not.
+      const liveColumns = new Set(
+        (await client.query(`SELECT * FROM ${table} LIMIT 0;`)).fields.map((field) => field.name),
+      );
+      const backupColumns = Object.keys(rows[0]);
+      const columns = backupColumns.filter((col) => liveColumns.has(col));
+      const droppedColumns = backupColumns.filter((col) => !liveColumns.has(col));
+      if (droppedColumns.length > 0) {
+        logger.warn('backup restore: dropping columns not present in the current schema', {
+          table,
+          columns: droppedColumns,
+        });
+      }
+
+      const columnList = columns.map((col) => `"${col}"`).join(', ');
+      const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+      const insertSql = `INSERT INTO ${table} (${columnList}) VALUES (${placeholders});`;
+
+      for (const row of rows) {
+        await client.query(insertSql, columns.map((col) => toInsertParam(row[col])));
+      }
+    }
+
+    // audit_logs.id is the only auto-incrementing PK in this schema;
+    // restoring explicit ids leaves its sequence behind, so bump it past the
+    // restored max (falls back to 1 for an empty table).
+    if (knownTables.includes('audit_logs')) {
+      await client.query(
+        `SELECT setval('audit_logs_id_seq', COALESCE((SELECT MAX(id) FROM audit_logs), 1), true);`,
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }

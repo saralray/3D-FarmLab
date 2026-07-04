@@ -517,11 +517,11 @@ classified below requires an admin session.
 | Class | Who | Examples |
 | --- | --- | --- |
 | **public read** | anyone | `GET /api/printers`, `GET /api/queue`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/summary`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, `GET /api/settings/favicon`, `GET /api/events`, branding/layout reads |
-| **admin read** | admin only | `GET /api/users`, `GET /api/slicer-keys`, `GET /api/audit-logs`, `GET /api/admin/update-status`, `GET /api/notifications/*`, `GET /api/manager/requests`, `GET /api/settings/saml`, `GET /api/settings/home-assistant*` |
+| **admin read** | admin only | `GET /api/users`, `GET /api/slicer-keys`, `GET /api/audit-logs`, `GET /api/admin/update-status`, `GET /api/admin/backup/download`, `GET /api/notifications/*`, `GET /api/manager/requests`, `GET /api/settings/saml`, `GET /api/settings/home-assistant*` |
 | **public mutation** | anyone | `POST /api/queue/submit` (student intake), `POST /api/manager/request`, the auth endpoints above |
 | **operator** | operator or admin | `POST /api/printers` (create/edit/reorder), `POST /api/printers/:id/command`, `POST /api/queue/:id/printed`, `POST /api/maintenance/:id/complete`, `POST /api/maintenance/notifications/read` |
 | **authed** | any session | `POST /api/audit-logs` (actor is taken from the session, not the body) |
-| **admin** | admin only | `DELETE /api/printers/:id`, `DELETE /api/queue/:id`, `/api/queue/reset`, `/api/analytics/daily/reset`, all `/api/users/*` writes, all `/api/slicer-keys` writes, `/api/notifications/*` writes, `/api/settings/*` writes, `POST /api/admin/update/apply`, manager request approve/deny/delete |
+| **admin** | admin only | `DELETE /api/printers/:id`, `DELETE /api/queue/:id`, `/api/queue/reset`, `/api/analytics/daily/reset`, all `/api/users/*` writes, all `/api/slicer-keys` writes, `/api/notifications/*` writes, `/api/settings/*` writes, `POST /api/admin/update/apply`, `POST /api/admin/backup/restore`, manager request approve/deny/delete |
 
 > **Connection-secret redaction:** `GET /api/printers` and `GET /api/printers/:id`
 > return connection fields (`ipAddress`, `apiKeyHeader`, `serial`, `url`) only to
@@ -561,6 +561,24 @@ Lets a deployed site detect that a newer version has been published and (when a 
 | `POST /api/admin/update/apply` | Triggers the Watchtower sidecar (`WATCHTOWER_URL` + `WATCHTOWER_TOKEN`) to pull the newer `:latest` images and recreate the app containers. `202 { started: true }` on success — also returned if the request to Watchtower is still outstanding after 5 minutes (a backstop, not a real failure: the trigger already reached Watchtower, which may still be mid-pull or may have already recreated this `web` container). `503` when no updater is configured; `502` only on a genuine connect failure (Watchtower unreachable). Writes an audit-log entry (`action: software.update.apply`). The update itself runs entirely server-side via Watchtower, independent of the client connection — closing the browser tab after the trigger succeeds does not stop or affect it. |
 
 Version detection relies on `APP_VERSION` (the git SHA baked into the image by `.github/workflows/deploy.yml`); the one-click apply relies on `docker-compose.deploy.yml` (pulls published images + runs the Watchtower sidecar). Both are documented in `.env.example`.
+
+### Backup & Restore (admin — Settings → System)
+
+A full-data backup/restore, distinct from the `/api/v1/queue/export`+`import`
+host-to-host migration pair (which only covers queue jobs) — this covers
+every table the app considers data: printers, filament inventory
+(`filament_spools`/`filament_station_assignments`), queue jobs (including
+stored model file bytes), `app_settings` (branding, Home Assistant automation,
+SAML SSO config, staff users, admin credential — all key/value rows there),
+slicer/API keys, audit logs, maintenance schedules/events/notifications, and
+network usage. Excluded: `schema_migrations` (app-managed) and
+`poller_health` (ephemeral). Both endpoints are **admin only** (cookie
+session); restore is CSRF same-origin-gated and audited.
+
+| Method & path | Description |
+|---------------|-------------|
+| `GET /api/admin/backup/download` | Builds the backup in memory and streams it back as `application/zip` (`Content-Disposition: attachment; filename="printfarm-backup-<timestamp>.zip"`). The archive contains `manifest.json` (`{ generatedAt, appVersion, tables: [{ name, rowCount }] }`) plus one `tables/<name>.json` per table (its rows verbatim, with any `bytea` column tagged as `{ __bytea__: base64 }`). |
+| `POST /api/admin/backup/restore` | Body is the raw `.zip` bytes (not multipart — same convention as `PUT /api/v1/queue/:id/file`). Parses the archive, then **truncates and replaces every table present in it** inside one transaction — a bad or partial upload rolls back with no changes committed. `413` if the upload exceeds `BACKUP_UPLOAD_MAX_BYTES` (default 500 MB; the matching nginx `/api/admin/backup/restore` location raises the body cap via `BACKUP_MAX_BODY_SIZE`, default `500m`). `400` for a malformed/unrecognized archive, `500` (with nothing committed) if the restore transaction itself fails. On success, `200 { ok: true, tables: [{ name, rowCount }] }` and an audit-log entry (`action: backup.restore`). Restoring may log the acting admin out if their session row isn't in the archive, and can cause transient poller errors mid-restore — the UI warns about both before confirming. |
 
 ### Maintenance (frontend `/api/*`)
 

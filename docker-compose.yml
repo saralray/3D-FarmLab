@@ -91,6 +91,11 @@ services:
       # Max size of a model file uploaded through the in-app print-request form
       # (stored in Postgres). The nginx /api/queue/submit body cap should match.
       QUEUE_UPLOAD_MAX_BYTES: ${QUEUE_UPLOAD_MAX_BYTES:-52428800}
+      # Max size of a backup archive uploaded via Settings → Backup & Restore
+      # (a full-data backup, so it can be far larger than a single print-request
+      # upload). The nginx /api/admin/backup/restore body cap (BACKUP_MAX_BODY_SIZE
+      # below) should match.
+      BACKUP_UPLOAD_MAX_BYTES: ${BACKUP_UPLOAD_MAX_BYTES:-524288000}
       # NOTE: APP_VERSION (the running git SHA) is baked into the image at build
       # time (Dockerfile.web ENV) — it must NOT be listed here, or an unset host
       # APP_VERSION would override the baked value with an empty string. Local
@@ -137,6 +142,9 @@ services:
       # C-4: slicer upload body cap passed through to the nginx template. Must be
       # >= SLICER_UPLOAD_MAX_BYTES on the slicer-proxy service.
       SLICER_MAX_BODY_SIZE: ${SLICER_MAX_BODY_SIZE:-500m}
+      # Backup-restore upload body cap passed through to the nginx template.
+      # Must be >= BACKUP_UPLOAD_MAX_BYTES on the web service.
+      BACKUP_MAX_BODY_SIZE: ${BACKUP_MAX_BODY_SIZE:-500m}
       # H-1: gates /prometheus with HTTP Basic Auth (see
       # nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh). Leave
       # PROMETHEUS_BASIC_AUTH_PASSWORD unset to keep /prometheus fully blocked

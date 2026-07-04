@@ -156,6 +156,20 @@ server {
     proxy_send_timeout 3600s;
   }
 
+  # Admin backup restore: the uploaded archive is a full-data backup (every
+  # table, including every stored queue-job model file), so it needs the same
+  # large-body treatment as the queue file routes above.
+  location = /api/admin/backup/restore {
+    proxy_pass http://web:5173;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size ${BACKUP_MAX_BODY_SIZE};
+    proxy_request_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+  }
+
   # Branding uploads carry the logo plus an optional full-page background image
   # as base64 data URLs, which exceed the global 2m cap. Lift it for this one
   # endpoint so admins can upload a normal-sized background.
