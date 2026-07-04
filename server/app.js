@@ -2428,6 +2428,21 @@ function sendBambuCommand(printer, command, params) {
     throw new Error('Bambu printer is missing its serial number');
   }
 
+  if (command === 'load_filament' || command === 'unload_filament' || command === 'set_filament') {
+    // Publishing is QoS 0 with no ack from the printer, so a successful publish
+    // here does not prove the firmware applied it. Logging the exact payload
+    // lets it be diffed against a packet capture of Bambu Studio's own command
+    // for the same tray, which is the only way to spot a profile-specific field
+    // mismatch (e.g. H2-series AMS/nozzle addressing).
+    logger.debug('bambu filament command', {
+      printerId: printer.id,
+      profile: printer.profile,
+      command,
+      params,
+      payloads,
+    });
+  }
+
   return new Promise((resolve, reject) => {
     const client = mqtt.connect(`mqtts://${printer.ipAddress}:8883`, {
       username: 'bblp',
@@ -2813,10 +2828,23 @@ async function handleDataApiPrinters(req, res, { apiKey, method, id, sub, action
       sendJson(res, 404, { error: 'Printer not found' });
       return true;
     }
-    const { command, heater, target, nozzleIndex, gcode, trayId, fanPort, speed, modeId, submode } =
-      await readJsonBody(req);
+    const {
+      command,
+      heater,
+      target,
+      nozzleIndex,
+      gcode,
+      trayId,
+      fanPort,
+      speed,
+      modeId,
+      submode,
+      type,
+      color,
+      vendor,
+    } = await readJsonBody(req);
     await sendBambuCommand(printer, command, {
-      heater, target, nozzleIndex, gcode, trayId, fanPort, speed, modeId, submode,
+      heater, target, nozzleIndex, gcode, trayId, fanPort, speed, modeId, submode, type, color, vendor,
     });
     auditDataApi(req, apiKey, 'printer.command', id, { command });
     sendEmpty(res);
@@ -3714,8 +3742,21 @@ async function handleApi(req, res, requestUrl) {
       sendJson(res, 404, { error: 'Printer not found' });
       return true;
     }
-    const { command, heater, target, nozzleIndex, gcode, trayId, fanPort, speed, modeId, submode } =
-      await readJsonBody(req);
+    const {
+      command,
+      heater,
+      target,
+      nozzleIndex,
+      gcode,
+      trayId,
+      fanPort,
+      speed,
+      modeId,
+      submode,
+      type,
+      color,
+      vendor,
+    } = await readJsonBody(req);
     await sendBambuCommand(printer, command, {
       heater,
       target,
@@ -3726,6 +3767,9 @@ async function handleApi(req, res, requestUrl) {
       speed,
       modeId,
       submode,
+      type,
+      color,
+      vendor,
     });
     // Optimistic write so the displayed target reflects what was just sent —
     // see setPrinterTemperatureTarget's comment for why this is needed
