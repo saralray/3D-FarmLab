@@ -17,6 +17,7 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { FILAMENT_MATERIALS, FILAMENT_VENDORS } from '../lib/printerProfiles';
 import { usePrinters } from '../contexts/PrintersContext';
 import { toast } from 'sonner';
 import {
@@ -59,7 +60,11 @@ interface NDEFReadingEvent {
 }
 interface NDEFReaderLike {
   scan(options?: { signal?: AbortSignal }): Promise<void>;
-  write(message: { records: { recordType: string; mediaType?: string; data: string }[] }): Promise<void>;
+  // Chrome's implementation requires `data` for a 'mime' record to be a
+  // BufferSource (ArrayBuffer/TypedArray), not a plain string — passing a
+  // string throws "The provided value is not of type 'ArrayBuffer' or
+  // ArrayBufferView'". Encode with TextEncoder before calling write().
+  write(message: { records: { recordType: string; mediaType?: string; data: BufferSource }[] }): Promise<void>;
   onreading: ((event: NDEFReadingEvent) => void) | null;
   onreadingerror: (() => void) | null;
 }
@@ -148,8 +153,9 @@ function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () =>
         reader.scan({ signal: controller.signal }).catch(reject);
       });
 
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
       await reader.write({
-        records: [{ recordType: 'mime', mediaType: 'application/json', data: JSON.stringify(payload) }],
+        records: [{ recordType: 'mime', mediaType: 'application/json', data: bytes }],
       });
 
       const tagUid = normalizeTagUid(serialNumber);
@@ -239,8 +245,10 @@ function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () =>
   );
 }
 
+const NO_VENDOR = '__unspecified__';
+
 function AddSpoolDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (v: boolean) => void; onCreated: () => void }) {
-  const [material, setMaterial] = useState('PLA');
+  const [material, setMaterial] = useState<string>(FILAMENT_MATERIALS[0]);
   const [subtype, setSubtype] = useState('');
   const [colorName, setColorName] = useState('');
   const [rgba, setRgba] = useState('FFFFFFFF');
@@ -277,27 +285,67 @@ function AddSpoolDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
           <DialogDescription>Add a physical spool to the local filament inventory.</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
-          <div>
+          <div className="space-y-2">
             <Label>Material</Label>
-            <Input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="PLA" />
+            <Select value={material} onValueChange={setMaterial}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select material" />
+              </SelectTrigger>
+              <SelectContent>
+                {FILAMENT_MATERIALS.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div>
+          <div className="space-y-2">
             <Label>Subtype</Label>
             <Input value={subtype} onChange={(e) => setSubtype(e.target.value)} placeholder="Basic" />
           </div>
-          <div>
+          <div className="space-y-2">
+            <Label>Vendor</Label>
+            <Select value={brand || NO_VENDOR} onValueChange={(v) => setBrand(v === NO_VENDOR ? '' : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select vendor" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_VENDOR}>Unspecified</SelectItem>
+                {FILAMENT_VENDORS.map((vendor) => (
+                  <SelectItem key={vendor} value={vendor}>
+                    {vendor}
+                  </SelectItem>
+                ))}
+                {/* Keep a vendor typed in previously (not in the preset list) selectable. */}
+                {brand && !FILAMENT_VENDORS.includes(brand as (typeof FILAMENT_VENDORS)[number]) && (
+                  <SelectItem value={brand}>{brand}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
             <Label>Color name</Label>
             <Input value={colorName} onChange={(e) => setColorName(e.target.value)} placeholder="Jade White" />
           </div>
-          <div>
-            <Label>Color (RRGGBBAA)</Label>
-            <Input value={rgba} onChange={(e) => setRgba(e.target.value.toUpperCase())} placeholder="FFFFFFFF" />
+          <div className="col-span-2 space-y-2">
+            <Label>Color</Label>
+            <div className="flex items-center gap-3">
+              <input
+                type="color"
+                value={`#${rgba.slice(0, 6)}`}
+                onChange={(e) => setRgba(`${e.target.value.replace('#', '').toUpperCase()}FF`)}
+                className="h-10 w-16 cursor-pointer rounded border border-input bg-transparent"
+              />
+              <Input
+                value={rgba}
+                onChange={(e) => setRgba(e.target.value.toUpperCase())}
+                placeholder="FFFFFFFF"
+                className="w-32"
+              />
+            </div>
           </div>
-          <div>
-            <Label>Brand</Label>
-            <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Generic" />
-          </div>
-          <div>
+          <div className="space-y-2">
             <Label>Label weight (g)</Label>
             <Input type="number" value={labelWeight} onChange={(e) => setLabelWeight(e.target.value)} />
           </div>
