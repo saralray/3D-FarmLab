@@ -82,10 +82,11 @@ function normalizeTagUid(serialNumber: string): string {
 // No station device to talk to — the phone's own NFC radio does the read/
 // write directly in-browser; the server only resolves a scanned tag to a
 // spool (tag-scanned) or records which tag now holds a spool after a
-// successful write (link-tag). Exact read-then-write sequencing (a tag must
-// be tapped once to capture its serialNumber via scan() before write())
-// needs verification against a real Android phone — behavior isn't
-// perfectly consistent across browser/OS versions.
+// successful write (link-tag). Writing is two separate taps: write() does
+// its own tap-detection and write in one call (never run a scan() on the
+// same NDEFReader concurrently — Chrome surfaces that conflict as "failed
+// to write due to an io error"), then a second, fresh scan() confirms the
+// tag's serialNumber to link it to the spool.
 function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () => void }) {
   const supported = useMemo(() => isWebNfcSupported(), []);
   const [mode, setMode] = useState<'scan' | 'write'>('scan');
@@ -139,23 +140,29 @@ function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () =>
     setStatus('Fetching tag payload…');
     try {
       const payload = await fetchOpenSpoolPayload(spoolId);
-      setStatus('Tap the tag to write…');
-
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
       const NDEFReaderCtor = (window as unknown as { NDEFReader: new () => NDEFReaderLike }).NDEFReader;
-      const reader = new NDEFReaderCtor();
 
-      const serialNumber = await new Promise<string>((resolve, reject) => {
-        reader.onreading = (event) => resolve(event.serialNumber);
-        reader.onreadingerror = () => reject(new Error('Failed to read tag'));
-        reader.scan({ signal: controller.signal }).catch(reject);
+      // Two separate, sequential operations — NOT a scan() left running
+      // underneath a write() on the same reader. write() does its own tap
+      // detection internally; running a scan() concurrently on the same
+      // NDEFReader made the radio see two competing operations at once,
+      // which Chrome surfaced as "failed to write due to an io error".
+      abortRef.current?.abort();
+      setStatus('Tap the tag to write…');
+      const writer = new NDEFReaderCtor();
+      await writer.write({
+        records: [{ recordType: 'mime', mediaType: 'application/json', data: bytes }],
       });
 
-      const bytes = new TextEncoder().encode(JSON.stringify(payload));
-      await reader.write({
-        records: [{ recordType: 'mime', mediaType: 'application/json', data: bytes }],
+      setStatus('Written — tap the tag again to confirm its ID…');
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const reader = new NDEFReaderCtor();
+      const serialNumber = await new Promise<string>((resolve, reject) => {
+        reader.onreading = (event) => resolve(event.serialNumber);
+        reader.onreadingerror = () => reject(new Error('Failed to confirm tag'));
+        reader.scan({ signal: controller.signal }).catch(reject);
       });
 
       const tagUid = normalizeTagUid(serialNumber);
