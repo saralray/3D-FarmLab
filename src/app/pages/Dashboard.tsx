@@ -4,6 +4,7 @@ import { PrinterCard } from '../components/PrinterCard';
 import { Activity, AlertCircle, Check, CheckCircle, LayoutGrid, Lightbulb, Pause } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
 import { useAuth } from '../contexts/AuthContext';
 import { savePrinter } from '../lib/printersApi';
 import { printerSupportsLight, setPrinterLight } from '../lib/printerProfiles';
@@ -12,7 +13,14 @@ import { usePrinters } from '../contexts/PrintersContext';
 import { useIsMobile } from '../components/ui/use-mobile';
 import { DEFAULT_SITE_NAME, useBrandingSettings } from '../lib/settingsApi';
 import { isReadOnlyRole } from '../lib/usersApi';
+import { useDashboardCardSize, type CardSize } from '../lib/dashboardCardSize';
 import { toast } from 'sonner';
+
+const PRINTER_GRID_CLASSES: Record<CardSize, string> = {
+  sm: 'grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2 sm:gap-3',
+  md: 'grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4',
+  lg: 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5',
+};
 
 export function Dashboard() {
   const { printers: livePrinters, error: loadError, refresh } = usePrinters();
@@ -20,6 +28,7 @@ export function Dashboard() {
   const [draggedPrinterId, setDraggedPrinterId] = useState<string | null>(null);
   const [lightsInFlight, setLightsInFlight] = useState(false);
   const [isLayoutEditing, setIsLayoutEditing] = useState(false);
+  const [cardSize, setCardSize] = useDashboardCardSize();
   const { user } = useAuth();
   // Drag-to-reorder ("edit layout") is awkward on touch phones, so it's
   // disabled there — cards stay tap-to-open only.
@@ -194,26 +203,50 @@ export function Dashboard() {
           <h1 className="text-3xl font-bold mb-2 text-foreground">{siteName || DEFAULT_SITE_NAME} Dashboard</h1>
           <p className="text-muted-foreground">Monitor and manage all printers in real-time</p>
         </div>
-        {canReorder && (
-          <Button
-            type="button"
-            variant={isLayoutEditing ? 'default' : 'outline'}
+        <div className="flex items-center gap-2">
+          <ToggleGroup
+            type="single"
+            variant="outline"
             size="sm"
-            onClick={() => setIsLayoutEditing((value) => !value)}
+            value={cardSize}
+            onValueChange={(value) => {
+              if (value) {
+                setCardSize(value as CardSize);
+              }
+            }}
+            aria-label="Printer card size"
           >
-            {isLayoutEditing ? (
-              <>
-                <Check className="size-4 mr-2" />
-                Done
-              </>
-            ) : (
-              <>
-                <LayoutGrid className="size-4 mr-2" />
-                Edit layout
-              </>
-            )}
-          </Button>
-        )}
+            <ToggleGroupItem value="sm" aria-label="Small cards">
+              S
+            </ToggleGroupItem>
+            <ToggleGroupItem value="md" aria-label="Medium cards">
+              M
+            </ToggleGroupItem>
+            <ToggleGroupItem value="lg" aria-label="Large cards">
+              L
+            </ToggleGroupItem>
+          </ToggleGroup>
+          {canReorder && (
+            <Button
+              type="button"
+              variant={isLayoutEditing ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setIsLayoutEditing((value) => !value)}
+            >
+              {isLayoutEditing ? (
+                <>
+                  <Check className="size-4 mr-2" />
+                  Done
+                </>
+              ) : (
+                <>
+                  <LayoutGrid className="size-4 mr-2" />
+                  Edit layout
+                </>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -237,11 +270,12 @@ export function Dashboard() {
             Drag a printer card onto another to reorder them. The new order is saved automatically.
           </p>
         )}
-        <div className="printer-grid grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+        <div className={`printer-grid grid ${PRINTER_GRID_CLASSES[cardSize]}`}>
           {printers.map((printer) => (
             <PrinterCard
               key={printer.id}
               printer={printer}
+              size={cardSize}
               canManage={isReordering}
               canViewSensitiveInfo={!isReadOnlyRole(user?.role)}
               onDragStart={isReordering ? handlePrinterDragStart : undefined}
