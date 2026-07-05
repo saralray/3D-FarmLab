@@ -118,24 +118,24 @@ function Section({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+    <div className="rounded-xl border border-border bg-card">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
       >
         <div className="min-w-0">
-          <span className="font-semibold dark:text-white">{title}</span>
+          <span className="font-semibold text-foreground">{title}</span>
           {description && !open && (
-            <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">{description}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{description}</p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {action}
           {open ? (
-            <ChevronDown className="size-4 text-gray-400" />
+            <ChevronDown className="size-4 text-muted-foreground" />
           ) : (
-            <ChevronRight className="size-4 text-gray-400" />
+            <ChevronRight className="size-4 text-muted-foreground" />
           )}
         </div>
       </button>
@@ -143,9 +143,9 @@ function Section({
       {open && (
         <>
           {description && (
-            <p className="px-5 pb-3 text-sm text-gray-500 dark:text-gray-400">{description}</p>
+            <p className="px-5 pb-3 text-sm text-muted-foreground">{description}</p>
           )}
-          <div className="border-t border-gray-100 dark:border-gray-800 px-5 py-5">
+          <div className="border-t border-border px-5 py-5">
             {children}
           </div>
         </>
@@ -361,10 +361,10 @@ export function HomeAssistantSettings({ disabled = false }: HomeAssistantSetting
         description="Home Assistant base URL and long-lived access token"
       >
         <form onSubmit={handleSave} className="space-y-4">
-          <div className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
             <div>
-              <p className="text-sm font-medium dark:text-white">Enable integration</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-sm font-medium text-foreground">Enable integration</p>
+              <p className="text-xs text-muted-foreground">
                 Required for device fetching and automation rules.
               </p>
             </div>
@@ -397,7 +397,7 @@ export function HomeAssistantSettings({ disabled = false }: HomeAssistantSetting
                 autoComplete="off"
               />
               {hasToken && (
-                <p className="text-xs text-gray-400 dark:text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   Token stored. Leave blank to keep it.
                 </p>
               )}
@@ -435,44 +435,44 @@ export function HomeAssistantSettings({ disabled = false }: HomeAssistantSetting
         }
       >
         {!devices && (
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground">
             Click Load to fetch devices from Home Assistant.
           </p>
         )}
         {devices && cardGroups.length === 0 && (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No controllable devices found.</p>
+          <p className="text-sm text-muted-foreground">No controllable devices found.</p>
         )}
         {devices && cardGroups.length > 0 && (
           <div className="space-y-2">
             {cardGroups.map(([domain, items]) => (
-              <div key={domain} className="rounded-lg border border-gray-200 dark:border-gray-700">
+              <div key={domain} className="rounded-lg border border-border">
                 <button
                   type="button"
                   onClick={() => toggleDomain(domain)}
                   className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium capitalize dark:text-gray-200">{domain}</span>
+                    <span className="text-sm font-medium capitalize text-foreground">{domain}</span>
                     <Badge variant="secondary">{items.length}</Badge>
                   </div>
                   {expandedDomains.has(domain)
-                    ? <ChevronDown className="size-3.5 text-gray-400" />
-                    : <ChevronRight className="size-3.5 text-gray-400" />}
+                    ? <ChevronDown className="size-3.5 text-muted-foreground" />
+                    : <ChevronRight className="size-3.5 text-muted-foreground" />}
                 </button>
                 {expandedDomains.has(domain) && (
-                  <div className="grid gap-2 border-t border-gray-100 dark:border-gray-800 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid gap-2 border-t border-border p-3 sm:grid-cols-2 lg:grid-cols-3">
                     {items.map((entity) => (
                       <div
                         key={entity.entityId}
-                        className="rounded-md border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-2 text-sm"
+                        className="rounded-md border border-border bg-muted p-2 text-sm"
                       >
-                        <div className="truncate font-medium dark:text-gray-100" title={entity.friendlyName}>
+                        <div className="truncate font-medium text-foreground" title={entity.friendlyName}>
                           {entity.friendlyName}
                         </div>
-                        <div className="truncate font-mono text-xs text-gray-500 dark:text-gray-400" title={entity.entityId}>
+                        <div className="truncate font-mono text-xs text-muted-foreground" title={entity.entityId}>
                           {entity.entityId}
                         </div>
-                        <div className="text-xs text-gray-400">{entity.state}</div>
+                        <div className="text-xs text-muted-foreground">{entity.state}</div>
                       </div>
                     ))}
                   </div>
@@ -517,8 +517,8 @@ export function HomeAssistantSettings({ disabled = false }: HomeAssistantSetting
 
           <div className="grid gap-4 sm:grid-cols-2">
             {/* WHEN */}
-            <div className="space-y-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">When</p>
+            <div className="space-y-3 rounded-lg border border-border p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">When</p>
               {direction === 'printer_to_ha' ? (
                 <>
                   <div className="space-y-1.5">
@@ -563,8 +563,8 @@ export function HomeAssistantSettings({ disabled = false }: HomeAssistantSetting
             </div>
 
             {/* DO */}
-            <div className="space-y-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Do</p>
+            <div className="space-y-3 rounded-lg border border-border p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Do</p>
               {direction === 'printer_to_ha' ? (
                 <>
                   <div className="space-y-1.5">
@@ -649,19 +649,19 @@ export function HomeAssistantSettings({ disabled = false }: HomeAssistantSetting
         }
       >
         {rules.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No automation rules yet.</p>
+          <p className="text-sm text-muted-foreground">No automation rules yet.</p>
         ) : (
-          <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+          <ul className="divide-y divide-border">
             {rules.map((rule) => (
               <li key={rule.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="truncate text-sm font-medium dark:text-gray-100">{rule.name}</span>
+                    <span className="truncate text-sm font-medium text-foreground">{rule.name}</span>
                     <Badge variant="secondary" className="shrink-0">
                       {rule.direction === 'ha_to_printer' ? 'HA → printer' : 'printer → HA'}
                     </Badge>
                   </div>
-                  <p className="truncate text-xs text-gray-500 dark:text-gray-400">{describeRule(rule)}</p>
+                  <p className="truncate text-xs text-muted-foreground">{describeRule(rule)}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <Switch

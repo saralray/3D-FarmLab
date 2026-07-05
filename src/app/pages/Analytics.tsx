@@ -153,9 +153,9 @@ export function Analytics() {
       <Card className="h-full p-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/80 dark:to-blue-800/80 border-0">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Total Jobs</div>
-            <div className="text-3xl font-bold mt-1 dark:text-white">{totalJobs}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Last 7 days</div>
+            <div className="text-sm text-muted-foreground">Total Jobs</div>
+            <div className="text-3xl font-bold mt-1 text-foreground">{totalJobs}</div>
+            <div className="text-xs text-muted-foreground mt-1">Last 7 days</div>
           </div>
           <TrendingUp className="size-8 text-blue-500" />
         </div>
@@ -165,9 +165,9 @@ export function Analytics() {
       <Card className="h-full p-4 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/80 dark:to-green-800/80 border-0">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Success Rate</div>
-            <div className="text-3xl font-bold mt-1 dark:text-white">{successRate}%</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <div className="text-sm text-muted-foreground">Success Rate</div>
+            <div className="text-3xl font-bold mt-1 text-foreground">{successRate}%</div>
+            <div className="text-xs text-muted-foreground mt-1">
               {completedJobs} completed
             </div>
           </div>
@@ -179,11 +179,11 @@ export function Analytics() {
       <Card className="h-full p-4 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/80 dark:to-purple-800/80 border-0">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Print Time</div>
-            <div className="text-3xl font-bold mt-1 dark:text-white">
+            <div className="text-sm text-muted-foreground">Print Time</div>
+            <div className="text-3xl font-bold mt-1 text-foreground">
               {formatMaxTwoDecimals(totalPrintTime)}h
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Last 7 days</div>
+            <div className="text-xs text-muted-foreground mt-1">Last 7 days</div>
           </div>
           <Clock className="size-8 text-purple-500" />
         </div>
@@ -193,11 +193,11 @@ export function Analytics() {
       <Card className="h-full p-4 bg-gradient-to-br from-cyan-50 to-cyan-100 dark:from-cyan-900/80 dark:to-cyan-800/80 border-0">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Avg Print Time</div>
-            <div className="text-3xl font-bold mt-1 dark:text-white">
+            <div className="text-sm text-muted-foreground">Avg Print Time</div>
+            <div className="text-3xl font-bold mt-1 text-foreground">
               {formatMaxTwoDecimals(avgPrintTime)}h
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Per completed job</div>
+            <div className="text-xs text-muted-foreground mt-1">Per completed job</div>
           </div>
           <Timer className="size-8 text-cyan-500" />
         </div>
@@ -207,25 +207,25 @@ export function Analytics() {
       <Card className="h-full p-4 bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/80 dark:to-orange-800/80 border-0">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Filament Used</div>
-            <div className="text-3xl font-bold mt-1 dark:text-white">
+            <div className="text-sm text-muted-foreground">Filament Used</div>
+            <div className="text-3xl font-bold mt-1 text-foreground">
               {formatMaxTwoDecimals(totalFilament / 1000)}kg
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Last 7 days</div>
+            <div className="text-xs text-muted-foreground mt-1">Last 7 days</div>
           </div>
           <Package className="size-8 text-orange-500" />
         </div>
       </Card>
     ),
     dailyPerformance: (
-      <Card className="flex h-full flex-col p-6 dark:bg-gray-800 dark:border-gray-700">
-        <h2 className="text-xl font-semibold mb-4 dark:text-white">Daily Performance</h2>
+      <Card className="flex h-full flex-col p-6">
+        <h2 className="text-xl font-semibold mb-4 text-foreground">Daily Performance</h2>
         <div className="min-h-0 flex-1">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={analyticsData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-              <XAxis dataKey="date" tickFormatter={(value) => value.split('-')[2]} className="text-gray-600 dark:text-gray-400" />
-              <YAxis className="text-gray-600 dark:text-gray-400" />
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis dataKey="date" tickFormatter={(value) => value.split('-')[2]} className="text-muted-foreground" />
+              <YAxis className="text-muted-foreground" />
               <Tooltip contentStyle={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }} />
               <Legend />
               <Line
@@ -248,8 +248,8 @@ export function Analytics() {
       </Card>
     ),
     currentStatus: (
-      <Card className="flex h-full flex-col p-6 dark:bg-gray-800 dark:border-gray-700">
-        <h2 className="text-xl font-semibold mb-4 dark:text-white">Current Status</h2>
+      <Card className="flex h-full flex-col p-6">
+        <h2 className="text-xl font-semibold mb-4 text-foreground">Current Status</h2>
         <div className="min-h-0 flex-1">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
@@ -274,14 +274,14 @@ export function Analytics() {
       </Card>
     ),
     printerUtilization: (
-      <Card className="flex h-full flex-col p-6 dark:bg-gray-800 dark:border-gray-700">
-        <h2 className="text-xl font-semibold mb-4 dark:text-white">Print Time (Hours)</h2>
+      <Card className="flex h-full flex-col p-6">
+        <h2 className="text-xl font-semibold mb-4 text-foreground">Print Time (Hours)</h2>
         <div className="min-h-0 flex-1">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={analyticsData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-              <XAxis dataKey="date" tickFormatter={(value) => value.split('-')[2]} className="text-gray-600 dark:text-gray-400" />
-              <YAxis className="text-gray-600 dark:text-gray-400" />
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis dataKey="date" tickFormatter={(value) => value.split('-')[2]} className="text-muted-foreground" />
+              <YAxis className="text-muted-foreground" />
               <Tooltip
                 contentStyle={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
                 formatter={(value: number) => [`${formatMaxTwoDecimals(value)} h`, 'Print Time']}
@@ -294,14 +294,14 @@ export function Analytics() {
       </Card>
     ),
     filamentUsage: (
-      <Card className="flex h-full flex-col p-6 dark:bg-gray-800 dark:border-gray-700">
-        <h2 className="text-xl font-semibold mb-4 dark:text-white">Filament Usage (g)</h2>
+      <Card className="flex h-full flex-col p-6">
+        <h2 className="text-xl font-semibold mb-4 text-foreground">Filament Usage (g)</h2>
         <div className="min-h-0 flex-1">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={analyticsData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-              <XAxis dataKey="date" tickFormatter={(value) => value.split('-')[2]} className="text-gray-600 dark:text-gray-400" />
-              <YAxis className="text-gray-600 dark:text-gray-400" />
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis dataKey="date" tickFormatter={(value) => value.split('-')[2]} className="text-muted-foreground" />
+              <YAxis className="text-muted-foreground" />
               <Tooltip contentStyle={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }} />
               <Legend />
               <Bar dataKey="filamentUsed" fill="#f97316" name="Filament (g)" />
@@ -316,8 +316,8 @@ export function Analytics() {
     <div className="p-6 space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold mb-2 dark:text-white">Analytics</h1>
-          <p className="text-gray-600 dark:text-gray-400">Performance insights and statistics</p>
+          <h1 className="text-3xl font-bold mb-2 text-foreground">Analytics</h1>
+          <p className="text-muted-foreground">Performance insights and statistics</p>
         </div>
         {user?.role === 'admin' && (
           <div className="flex flex-wrap items-center gap-2">
@@ -357,7 +357,7 @@ export function Analytics() {
       </div>
 
       {isLayoutEditing && (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-muted-foreground">
           Drag a card by its handle onto another card to switch their places, or drag the
           bottom-right corner to resize. Changes are shared with everyone and save automatically.
         </p>

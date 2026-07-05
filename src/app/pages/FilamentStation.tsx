@@ -40,7 +40,7 @@ function ColorSwatch({ rgba }: { rgba: string }) {
   const hex = `#${(rgba || 'FFFFFFFF').slice(0, 6)}`;
   return (
     <span
-      className="inline-block size-4 rounded-full border border-gray-300 align-middle dark:border-gray-600"
+      className="inline-block size-4 rounded-full border border-border align-middle"
       style={{ backgroundColor: hex }}
       title={hex}
     />
@@ -178,7 +178,7 @@ function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () =>
 
   if (!supported) {
     return (
-      <Card className="p-8 text-center text-sm text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400">
+      <Card className="p-8 text-center text-sm text-muted-foreground">
         NFC scan/write needs Chrome, Edge, or Samsung Internet on an Android phone with NFC turned on — open this
         page there. Safari/iOS has no Web NFC support; use the separate iOS app for iPhone.
       </Card>
@@ -186,7 +186,7 @@ function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () =>
   }
 
   return (
-    <Card className="space-y-3 p-4 dark:bg-gray-800 dark:border-gray-700">
+    <Card className="space-y-3 p-4">
       <div className="flex gap-2">
         <Button
           size="sm"
@@ -213,7 +213,7 @@ function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () =>
       {mode === 'scan' ? (
         <div className="space-y-2">
           <Button onClick={startScan}>Start scan</Button>
-          {status && <p className="text-sm text-gray-500 dark:text-gray-400">{status}</p>}
+          {status && <p className="text-sm text-muted-foreground">{status}</p>}
           {scanResult && (
             <div className="text-sm">
               {scanResult.matched ? (
@@ -245,7 +245,7 @@ function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () =>
           <Button onClick={startWrite} disabled={!spoolId}>
             Write tag
           </Button>
-          {status && <p className="text-sm text-gray-500 dark:text-gray-400">{status}</p>}
+          {status && <p className="text-sm text-muted-foreground">{status}</p>}
         </div>
       )}
     </Card>
@@ -389,7 +389,7 @@ function SpoolsTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: ()
           Add spool
         </Button>
       </div>
-      <Card className="overflow-x-auto dark:bg-gray-800 dark:border-gray-700">
+      <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -417,7 +417,7 @@ function SpoolsTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: ()
                   {s.tagUid || s.trayUuid ? (
                     <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">Tagged</Badge>
                   ) : (
-                    <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">No tag</Badge>
+                    <Badge className="bg-muted text-muted-foreground">No tag</Badge>
                   )}
                 </TableCell>
                 <TableCell className="text-right">
@@ -429,7 +429,7 @@ function SpoolsTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: ()
             ))}
             {spools.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-sm text-gray-500 dark:text-gray-400">
+                <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
                   No spools yet — add one manually, or load a genuine Bambu-tagged spool into an AMS to auto-catalog it.
                 </TableCell>
               </TableRow>
@@ -501,7 +501,7 @@ function AssignmentsTab({
           Assign spool
         </Button>
       </div>
-      <Card className="overflow-x-auto dark:bg-gray-800 dark:border-gray-700">
+      <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -538,7 +538,7 @@ function AssignmentsTab({
                     ) : a.lastTriggerResult === 'ok' ? (
                       <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">Applied</Badge>
                     ) : (
-                      <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">—</Badge>
+                      <Badge className="bg-muted text-muted-foreground">—</Badge>
                     )}
                   </TableCell>
                   <TableCell className="text-right">
@@ -551,7 +551,7 @@ function AssignmentsTab({
             })}
             {assignments.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-sm text-gray-500 dark:text-gray-400">
+                <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
                   No assignments yet.
                 </TableCell>
               </TableRow>
@@ -650,7 +650,7 @@ export function FilamentStation() {
   return (
     <div className="space-y-4 p-4 md:p-6">
       <div className="flex items-center gap-3">
-        <Boxes className="size-6 text-gray-500 dark:text-gray-400" />
+        <Boxes className="size-6 text-muted-foreground" />
         <h1 className="text-xl font-semibold">Filament Station</h1>
       </div>
 

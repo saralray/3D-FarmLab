@@ -171,30 +171,30 @@ export function OAuthProviderSettings({
   const defaultCallbackUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/${provider}/callback`;
 
   return (
-    <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
+    <Card className="p-6">
       <form onSubmit={handleSave} className="space-y-6">
         <div>
-          <h2 className="text-xl font-semibold dark:text-white">{label} sign-in</h2>
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+          <h2 className="text-xl font-semibold text-foreground">{label} sign-in</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             Let people sign in with a {label} account. Everyone who signs in this
             way gets the read-only <span className="font-medium">student</span> role.{' '}
             {setupHint}
             {!showAuthority && (
               <>
                 {' '}Register{' '}
-                <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{defaultCallbackUrl}</code>{' '}
+                <code className="rounded bg-muted px-1">{defaultCallbackUrl}</code>{' '}
                 as a redirect URI.
               </>
             )}
           </p>
         </div>
 
-        <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <div className="flex items-center justify-between rounded-lg border border-border p-4">
           <div>
             <Label htmlFor={`oauth-enabled-${provider}`} className="text-base">
               Enable {label} sign-in
             </Label>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-muted-foreground">
               Shows a “Sign in with {label}” button on the login page.
             </p>
           </div>
@@ -220,7 +220,7 @@ export function OAuthProviderSettings({
               spellCheck={false}
               autoComplete="off"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground">
               {showAuthority && !showTenant ? (
                 <>
                   Base URL of the ADFS server (the <code>/adfs</code> deep link, e.g.{' '}
@@ -253,7 +253,7 @@ export function OAuthProviderSettings({
                 spellCheck={false}
                 autoComplete="off"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 The exact redirect URI registered with the IdP (e.g.{' '}
                 <code>https://your-domain.com/api/auth/oauth2_redirect</code>).
                 Must match what the IdP has on file — used verbatim so it works
@@ -272,7 +272,7 @@ export function OAuthProviderSettings({
                 spellCheck={false}
                 autoComplete="off"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 Override the authorization endpoint. Leave blank to derive from the authority URL above.
               </p>
             </div>
@@ -288,7 +288,7 @@ export function OAuthProviderSettings({
                 spellCheck={false}
                 autoComplete="off"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 Override the token exchange endpoint. Leave blank to derive from the authority URL above.
               </p>
             </div>
@@ -304,7 +304,7 @@ export function OAuthProviderSettings({
                 spellCheck={false}
                 autoComplete="off"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 Override the logout endpoint. Leave blank to derive from the authority URL above.
               </p>
             </div>
@@ -320,7 +320,7 @@ export function OAuthProviderSettings({
                 spellCheck={false}
                 autoComplete="off"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 OpenID Connect discovery document URL (informational — stored for reference).
               </p>
             </div>
@@ -336,7 +336,7 @@ export function OAuthProviderSettings({
                 spellCheck={false}
                 autoComplete="off"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 JSON Web Key Set endpoint for token signature verification.
               </p>
             </div>
@@ -352,7 +352,7 @@ export function OAuthProviderSettings({
                 spellCheck={false}
                 autoComplete="off"
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 Relying Party Trust identifier registered in ADFS (the audience URI, e.g.{' '}
                 <code>https://your-domain.com/</code>).
               </p>
@@ -372,7 +372,7 @@ export function OAuthProviderSettings({
               spellCheck={false}
               autoComplete="off"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground">
               Cloud only — the Azure AD directory (tenant) ID. Use a specific
               tenant GUID to limit sign-in to your organization, or{' '}
               <code>common</code> to allow any Microsoft account. Ignored when an
@@ -406,7 +406,7 @@ export function OAuthProviderSettings({
             spellCheck={false}
             autoComplete="off"
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             {hasSecret
               ? 'A client secret is stored. Leave blank to keep it, or enter a new one to replace it.'
               : 'No client secret stored yet.'}
@@ -425,7 +425,7 @@ export function OAuthProviderSettings({
               spellCheck={false}
               autoComplete="off"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground">
               Text shown on the sign-in button. Leave blank to use the default
               "Sign in with {label}".
             </p>
@@ -443,7 +443,7 @@ export function OAuthProviderSettings({
             disabled={disabled}
             spellCheck={false}
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             One domain per line (or comma-separated). Leave empty to allow any{' '}
             {label} account with a verified email.
           </p>

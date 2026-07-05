@@ -57,14 +57,14 @@ function SortableCard({ id, children }: { id: CardId; children: ReactNode }) {
     <div ref={setNodeRef} style={style} className={cn('relative', isDragging && 'opacity-40')}>
       <button
         type="button"
-        className="absolute right-2 top-2 z-10 flex size-8 cursor-grab touch-none items-center justify-center rounded-md border border-gray-200 bg-white/90 text-gray-500 shadow-sm backdrop-blur transition-colors hover:bg-gray-100 active:cursor-grabbing dark:border-gray-600 dark:bg-gray-900/80 dark:text-gray-300 dark:hover:bg-gray-700"
+        className="absolute right-2 top-2 z-10 flex size-8 cursor-grab touch-none items-center justify-center rounded-md border border-border bg-card/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent active:cursor-grabbing"
         aria-label={`Drag ${CARD_LABELS[id]} card`}
         {...attributes}
         {...listeners}
       >
         <GripVertical className="size-4" />
       </button>
-      <div className="rounded-xl ring-2 ring-blue-400/50 ring-offset-2 ring-offset-transparent dark:ring-offset-gray-900">
+      <div className="rounded-xl ring-2 ring-blue-400/50 ring-offset-2 ring-offset-background">
         {children}
       </div>
     </div>
@@ -85,7 +85,7 @@ function DroppableColumn({
       ref={setNodeRef}
       className={cn(
         'space-y-6 rounded-xl border-2 border-dashed p-2 transition-colors',
-        isOver ? 'border-blue-400 bg-blue-50/40 dark:bg-blue-500/10' : 'border-gray-200 dark:border-gray-700',
+        isOver ? 'border-blue-400 bg-blue-50/40 dark:bg-blue-500/10' : 'border-border',
       )}
     >
       {children}
@@ -198,7 +198,7 @@ export function PrinterCardLayout({ layout, cards, editable, onChange, onCommit 
       </div>
       <DragOverlay>
         {activeId ? (
-          <div className="rounded-xl border border-blue-400 bg-white px-4 py-3 text-sm font-semibold text-gray-700 shadow-lg dark:bg-gray-800 dark:text-gray-200">
+          <div className="rounded-xl border border-blue-400 bg-card px-4 py-3 text-sm font-semibold text-foreground shadow-lg">
             {CARD_LABELS[activeId]}
           </div>
         ) : null}

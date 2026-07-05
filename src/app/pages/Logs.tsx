@@ -134,11 +134,11 @@ export function Logs() {
     <div className="p-6 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="mb-2 flex items-center gap-2 text-3xl font-bold dark:text-white">
+          <h1 className="mb-2 flex items-center gap-2 text-3xl font-bold text-foreground">
             <ScrollText className="size-7" />
             Activity Log
           </h1>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-muted-foreground">
             Admin-only record of who did what and when — every action except page
             navigation, including slicer API key usage.
           </p>
@@ -152,7 +152,7 @@ export function Logs() {
       <Card className="p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="relative w-full max-w-sm">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -189,25 +189,25 @@ export function Logs() {
           <TableBody>
             {filteredLogs.map((entry) => (
               <TableRow key={entry.id}>
-                <TableCell className="whitespace-nowrap text-gray-600 dark:text-gray-400">
+                <TableCell className="whitespace-nowrap text-muted-foreground">
                   {formatTimestamp(entry.createdAt)}
                 </TableCell>
                 <TableCell>
-                  <div className="font-medium dark:text-white">{entry.actorName ?? 'Unknown'}</div>
+                  <div className="font-medium text-foreground">{entry.actorName ?? 'Unknown'}</div>
                   {entry.actorRole && (
-                    <div className="text-xs capitalize text-gray-500 dark:text-gray-400">
+                    <div className="text-xs capitalize text-muted-foreground">
                       {entry.actorRole}
                     </div>
                   )}
                 </TableCell>
-                <TableCell className="whitespace-nowrap dark:text-gray-200">
+                <TableCell className="whitespace-nowrap text-foreground">
                   {actionLabel(entry.action)}
                 </TableCell>
-                <TableCell className="max-w-[16rem] truncate dark:text-gray-200" title={entry.target ?? ''}>
+                <TableCell className="max-w-[16rem] truncate text-foreground" title={entry.target ?? ''}>
                   {entry.target ?? '—'}
                 </TableCell>
                 <TableCell
-                  className="max-w-[20rem] truncate text-gray-600 dark:text-gray-400"
+                  className="max-w-[20rem] truncate text-muted-foreground"
                   title={formatDetails(entry.details)}
                 >
                   {formatDetails(entry.details) || '—'}
@@ -217,14 +217,14 @@ export function Logs() {
                     {entry.source === 'slicer' ? 'Slicer key' : 'Dashboard'}
                   </Badge>
                 </TableCell>
-                <TableCell className="whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
+                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                   {entry.ip ?? '—'}
                 </TableCell>
               </TableRow>
             ))}
             {!isLoading && filteredLogs.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-gray-500 dark:text-gray-400">
+                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                   {logs.length === 0 ? 'No activity recorded yet.' : 'No entries match your filter.'}
                 </TableCell>
               </TableRow>

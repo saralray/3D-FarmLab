@@ -178,7 +178,7 @@ export function Login() {
           <div className="flex items-center justify-center gap-2 mb-4">
             <Logo baseHeight={96} alt="CUD Stemlab PrintFarm logo" />
           </div>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">
+          <p className="text-muted-foreground mt-2">
             {showSetup
               ? 'Set the admin password to finish setup'
               : isAdminPage
@@ -187,11 +187,11 @@ export function Login() {
           </p>
         </div>
 
-        <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
+        <Card className="p-6">
           <div className="space-y-4">
             {showSetup ? (
               <form onSubmit={handleSetup} className="space-y-4">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+                <p className="text-sm text-muted-foreground">
                   No admin password is set yet. Choose one now — it is stored on the
                   server, so this only happens once for the whole print farm.
                 </p>
@@ -212,7 +212,7 @@ export function Login() {
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     >
                       {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                     </button>
@@ -270,7 +270,7 @@ export function Login() {
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     >
                       {showPassword ? (
                         <EyeOff className="size-4" />
@@ -313,9 +313,9 @@ export function Login() {
               !showSetup && (
               <>
                 <div className="flex items-center gap-3">
-                  <span className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
-                  <span className="text-xs uppercase tracking-wide text-gray-400">or</span>
-                  <span className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
+                  <span className="h-px flex-1 bg-border" />
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">or</span>
+                  <span className="h-px flex-1 bg-border" />
                 </div>
                 {oauthProviders.saml && (
                   <Button

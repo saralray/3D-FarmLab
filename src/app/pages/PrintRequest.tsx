@@ -147,7 +147,7 @@ export function PrintRequest() {
   };
 
   return (
-    <div className="relative isolate min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="relative isolate min-h-screen bg-background">
       {/* Branding background — identical to Root.tsx */}
       {backgroundDataUrl && (
         <div
@@ -158,12 +158,12 @@ export function PrintRequest() {
       )}
 
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b border-white/60 bg-white/70 backdrop-blur-md dark:border-gray-800/60 dark:bg-gray-900/70">
+      <header className="sticky top-0 z-10 border-b border-border/60 bg-card/70 backdrop-blur-md">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3">
           <Logo baseHeight={32} />
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Button asChild variant="outline" size="sm" className="bg-white/80 dark:bg-gray-900/80">
+            <Button asChild variant="outline" size="sm" className="bg-card/80">
               <Link to="/">
                 <LayoutDashboard className="mr-2 size-4" />
                 Dashboard
@@ -179,22 +179,22 @@ export function PrintRequest() {
 
           {/* Page heading */}
           <div className="mb-8 text-center">
-            <h1 className="text-3xl font-bold tracking-tight dark:text-white">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
               ฟอร์มขอพิมพ์งาน 3D Print
             </h1>
-            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-2 text-sm text-muted-foreground">
               Upload your model file — our staff will review and queue it for printing.
             </p>
           </div>
 
           {/* Card */}
-          <div className="rounded-2xl border border-white/80 bg-white/80 shadow-xl backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-900/80">
+          <div className="rounded-2xl border border-border/80 bg-card/80 shadow-xl backdrop-blur-sm">
             {submitted ? (
               <div className="flex flex-col items-center gap-4 px-8 py-16 text-center">
                 <CheckCircle2 className="size-16 text-green-500" />
                 <div>
-                  <h2 className="text-xl font-semibold dark:text-white">Request received</h2>
-                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  <h2 className="text-xl font-semibold text-foreground">Request received</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Your print request has been added to the queue.
                   </p>
                 </div>
@@ -214,7 +214,7 @@ export function PrintRequest() {
               <form onSubmit={handleSubmit} className="space-y-6 p-8">
                 {/* Personal info */}
                 <section className="space-y-4">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                     Your info
                   </h2>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -262,7 +262,7 @@ export function PrintRequest() {
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="email">Email <span className="text-gray-400">(optional)</span></Label>
+                    <Label htmlFor="email">Email <span className="text-muted-foreground">(optional)</span></Label>
                     <Input
                       id="email"
                       type="email"
@@ -273,21 +273,21 @@ export function PrintRequest() {
                   </div>
                 </section>
 
-                <hr className="border-gray-200 dark:border-gray-700" />
+                <hr className="border-border" />
 
                 {/* File entries */}
                 <section className="space-y-4">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                     Model files
                   </h2>
                   <div className="space-y-3">
                     {entries.map((entry, index) => (
                       <div
                         key={entry.id}
-                        className="rounded-xl border border-gray-200 bg-gray-50/60 p-4 space-y-3 dark:border-gray-700 dark:bg-gray-800/50"
+                        className="rounded-xl border border-border bg-muted/60 p-4 space-y-3"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                          <span className="text-sm font-medium text-muted-foreground">
                             File {index + 1}
                           </span>
                           {entries.length > 1 && (
@@ -313,10 +313,10 @@ export function PrintRequest() {
                               }
                             />
                             {entry.file && (
-                              <p className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                                 <UploadCloud className="size-3.5 shrink-0" />
                                 {entry.file.name}{' '}
-                                <span className="text-gray-400">
+                                <span className="text-muted-foreground">
                                   ({(entry.file.size / (1024 * 1024)).toFixed(2)} MB)
                                 </span>
                               </p>
@@ -352,7 +352,7 @@ export function PrintRequest() {
                       </div>
                     ))}
                   </div>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     Accepted: STL, 3MF, OBJ · Max 50 MB per file
                   </p>
                   <Button
@@ -374,7 +374,7 @@ export function PrintRequest() {
             )}
           </div>
 
-          <p className="mt-6 text-center text-xs text-gray-400 dark:text-gray-600">
+          <p className="mt-6 text-center text-xs text-muted-foreground">
             Saral Assabumrungrat — 3D-FarmLab — &copy; 2026
           </p>
         </div>

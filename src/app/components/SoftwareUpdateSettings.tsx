@@ -137,11 +137,11 @@ export function SoftwareUpdateSettings() {
   const canApply = Boolean(status?.canApply);
 
   return (
-    <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+    <Card className="p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <h3 className="text-base font-medium">Software updates</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground">
             Check whether a newer published version of the print-farm app is
             available for this site.
           </p>
@@ -154,7 +154,7 @@ export function SoftwareUpdateSettings() {
 
       <div className="mt-4 space-y-3">
         {loading && !status ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">Checking…</p>
+          <p className="text-sm text-muted-foreground">Checking…</p>
         ) : status?.error ? (
           <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
             <AlertTriangle className="h-4 w-4" />
@@ -163,14 +163,14 @@ export function SoftwareUpdateSettings() {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-          <span className="text-gray-600 dark:text-gray-400">
+          <span className="text-muted-foreground">
             Running: <code className="font-mono">{short(status?.current)}</code>
           </span>
           {status?.latest ? (
-            <span className="text-gray-600 dark:text-gray-400">
+            <span className="text-muted-foreground">
               Latest: <code className="font-mono">{short(status?.latest)}</code>
               {relativeTime(status?.latestCommittedAt) ? (
-                <span className="text-gray-400"> · {relativeTime(status?.latestCommittedAt)}</span>
+                <span className="text-muted-foreground"> · {relativeTime(status?.latestCommittedAt)}</span>
               ) : null}
             </span>
           ) : null}
@@ -188,16 +188,16 @@ export function SoftwareUpdateSettings() {
                   {applying ? 'Updating…' : 'Update now'}
                 </Button>
                 {applying ? (
-                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-2 text-xs text-muted-foreground">
                     Runs on the server — safe to close this tab or navigate away.
                   </p>
                 ) : null}
               </div>
             ) : (
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-muted-foreground">
                 One-click apply is not configured on this host. Update from the
                 server with:
-                <code className="mt-1 block rounded bg-gray-100 px-2 py-1 font-mono text-xs dark:bg-gray-800">
+                <code className="mt-1 block rounded bg-muted px-2 py-1 font-mono text-xs">
                   docker compose -f docker-compose.yml -f docker-compose.deploy.yml pull &amp;&amp; docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d
                 </code>
               </p>
@@ -211,10 +211,10 @@ export function SoftwareUpdateSettings() {
         ) : null}
 
         {updateLog.length > 0 ? (
-          <div className="rounded bg-gray-950 p-3 font-mono text-xs text-gray-300">
+          <div className="rounded bg-muted p-3 font-mono text-xs text-foreground">
             {updateLog.map((entry, index) => (
               <div key={index}>
-                <span className="text-gray-500">{new Date(entry.time).toLocaleTimeString()}</span>{' '}
+                <span className="text-muted-foreground">{new Date(entry.time).toLocaleTimeString()}</span>{' '}
                 {entry.message}
               </div>
             ))}

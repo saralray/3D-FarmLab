@@ -185,7 +185,7 @@ export function AnalyticsCardGrid({ layout, cards, editable, onCommit }: Analyti
             key={item.i}
             className={cn(
               'h-full',
-              editable && 'rounded-xl ring-2 ring-blue-400/50 ring-offset-2 ring-offset-transparent dark:ring-offset-gray-900',
+              editable && 'rounded-xl ring-2 ring-blue-400/50 ring-offset-2 ring-offset-background',
             )}
           >
             {editable && (
@@ -193,7 +193,7 @@ export function AnalyticsCardGrid({ layout, cards, editable, onCommit }: Analyti
                 type="button"
                 className={cn(
                   DRAG_HANDLE_CLASS,
-                  'absolute left-2 top-2 z-10 flex size-8 cursor-grab touch-none items-center justify-center rounded-md border border-gray-200 bg-white/90 text-gray-500 shadow-sm backdrop-blur transition-colors hover:bg-gray-100 active:cursor-grabbing dark:border-gray-600 dark:bg-gray-900/80 dark:text-gray-300 dark:hover:bg-gray-700',
+                  'absolute left-2 top-2 z-10 flex size-8 cursor-grab touch-none items-center justify-center rounded-md border border-border bg-card/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent active:cursor-grabbing',
                 )}
                 aria-label={`Drag ${ANALYTICS_CARD_LABELS[item.i]} card`}
               >

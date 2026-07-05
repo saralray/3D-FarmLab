@@ -73,14 +73,14 @@ function SummaryCard({
   tone: string;
 }) {
   return (
-    <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
+    <Card className="p-4">
       <div className="flex items-center gap-3">
         <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${tone}`}>
           <Icon className="size-5" />
         </div>
         <div className="min-w-0">
-          <p className="truncate text-xs text-gray-500 dark:text-gray-400">{label}</p>
-          <p className="text-xl font-semibold text-gray-900 dark:text-gray-100">{value}</p>
+          <p className="truncate text-xs text-muted-foreground">{label}</p>
+          <p className="text-xl font-semibold text-foreground">{value}</p>
         </div>
       </div>
     </Card>
@@ -156,8 +156,8 @@ export function Maintenance() {
     <div className="space-y-6 p-4 lg:p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold mb-2 dark:text-white">Maintenance</h1>
-          <p className="text-gray-600 dark:text-gray-400">Fleet health, pending tasks, and maintenance history</p>
+          <h1 className="text-3xl font-bold mb-2 text-foreground">Maintenance</h1>
+          <p className="text-muted-foreground">Fleet health, pending tasks, and maintenance history</p>
         </div>
         {!readOnly && (
           <Button variant="outline" onClick={() => setIntervalsOpen(true)}>
@@ -196,21 +196,21 @@ export function Maintenance() {
       </div>
 
       {/* Pending / overdue tasks */}
-      <Card className="overflow-hidden p-0 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+      <Card className="overflow-hidden p-0">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
-          <h2 className="font-medium text-gray-900 dark:text-gray-100">Pending &amp; Overdue Tasks</h2>
-          <span className="ml-auto text-sm text-gray-500 dark:text-gray-400">{classified.length}</span>
+          <h2 className="font-medium text-foreground">Pending &amp; Overdue Tasks</h2>
+          <span className="ml-auto text-sm text-muted-foreground">{classified.length}</span>
         </div>
         {classified.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400">No pending maintenance tasks.</p>
+          <p className="px-4 py-6 text-sm text-muted-foreground">No pending maintenance tasks.</p>
         ) : (
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          <div className="divide-y divide-border">
             {classified.map(({ event, overdue }) => (
               <div key={event.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{event.maintenanceType}</span>
+                    <span className="font-medium text-foreground">{event.maintenanceType}</span>
                     {overdue ? (
                       <Badge className="bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
                         Maintenance Overdue
@@ -221,7 +221,7 @@ export function Maintenance() {
                       </Badge>
                     )}
                   </div>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {printerName(event.printerId)} · every {formatMaxTwoDecimals(event.intervalHours ?? 0)}h · triggered at{' '}
                     {formatMaxTwoDecimals(event.triggeredAtHours ?? 0)}h
                   </p>
@@ -246,15 +246,15 @@ export function Maintenance() {
       </Card>
 
       {/* Per-printer health */}
-      <Card className="overflow-hidden p-0 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-          <Gauge className="size-4 text-gray-600 dark:text-gray-400" />
-          <h2 className="font-medium text-gray-900 dark:text-gray-100">Printer Health</h2>
+      <Card className="overflow-hidden p-0">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+          <Gauge className="size-4 text-muted-foreground" />
+          <h2 className="font-medium text-foreground">Printer Health</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase text-gray-500 dark:text-gray-400">
+              <tr className="text-left text-xs uppercase text-muted-foreground">
                 <th className="px-4 py-2 font-medium">Printer</th>
                 <th className="px-4 py-2 font-medium">Health</th>
                 <th className="px-4 py-2 font-medium">Total Hours</th>
@@ -262,31 +262,31 @@ export function Maintenance() {
                 <th className="px-4 py-2 font-medium">Last Maintenance</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            <tbody className="divide-y divide-border">
               {printers.map((printer) => {
                 const score = Number(printer.healthScore ?? 100);
                 const status = healthStatusFromScore(score);
                 return (
                   <tr key={printer.id}>
-                    <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">{printer.name}</td>
+                    <td className="px-4 py-2 font-medium text-foreground">{printer.name}</td>
                     <td className="px-4 py-2">
                       <Badge className={healthBadgeClass(status)}>
                         {score} · {status}
                       </Badge>
                     </td>
-                    <td className="px-4 py-2 text-gray-600 dark:text-gray-300">
+                    <td className="px-4 py-2 text-muted-foreground">
                       {formatMaxTwoDecimals(Number(printer.totalPrintTime ?? 0))}h
                     </td>
-                    <td className="px-4 py-2 text-gray-600 dark:text-gray-300">
+                    <td className="px-4 py-2 text-muted-foreground">
                       <span>{formatMaxTwoDecimals(Number(printer.currentNozzleHours ?? 0))}h</span>
                       {(() => {
                         const n = getPrinterNozzleCount(printer);
                         return n > 1 ? (
-                          <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">({n} nozzles)</span>
+                          <span className="ml-1 text-xs text-muted-foreground">({n} nozzles)</span>
                         ) : null;
                       })()}
                     </td>
-                    <td className="px-4 py-2 text-gray-600 dark:text-gray-300">
+                    <td className="px-4 py-2 text-muted-foreground">
                       {printer.lastMaintenanceAt
                         ? formatDate(printer.lastMaintenanceAt)
                         : printer.lastMaintenance || '—'}
@@ -296,7 +296,7 @@ export function Maintenance() {
               })}
               {printers.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-gray-500 dark:text-gray-400">
+                  <td colSpan={5} className="px-4 py-6 text-muted-foreground">
                     No printers configured.
                   </td>
                 </tr>
@@ -307,25 +307,25 @@ export function Maintenance() {
       </Card>
 
       {/* Maintenance history */}
-      <Card className="overflow-hidden p-0 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-          <History className="size-4 text-gray-600 dark:text-gray-400" />
-          <h2 className="font-medium text-gray-900 dark:text-gray-100">Maintenance History</h2>
+      <Card className="overflow-hidden p-0">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+          <History className="size-4 text-muted-foreground" />
+          <h2 className="font-medium text-foreground">Maintenance History</h2>
         </div>
         {history.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400">No completed maintenance yet.</p>
+          <p className="px-4 py-6 text-sm text-muted-foreground">No completed maintenance yet.</p>
         ) : (
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          <div className="divide-y divide-border">
             {history.map((event) => (
               <div key={event.id} className="px-4 py-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle className="size-4 text-green-600 dark:text-green-400" />
-                  <span className="font-medium text-gray-900 dark:text-gray-100">{event.maintenanceType}</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{printerName(event.printerId)}</span>
-                  <span className="ml-auto text-xs text-gray-400">{formatDate(event.completedAt)}</span>
+                  <span className="font-medium text-foreground">{event.maintenanceType}</span>
+                  <span className="text-xs text-muted-foreground">{printerName(event.printerId)}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">{formatDate(event.completedAt)}</span>
                 </div>
                 {event.notes && (
-                  <p className="mt-1 pl-6 text-xs text-gray-500 dark:text-gray-400">{event.notes}</p>
+                  <p className="mt-1 pl-6 text-xs text-muted-foreground">{event.notes}</p>
                 )}
               </div>
             ))}

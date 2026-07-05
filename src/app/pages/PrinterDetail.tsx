@@ -285,7 +285,7 @@ function CameraHealthBadge({
     ? 'bg-green-500'
     : reconnecting
       ? 'bg-amber-500 animate-pulse'
-      : 'bg-gray-400';
+      : 'bg-muted-foreground/70';
   const label = live ? 'Live' : reconnecting ? 'Reconnecting' : 'Connecting';
   const title =
     health.restarts > 0
@@ -1416,7 +1416,7 @@ export function PrinterDetail() {
         onCommit={handleCommitLayout}
         cards={{
           currentJob: (
-        <Card className="p-6 bg-white dark:bg-gray-900">
+        <Card className="p-6">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <Activity className="size-5" />
             Current Job
@@ -1638,7 +1638,7 @@ export function PrinterDetail() {
         </Card>
           ),
           temperature: (
-          <Card className="p-6 bg-white dark:bg-gray-900">
+          <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
               <Thermometer className="size-5" />
               Temperature
@@ -1767,7 +1767,7 @@ export function PrinterDetail() {
           </Card>
           ),
           filament: (
-          <Card className="p-6 bg-white dark:bg-gray-900">
+          <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
               <Palette className="size-5" />
               Current Filament
@@ -1905,7 +1905,7 @@ export function PrinterDetail() {
           ),
           cooling:
             canControlPrinter && printerSupportsCoolingControl(printer) ? (
-            <Card className="p-6 bg-white dark:bg-gray-900">
+            <Card className="p-6">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <h2 className="text-xl font-semibold flex items-center gap-2">
                   <Fan className="size-5" />
@@ -1971,7 +1971,7 @@ export function PrinterDetail() {
             </Card>
           ) : null,
           motion: canControlMotion ? (
-            <Card className="p-6 bg-white dark:bg-gray-900">
+            <Card className="p-6">
               <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
                 <Move className="size-5" />
                 Motion Control
@@ -2110,7 +2110,7 @@ export function PrinterDetail() {
             </Card>
           ) : null,
           information: (
-          <Card className="p-6 bg-white dark:bg-gray-900">
+          <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">Information</h2>
             <div className="space-y-3">
               {canViewIpAddress && (
@@ -2338,7 +2338,7 @@ export function PrinterDetail() {
               {isH2Profile(printer.profile) && (
                 <div className="space-y-2">
                   <Label htmlFor="edit-printer-callback-url">Printer callback URL (override)</Label>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-muted-foreground">
                     This printer's firmware fetches a staged print file back from the
                     farm server over HTTP rather than accepting an FTP write. Set a LAN
                     address <span className="font-medium">this printer</span> can reach

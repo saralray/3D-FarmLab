@@ -60,10 +60,10 @@ export function BackupSettings() {
   };
 
   return (
-    <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+    <Card className="p-6">
       <div className="space-y-1">
         <h3 className="text-base font-medium">Backup &amp; Restore</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
+        <p className="text-sm text-muted-foreground">
           Download a complete backup of the print farm's data — printers,
           filament inventory, queue history and uploaded model files,
           settings, API keys, and more — as a single .zip file, or restore
