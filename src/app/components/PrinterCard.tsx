@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { buildPrinterWebcamSnapshotUrl, printerSupportsLiveMjpeg } from '../lib/printerProfiles';
 import { formatMaxTwoDecimals } from '../lib/numberFormat';
 import { useIsMobile } from './ui/use-mobile';
+import type { CardSize } from '../lib/dashboardCardSize';
 
 // How often each dashboard card re-fetches its webcam snapshot for a near-live
 // preview. The printer control/detail page shows the fully live feed instead.
@@ -33,8 +34,19 @@ const SNAPSHOT_REFRESH_IDLE_MS = 30000;
 const SNAPSHOT_REFRESH_RTSP_MS = 45000;
 const SNAPSHOT_REFRESH_RTSP_IDLE_MS = 60000;
 
+// Small is a dense status list optimized for fitting many printers on
+// screen, so it drops the webcam thumbnail the same way mobile already does.
+// Everything else (badges, status dot, spool swatches, icons) stays
+// fixed-size across S/M/L — only layout density and the webcam scale.
+const SIZE_CLASSES: Record<CardSize, { padding: string; name: string; model: string; jobText: string; progress: string }> = {
+  sm: { padding: 'p-1.5 sm:p-2', name: 'text-xs sm:text-sm', model: 'text-[11px] sm:text-xs', jobText: 'text-[11px] sm:text-xs', progress: 'h-1.5' },
+  md: { padding: 'p-2 sm:p-3', name: 'text-sm sm:text-base', model: 'text-xs sm:text-sm', jobText: 'text-xs sm:text-sm', progress: 'h-2' },
+  lg: { padding: 'p-3 sm:p-4', name: 'text-base sm:text-lg', model: 'text-sm sm:text-base', jobText: 'text-sm sm:text-base', progress: 'h-2.5' },
+};
+
 interface PrinterCardProps {
   printer: Printer;
+  size?: CardSize;
   canManage?: boolean;
   canViewSensitiveInfo?: boolean;
   onDragStart?: (printerId: string) => void;
@@ -44,6 +56,7 @@ interface PrinterCardProps {
 
 export function PrinterCard({
   printer,
+  size = 'md',
   canManage = false,
   canViewSensitiveInfo = false,
   onDragStart,
@@ -52,11 +65,12 @@ export function PrinterCard({
 }: PrinterCardProps) {
   const navigate = useNavigate();
   const draggedRef = useRef(false);
-  // On phones the webcam preview is hidden to save space — the live view lives
-  // on the printer control page.
-  // On phones the webcam preview is hidden to save space — the live view lives
-  // on the printer control page — so we also skip the snapshot polling here.
+  // On phones (and at the Small card size) the webcam preview is hidden to
+  // save space — the live view lives on the printer control page — so we
+  // also skip the snapshot polling below in both cases.
   const isMobile = useIsMobile();
+  const hidesWebcam = isMobile || size === 'sm';
+  const sizeClasses = SIZE_CLASSES[size];
   // The dashboard card refreshes a still snapshot on a timer (near-live preview);
   // the fully live feed lives on the printer control/detail page.
   const [snapshotNonce, setSnapshotNonce] = useState(() => Date.now());
@@ -65,7 +79,7 @@ export function PrinterCard({
   const activityLabel = isOnline ? printer.status : 'unreachable';
 
   useEffect(() => {
-    if (isMobile) {
+    if (hidesWebcam) {
       return;
     }
 
@@ -120,7 +134,7 @@ export function PrinterCard({
       document.removeEventListener('visibilitychange', onVisibilityChange);
       stopInterval();
     };
-  }, [isOnline, printer.id, printer.status, printer.profile, isMobile]);
+  }, [isOnline, printer.id, printer.status, printer.profile, hidesWebcam]);
 
   const getActivityIcon = () => {
     switch (printer.status) {
@@ -165,7 +179,7 @@ export function PrinterCard({
 
   return (
     <Card
-      className={`printer-card p-2 sm:p-3 hover:shadow-lg transition-shadow ${canManage && onDragStart ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+      className={`printer-card ${sizeClasses.padding} hover:shadow-lg transition-shadow ${canManage && onDragStart ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
       draggable={canManage && Boolean(onDragStart)}
       onClick={() => {
         if (draggedRef.current) {
@@ -203,7 +217,7 @@ export function PrinterCard({
         }, 0);
       }}
     >
-      {!isMobile && (
+      {!hidesWebcam && (
         <div className="printer-card-webcam mb-1.5 aspect-video overflow-hidden rounded-lg border border-border bg-muted">
           {isOnline ? (
             <img
@@ -223,7 +237,7 @@ export function PrinterCard({
       <div className="flex flex-col sm:flex-row items-start justify-between gap-2 mb-1.5">
         <div className="min-w-0 w-full">
           <div className="flex items-center gap-1.5">
-            <h3 className="font-semibold mb-0 text-foreground text-sm sm:text-base truncate">{printer.name}</h3>
+            <h3 className={`font-semibold mb-0 text-foreground ${sizeClasses.name} truncate`}>{printer.name}</h3>
             {printer.errorMessage && (
               <Popover>
                 <PopoverTrigger asChild>
@@ -255,7 +269,7 @@ export function PrinterCard({
               </Popover>
             )}
           </div>
-          <p className="text-xs sm:text-sm text-muted-foreground truncate">{printer.model}</p>
+          <p className={`${sizeClasses.model} text-muted-foreground truncate`}>{printer.model}</p>
         </div>
         <div className="flex w-full sm:w-auto sm:flex-1 items-start justify-start sm:justify-end gap-2">
           <div className="flex flex-col items-start sm:items-end gap-1.5 sm:ml-auto">
@@ -287,7 +301,7 @@ export function PrinterCard({
       </div>
 
       <div>
-        <div className="flex items-center gap-2 text-xs sm:text-sm mb-0.5 leading-tight min-h-[1rem]">
+        <div className={`flex items-center gap-2 ${sizeClasses.jobText} mb-0.5 leading-tight min-h-[1rem]`}>
           {(printer.status === 'printing' || printer.status === 'paused') && (
             <>
               <span className="text-muted-foreground truncate min-w-0 flex-1">
@@ -301,9 +315,9 @@ export function PrinterCard({
           )}
         </div>
         {printer.status === 'printing' || printer.status === 'paused' ? (
-          <Progress value={printer.progress} className="h-2" />
+          <Progress value={printer.progress} className={sizeClasses.progress} />
         ) : (
-          <div className={`w-full h-2 rounded-full ${getStatusColor()} opacity-20`} />
+          <div className={`w-full ${sizeClasses.progress} rounded-full ${getStatusColor()} opacity-20`} />
         )}
       </div>
     </Card>
