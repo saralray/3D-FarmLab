@@ -191,8 +191,8 @@ export function Dashboard() {
     <div className="p-6 space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold mb-2 dark:text-white">{siteName || DEFAULT_SITE_NAME} Dashboard</h1>
-          <p className="text-gray-600 dark:text-gray-400">Monitor and manage all printers in real-time</p>
+          <h1 className="text-3xl font-bold mb-2 text-foreground">{siteName || DEFAULT_SITE_NAME} Dashboard</h1>
+          <p className="text-muted-foreground">Monitor and manage all printers in real-time</p>
         </div>
         {canReorder && (
           <Button
@@ -221,8 +221,8 @@ export function Dashboard() {
           <Card key={stat.label} className={`p-4 ${stat.bgColor} border-0`}>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">{stat.label}</div>
-                <div className="text-2xl font-bold mt-1 dark:text-white">{stat.value}</div>
+                <div className="text-sm text-muted-foreground">{stat.label}</div>
+                <div className="text-2xl font-bold mt-1 text-foreground">{stat.value}</div>
               </div>
               <stat.icon className={`size-8 ${stat.color}`} />
             </div>
@@ -231,9 +231,9 @@ export function Dashboard() {
       </div>
 
       <div>
-        <h2 className="text-xl font-semibold mb-4 dark:text-white">All Printers ({stats.total})</h2>
+        <h2 className="text-xl font-semibold mb-4 text-foreground">All Printers ({stats.total})</h2>
         {isReordering && (
-          <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+          <p className="mb-4 text-sm text-muted-foreground">
             Drag a printer card onto another to reorder them. The new order is saved automatically.
           </p>
         )}

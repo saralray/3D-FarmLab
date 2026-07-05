@@ -215,14 +215,14 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
     typeof window !== 'undefined' ? `${window.location.origin}${SAML_METADATA_URL}` : SAML_METADATA_URL;
 
   return (
-    <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
+    <Card className="p-6">
       <form onSubmit={handleSave} className="space-y-6">
         <div>
-          <h2 className="text-xl font-semibold dark:text-white">SSO Configuration</h2>
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+          <h2 className="text-xl font-semibold text-foreground">SSO Configuration</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             Sign in against an external SAML 2.0 identity provider. This dashboard
             acts as the Service Provider (SP). Share its metadata with your IdP from{' '}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{callbackUrl}</code>.
+            <code className="rounded bg-muted px-1">{callbackUrl}</code>.
             {updatedAt && (
               <>
                 {' '}
@@ -233,12 +233,12 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
           </p>
         </div>
 
-        <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <div className="flex items-center justify-between rounded-lg border border-border p-4">
           <div>
             <Label htmlFor="saml-enabled" className="text-base">
               Enable SSO
             </Label>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-muted-foreground">
               Shows a “Sign in with SSO” button on the login page.
             </p>
           </div>
@@ -274,7 +274,7 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
             spellCheck={false}
             autoComplete="off"
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             The IdP single sign-on endpoint the login redirect points at (HTTP-Redirect binding).
           </p>
         </div>
@@ -291,7 +291,7 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
             spellCheck={false}
             className="font-mono text-xs"
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             The IdP’s public signing certificate (PEM). Assertions are verified against this.
           </p>
         </div>
@@ -307,9 +307,9 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
             spellCheck={false}
             autoComplete="off"
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             This dashboard’s entity ID. Leave blank to use{' '}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{defaults.spEntityId}</code>.
+            <code className="rounded bg-muted px-1">{defaults.spEntityId}</code>.
           </p>
         </div>
 
@@ -324,18 +324,18 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
             spellCheck={false}
             autoComplete="off"
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             Where the IdP posts the SAML response. Leave blank to use{' '}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{defaults.acsUrl}</code>.
+            <code className="rounded bg-muted px-1">{defaults.acsUrl}</code>.
           </p>
         </div>
 
-        <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <div className="flex items-center justify-between rounded-lg border border-border p-4">
           <div>
             <Label htmlFor="saml-auto-provision" className="text-base">
               Auto Provision Users
             </Label>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-muted-foreground">
               When on, anyone the IdP authenticates may sign in (role taken from the
               assertion). When off, only existing staff accounts may sign in.
             </p>
@@ -359,15 +359,15 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
             spellCheck={false}
             autoComplete="off"
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             Text shown on the sign-in button. Leave blank to use the default
             "Sign in with SSO".
           </p>
         </div>
 
         {testResult && (
-          <div className="space-y-2 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-            <p className="text-sm font-medium dark:text-white">Test results</p>
+          <div className="space-y-2 rounded-lg border border-border p-4">
+            <p className="text-sm font-medium text-foreground">Test results</p>
             <ul className="space-y-1">
               {testResult.checks.map((check) => (
                 <li key={check.label} className="flex items-start gap-2 text-sm">
@@ -376,10 +376,10 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
                   ) : (
                     <XCircle className="mt-0.5 size-4 shrink-0 text-red-600" />
                   )}
-                  <span className="text-gray-700 dark:text-gray-300">
+                  <span className="text-foreground">
                     {check.label}
                     {check.detail ? (
-                      <span className="text-gray-500 dark:text-gray-400"> — {check.detail}</span>
+                      <span className="text-muted-foreground"> — {check.detail}</span>
                     ) : null}
                   </span>
                 </li>
@@ -420,7 +420,7 @@ export function SamlSsoSettings({ disabled = false }: SamlSsoSettingsProps) {
               Service Provider.
             </DialogDescription>
           </DialogHeader>
-          <pre className="max-h-[60vh] overflow-auto rounded bg-gray-100 p-4 text-xs dark:bg-gray-900 dark:text-gray-200">
+          <pre className="max-h-[60vh] overflow-auto rounded bg-muted p-4 text-xs text-foreground">
             {metadataXml}
           </pre>
         </DialogContent>

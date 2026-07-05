@@ -181,8 +181,8 @@ export function Queue() {
     <div className="p-6 space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold mb-2 dark:text-white">Print Queue</h1>
-          <p className="text-gray-600 dark:text-gray-400">Only 3D Print submissions are shown</p>
+          <h1 className="text-3xl font-bold mb-2 text-foreground">Print Queue</h1>
+          <p className="text-muted-foreground">Only 3D Print submissions are shown</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {user?.role === 'admin' && (
@@ -211,31 +211,31 @@ export function Queue() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <div className="text-sm text-gray-600 dark:text-gray-400">Jobs in Queue</div>
-          <div className="text-3xl font-bold mt-1 dark:text-white">{queue.length}</div>
+        <Card className="p-4">
+          <div className="text-sm text-muted-foreground">Jobs in Queue</div>
+          <div className="text-3xl font-bold mt-1 text-foreground">{queue.length}</div>
         </Card>
-        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <div className="text-sm text-gray-600 dark:text-gray-400">Available Printers</div>
-          <div className="text-3xl font-bold mt-1 dark:text-white">{availablePrinters}</div>
+        <Card className="p-4">
+          <div className="text-sm text-muted-foreground">Available Printers</div>
+          <div className="text-3xl font-bold mt-1 text-foreground">{availablePrinters}</div>
         </Card>
-        <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
-          <div className="text-sm text-gray-600 dark:text-gray-400">Total Pieces</div>
-          <div className="text-3xl font-bold mt-1 dark:text-white">{totalFiles}</div>
+        <Card className="p-4">
+          <div className="text-sm text-muted-foreground">Total Pieces</div>
+          <div className="text-3xl font-bold mt-1 text-foreground">{totalFiles}</div>
         </Card>
       </div>
 
-      <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
+      <Card className="p-6">
         <div className="flex items-center gap-2 mb-4">
-          <List className="size-5 dark:text-white" />
-          <h2 className="text-xl font-semibold dark:text-white">Submission Queue ({queue.length})</h2>
+          <List className="size-5 text-foreground" />
+          <h2 className="text-xl font-semibold text-foreground">Submission Queue ({queue.length})</h2>
         </div>
 
         {queue.length > 0 ? (
           <div className="space-y-3">
             {queue.map((job, index) => (
               <div key={job.id} className="flex items-start gap-3">
-                <div className="text-sm font-medium text-gray-400 w-6 text-center mt-4">
+                <div className="text-sm font-medium text-muted-foreground w-6 text-center mt-4">
                   {index + 1}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -254,7 +254,7 @@ export function Queue() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+          <div className="text-center py-12 text-muted-foreground">
             <List className="size-12 mx-auto mb-3 opacity-50" />
             <p>No jobs in queue</p>
             <p className="text-sm mt-1">New 3D Print submissions from Google Sheet will appear here</p>
@@ -262,10 +262,10 @@ export function Queue() {
         )}
       </Card>
 
-      <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
+      <Card className="p-6">
         <div className="flex items-center gap-2 mb-4">
-          <List className="size-5 dark:text-white" />
-          <h2 className="text-xl font-semibold dark:text-white">History ({history.length})</h2>
+          <List className="size-5 text-foreground" />
+          <h2 className="text-xl font-semibold text-foreground">History ({history.length})</h2>
         </div>
 
         {history.length > 0 ? (
@@ -273,7 +273,7 @@ export function Queue() {
             <div className="space-y-3">
               {historyPageItems.map((job, index) => (
                 <div key={job.id} className="flex items-start gap-3">
-                  <div className="text-sm font-medium text-gray-400 w-6 text-center mt-4">
+                  <div className="text-sm font-medium text-muted-foreground w-6 text-center mt-4">
                     {historyPage * HISTORY_PAGE_SIZE + index + 1}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -292,7 +292,7 @@ export function Queue() {
               ))}
             </div>
             {historyTotalPages > 1 && (
-              <div className="flex items-center justify-center gap-3 mt-4 pt-4 border-t dark:border-gray-700">
+              <div className="flex items-center justify-center gap-3 mt-4 pt-4 border-t border-border">
                 <Button
                   variant="outline"
                   size="sm"
@@ -301,7 +301,7 @@ export function Queue() {
                 >
                   <ChevronLeft className="size-4" />
                 </Button>
-                <span className="text-sm text-gray-600 dark:text-gray-400">
+                <span className="text-sm text-muted-foreground">
                   {historyPage + 1} / {historyTotalPages}
                 </span>
                 <Button
@@ -316,7 +316,7 @@ export function Queue() {
             )}
           </>
         ) : (
-          <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+          <div className="text-center py-12 text-muted-foreground">
             <List className="size-12 mx-auto mb-3 opacity-50" />
             <p>No printed jobs in history</p>
             <p className="text-sm mt-1">Marked printed jobs will appear here</p>

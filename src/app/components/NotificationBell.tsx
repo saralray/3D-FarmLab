@@ -36,15 +36,15 @@ function EventRow({ event }: { event: PrinterEvent }) {
       <Icon className={`mt-0.5 size-4 shrink-0 ${LEVEL_ICON_COLOR[event.level]}`} />
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className={`text-sm leading-snug ${event.read ? 'text-gray-600 dark:text-gray-300' : 'font-medium text-gray-900 dark:text-gray-100'}`}>
+          <p className={`text-sm leading-snug ${event.read ? 'text-muted-foreground' : 'font-medium text-foreground'}`}>
             {event.title}
           </p>
-          <span className="mt-0.5 shrink-0 whitespace-nowrap text-[11px] text-gray-400 dark:text-gray-500">
+          <span className="mt-0.5 shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
             {formatRelativeTime(event.timestamp)}
           </span>
         </div>
         {event.description && (
-          <p className="mt-0.5 break-words text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-0.5 break-words text-xs text-muted-foreground">
             {event.description}
           </p>
         )}
@@ -69,7 +69,7 @@ export function NotificationBell() {
         <button
           type="button"
           aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
-          className="relative inline-flex size-9 items-center justify-center rounded-md text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+          className="relative inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent"
         >
           <Bell className="size-5" />
           {unreadCount > 0 && (
@@ -89,9 +89,9 @@ export function NotificationBell() {
         className="w-80 p-0 shadow-lg"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Notifications</h3>
+            <h3 className="text-sm font-semibold text-foreground">Notifications</h3>
             {unreadCount > 0 && (
               <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-red-600 dark:bg-red-900/40 dark:text-red-400">
                 {unreadCount}
@@ -104,7 +104,7 @@ export function NotificationBell() {
                 type="button"
                 onClick={markAllRead}
                 title="Mark all read"
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               >
                 <CheckCheck className="size-3.5" />
                 Read all
@@ -113,7 +113,7 @@ export function NotificationBell() {
                 type="button"
                 onClick={clearAll}
                 title="Clear all"
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:text-gray-400 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
                 <Trash2 className="size-3.5" />
               </button>
@@ -124,13 +124,13 @@ export function NotificationBell() {
         {/* Body */}
         {events.length === 0 ? (
           <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-            <div className="flex size-10 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800">
-              <Bell className="size-4 text-gray-400 dark:text-gray-500" />
+            <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+              <Bell className="size-4 text-muted-foreground" />
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">No printer activity yet.</p>
+            <p className="text-sm text-muted-foreground">No printer activity yet.</p>
           </div>
         ) : (
-          <div className="max-h-[320px] overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800">
+          <div className="max-h-[320px] overflow-y-auto divide-y divide-border">
             {events.map((event) => (
               <EventRow key={event.id} event={event} />
             ))}

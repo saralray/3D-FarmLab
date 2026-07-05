@@ -76,31 +76,31 @@ function formatDateTime(iso: string): string {
 
 function LiveRateCard({ rateOut, rateIn }: { rateOut: number | null; rateIn: number | null }) {
   return (
-    <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
+    <Card className="p-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <span className="relative flex size-2.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
             <span className="relative inline-flex size-2.5 rounded-full bg-green-500" />
           </span>
-          <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+          <span className="text-sm font-medium text-muted-foreground">
             Live — current overall throughput
           </span>
         </div>
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <ArrowUp className="size-4" style={{ color: COLOR_OUT }} />
-            <span className="text-xl font-bold tabular-nums dark:text-white">
+            <span className="text-xl font-bold tabular-nums text-foreground">
               {rateOut === null ? '—' : formatBytesPerSecond(rateOut)}
             </span>
-            <span className="text-xs text-gray-500 dark:text-gray-400">out</span>
+            <span className="text-xs text-muted-foreground">out</span>
           </div>
           <div className="flex items-center gap-2">
             <ArrowDown className="size-4" style={{ color: COLOR_IN }} />
-            <span className="text-xl font-bold tabular-nums dark:text-white">
+            <span className="text-xl font-bold tabular-nums text-foreground">
               {rateIn === null ? '—' : formatBytesPerSecond(rateIn)}
             </span>
-            <span className="text-xs text-gray-500 dark:text-gray-400">in</span>
+            <span className="text-xs text-muted-foreground">in</span>
           </div>
         </div>
       </div>
@@ -110,7 +110,7 @@ function LiveRateCard({ rateOut, rateIn }: { rateOut: number | null; rateIn: num
 
 function OutInLine({ bytesOut, bytesIn }: { bytesOut: number; bytesIn: number }) {
   return (
-    <div className="mt-1 space-y-0.5 text-xs text-gray-500 dark:text-gray-400">
+    <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
       <div className="flex items-center gap-1">
         <ArrowUp className="size-3" style={{ color: COLOR_OUT }} />
         <span>{formatBytes(bytesOut)} out</span>
@@ -213,11 +213,11 @@ export function NetworkUsage() {
     <div className="p-6 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="mb-2 flex items-center gap-2 text-3xl font-bold dark:text-white">
+          <h1 className="mb-2 flex items-center gap-2 text-3xl font-bold text-foreground">
             <Wifi className="size-7" />
             Network Usage
           </h1>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-muted-foreground">
             Approximate app-layer traffic, split by direction — <strong>out</strong> is
             what the server sends (webcam snapshots, API responses, pages/assets);{' '}
             <strong>in</strong> is what it receives (print-request and slicer
@@ -251,8 +251,8 @@ export function NetworkUsage() {
         <Card className="h-full p-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/80 dark:to-blue-800/80 border-0">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">Today</div>
-              <div className="text-3xl font-bold mt-1 dark:text-white">
+              <div className="text-sm text-muted-foreground">Today</div>
+              <div className="text-3xl font-bold mt-1 text-foreground">
                 {formatBytes(data.today.bytesOut + data.today.bytesIn)}
               </div>
               <OutInLine bytesOut={data.today.bytesOut} bytesIn={data.today.bytesIn} />
@@ -263,8 +263,8 @@ export function NetworkUsage() {
         <Card className="h-full p-4 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/80 dark:to-purple-800/80 border-0">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">This month</div>
-              <div className="text-3xl font-bold mt-1 dark:text-white">
+              <div className="text-sm text-muted-foreground">This month</div>
+              <div className="text-3xl font-bold mt-1 text-foreground">
                 {formatBytes(data.monthToDate.bytesOut + data.monthToDate.bytesIn)}
               </div>
               <OutInLine bytesOut={data.monthToDate.bytesOut} bytesIn={data.monthToDate.bytesIn} />
@@ -275,8 +275,8 @@ export function NetworkUsage() {
         <Card className="h-full p-4 bg-gradient-to-br from-cyan-50 to-cyan-100 dark:from-cyan-900/80 dark:to-cyan-800/80 border-0">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">Daily average</div>
-              <div className="text-3xl font-bold mt-1 dark:text-white">
+              <div className="text-sm text-muted-foreground">Daily average</div>
+              <div className="text-3xl font-bold mt-1 text-foreground">
                 {formatBytes(dailyAverageOut + dailyAverageIn)}
               </div>
               <OutInLine bytesOut={dailyAverageOut} bytesIn={dailyAverageIn} />
@@ -286,8 +286,8 @@ export function NetworkUsage() {
         </Card>
       </div>
 
-      <Card className="p-6 dark:bg-gray-800 dark:border-gray-700">
-        <h2 className="text-xl font-semibold mb-4 dark:text-white">Last 30 days</h2>
+      <Card className="p-6">
+        <h2 className="text-xl font-semibold mb-4 text-foreground">Last 30 days</h2>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data.daily}>
@@ -307,8 +307,8 @@ export function NetworkUsage() {
         </div>
       </Card>
 
-      <Card className="p-4 space-y-4 dark:bg-gray-800 dark:border-gray-700">
-        <h2 className="text-xl font-semibold dark:text-white">By category — last 30 days</h2>
+      <Card className="p-4 space-y-4">
+        <h2 className="text-xl font-semibold text-foreground">By category — last 30 days</h2>
         <Table>
           <TableHeader>
             <TableRow>
@@ -322,23 +322,23 @@ export function NetworkUsage() {
           <TableBody>
             {data.byRoute.map((row) => (
               <TableRow key={row.route}>
-                <TableCell className="font-medium dark:text-gray-200">{routeLabel(row.route)}</TableCell>
-                <TableCell className="dark:text-gray-200">{formatBytes(row.bytesOut)}</TableCell>
-                <TableCell className="dark:text-gray-200">{formatBytes(row.bytesIn)}</TableCell>
-                <TableCell className="text-gray-600 dark:text-gray-400">
+                <TableCell className="font-medium text-foreground">{routeLabel(row.route)}</TableCell>
+                <TableCell className="text-foreground">{formatBytes(row.bytesOut)}</TableCell>
+                <TableCell className="text-foreground">{formatBytes(row.bytesIn)}</TableCell>
+                <TableCell className="text-muted-foreground">
                   {totalRouteBytesOut > 0
                     ? formatMaxTwoDecimals((row.bytesOut / totalRouteBytesOut) * 100)
                     : '0'}
                   %
                 </TableCell>
-                <TableCell className="text-gray-600 dark:text-gray-400">
+                <TableCell className="text-muted-foreground">
                   {formatMaxTwoDecimals(row.requests)}
                 </TableCell>
               </TableRow>
             ))}
             {!isLoading && data.byRoute.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-gray-500 dark:text-gray-400">
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                   No traffic recorded yet.
                 </TableCell>
               </TableRow>
@@ -347,10 +347,10 @@ export function NetworkUsage() {
         </Table>
       </Card>
 
-      <Card className="p-4 space-y-4 dark:bg-gray-800 dark:border-gray-700">
+      <Card className="p-4 space-y-4">
         <div>
-          <h2 className="text-xl font-semibold dark:text-white">Poller ↔ printers</h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <h2 className="text-xl font-semibold text-foreground">Poller ↔ printers</h2>
+          <p className="text-sm text-muted-foreground">
             A separate traffic source: the poller talking directly to the printers
             (HTTP, Bambu MQTT/FTP) — not browser/client traffic. Shown per shard,
             last poll cycle only (no history).
@@ -370,23 +370,23 @@ export function NetworkUsage() {
           <TableBody>
             {data.poller.map((shard: PollerShardTraffic) => (
               <TableRow key={shard.shard}>
-                <TableCell className="font-medium dark:text-gray-200">
+                <TableCell className="font-medium text-foreground">
                   {shard.shard + 1} / {shard.shardCount}
                 </TableCell>
-                <TableCell className="whitespace-nowrap text-gray-600 dark:text-gray-400">
+                <TableCell className="whitespace-nowrap text-muted-foreground">
                   {formatDateTime(shard.lastRunAt)}
                 </TableCell>
-                <TableCell className="dark:text-gray-200">{shard.printersPolled}</TableCell>
-                <TableCell className="text-gray-600 dark:text-gray-400">
+                <TableCell className="text-foreground">{shard.printersPolled}</TableCell>
+                <TableCell className="text-muted-foreground">
                   {formatMaxTwoDecimals(shard.cycleDurationMs / 1000)}s
                 </TableCell>
-                <TableCell className="dark:text-gray-200">{formatBytes(shard.bytesOut)}</TableCell>
-                <TableCell className="dark:text-gray-200">{formatBytes(shard.bytesIn)}</TableCell>
+                <TableCell className="text-foreground">{formatBytes(shard.bytesOut)}</TableCell>
+                <TableCell className="text-foreground">{formatBytes(shard.bytesIn)}</TableCell>
               </TableRow>
             ))}
             {!isLoading && data.poller.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-gray-500 dark:text-gray-400">
+                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                   No poller activity recorded yet.
                 </TableCell>
               </TableRow>

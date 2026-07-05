@@ -41,17 +41,17 @@ export function QueueItem({
   };
 
   return (
-    <div className="flex flex-col gap-3 p-4 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg hover:shadow-sm transition-shadow">
+    <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-lg hover:shadow-sm transition-shadow">
       <div className="flex items-start gap-3">
-        <FileText className="size-8 text-gray-400 flex-shrink-0 mt-1" />
+        <FileText className="size-8 text-muted-foreground flex-shrink-0 mt-1" />
         
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-2">
             <div className="flex-1 min-w-0">
-              <div className="font-medium truncate dark:text-white">
+              <div className="font-medium truncate text-foreground">
                 {job.submitterName || job.filename}
               </div>
-              <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              <div className="text-sm text-muted-foreground mt-1">
                 {job.fileCount ?? 1} piece{(job.fileCount ?? 1) === 1 ? '' : 's'}
               </div>
             </div>
@@ -141,7 +141,7 @@ export function QueueItem({
                     onClick={(e) => e.stopPropagation()}
                     className="w-auto p-3"
                   >
-                    <p className="text-sm font-medium dark:text-white">Delete this queue job?</p>
+                    <p className="text-sm font-medium text-foreground">Delete this queue job?</p>
                     <div className="mt-3 flex justify-end gap-2">
                       <Button
                         variant="outline"
@@ -173,24 +173,24 @@ export function QueueItem({
 
           {/* Submitter Info */}
           {job.submitterName && (
-            <div className="space-y-1 text-sm bg-gray-50 dark:bg-gray-700/50 rounded p-2 mt-2">
-              <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+            <div className="space-y-1 text-sm bg-muted rounded p-2 mt-2">
+              <div className="flex items-center gap-2 text-muted-foreground">
                 <User className="size-3 flex-shrink-0" />
                 <span className="font-medium truncate min-w-0">{job.filename}</span>
               </div>
               {job.submitterEmail && (
-                <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                <div className="flex items-center gap-2 text-muted-foreground">
                   <Mail className="size-3 flex-shrink-0" />
                   <span className="text-xs truncate min-w-0">{job.submitterEmail}</span>
                 </div>
               )}
               {job.notes && (
-                <div className="text-xs text-gray-600 dark:text-gray-400 mt-2 italic">
+                <div className="text-xs text-muted-foreground mt-2 italic">
                   "{job.notes}"
                 </div>
               )}
               {job.submittedAt && (
-                <div className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                <div className="text-xs text-muted-foreground mt-1">
                   Submitted: {formatDate(job.submittedAt)}
                 </div>
               )}

@@ -76,17 +76,17 @@ export function MaintenanceIntervalsSettings({ onSaved }: { onSaved?: () => void
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-600 dark:text-gray-400">
+      <p className="text-sm text-muted-foreground">
         Service tasks generated for every printer as it accumulates print hours. Changes seed new
         printers immediately and backfill existing printers within a few minutes.
       </p>
 
       {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
         <div className="space-y-3">
           {intervals.map((row, index) => (
-            <div key={index} className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+            <div key={index} className="flex flex-wrap items-end gap-3 rounded-lg border border-border p-3">
               <div className="flex-1 min-w-[8rem]">
                 <Label className="text-xs">Task name</Label>
                 <Input

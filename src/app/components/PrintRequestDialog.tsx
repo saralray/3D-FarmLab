@@ -182,8 +182,8 @@ export function PrintRequestDialog({ children, open: controlledOpen, onOpenChang
           <div className="flex flex-col items-center gap-4 py-6 text-center">
             <CheckCircle2 className="size-12 text-green-500" />
             <div>
-              <h2 className="text-lg font-semibold dark:text-white">Request received</h2>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              <h2 className="text-lg font-semibold text-foreground">Request received</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
                 Your print request has been added to the queue.
               </p>
             </div>
@@ -261,10 +261,10 @@ export function PrintRequestDialog({ children, open: controlledOpen, onOpenChang
                 {entries.map((entry, index) => (
                   <div
                     key={entry.id}
-                    className="rounded-lg border border-gray-200 p-3 space-y-2 dark:border-gray-700"
+                    className="rounded-lg border border-border p-3 space-y-2"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                      <span className="text-sm font-medium text-muted-foreground">
                         File {index + 1}
                       </span>
                       {entries.length > 1 && (
@@ -290,7 +290,7 @@ export function PrintRequestDialog({ children, open: controlledOpen, onOpenChang
                           }
                         />
                         {entry.file && (
-                          <p className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                             <UploadCloud className="size-3.5" />
                             {entry.file.name} ({(entry.file.size / (1024 * 1024)).toFixed(2)} MB)
                           </p>
@@ -326,7 +326,7 @@ export function PrintRequestDialog({ children, open: controlledOpen, onOpenChang
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 Accepted: STL, 3MF, OBJ. Max 50 MB per file.
               </p>
               <Button

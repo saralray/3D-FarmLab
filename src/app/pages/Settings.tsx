@@ -1041,8 +1041,8 @@ export function Settings() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold mb-2 dark:text-white">Settings</h1>
-        <p className="text-gray-600 dark:text-gray-400">
+        <h1 className="text-3xl font-bold mb-2 text-foreground">Settings</h1>
+        <p className="text-muted-foreground">
           Configure printers, users, branding, integrations, and sign-in. Most actions are admin-only.
         </p>
       </div>
@@ -1078,13 +1078,13 @@ export function Settings() {
         </TabsList>
 
         <TabsContent value="manage-printers">
-          <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+          <Card className="p-6">
             <div className="mb-5">
               <div className="flex items-center gap-2">
                 <SettingsIcon className="size-5 text-blue-500" />
-                <h2 className="text-xl font-semibold dark:text-white">Manage Printers</h2>
+                <h2 className="text-xl font-semibold text-foreground">Manage Printers</h2>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Add new printers to the farm. Remove and reorder printers from the dashboard cards.
               </p>
             </div>
@@ -1176,7 +1176,7 @@ export function Settings() {
                     spellCheck={false}
                     required
                   />
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-muted-foreground">
                     Found on the printer (Settings → Device) or the Bambu Handy app. Required for live status over MQTT.
                   </p>
                 </div>
@@ -1194,7 +1194,7 @@ export function Settings() {
                   onChange={(event) => setPrinterPrintHours(event.target.value)}
                   placeholder="0"
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   Starting lifetime print hours for an already-used printer; leave blank for a new machine. Seeds the maintenance schedule.
                 </p>
               </div>
@@ -1205,13 +1205,13 @@ export function Settings() {
         </TabsContent>
 
         <TabsContent value="add-user">
-          <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+          <Card className="p-6">
             <div className="mb-5">
               <div className="flex items-center gap-2">
                 <Shield className="size-5 text-blue-500" />
-                <h2 className="text-xl font-semibold dark:text-white">Add User</h2>
+                <h2 className="text-xl font-semibold text-foreground">Add User</h2>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Admins can add admin and operator accounts without exposing credentials on the login screen.
               </p>
             </div>
@@ -1281,12 +1281,12 @@ export function Settings() {
               </Button>
             </form>
 
-            <div className="mt-8 mb-5 border-t border-gray-200 pt-6 dark:border-gray-800">
+            <div className="mt-8 mb-5 border-t border-border pt-6">
               <div className="flex items-center gap-2">
                 <Users className="size-5 text-blue-500" />
-                <h2 className="text-xl font-semibold dark:text-white">User List</h2>
+                <h2 className="text-xl font-semibold text-foreground">User List</h2>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Current app users and their roles.
               </p>
             </div>
@@ -1295,12 +1295,12 @@ export function Settings() {
               {users.map((account) => (
                 <div
                   key={account.id}
-                  className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-950"
+                  className="rounded-lg border border-border bg-muted px-4 py-3"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <div className="font-medium dark:text-white">{account.name}</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                      <div className="font-medium text-foreground">{account.name}</div>
+                      <div className="text-sm text-muted-foreground">
                         @{account.username}
                       </div>
                     </div>
@@ -1328,7 +1328,7 @@ export function Settings() {
                           </SelectContent>
                         </Select>
                       ) : (
-                        <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">
+                        <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
                           {account.role}
                         </div>
                       )}
@@ -1391,13 +1391,13 @@ export function Settings() {
         </TabsContent>
 
         <TabsContent value="notifications">
-          <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+          <Card className="p-6">
             <div className="mb-5">
               <div className="flex items-center gap-2">
                 <Bell className="size-5 text-blue-500" />
-                <h2 className="text-xl font-semibold dark:text-white">Notifications</h2>
+                <h2 className="text-xl font-semibold text-foreground">Notifications</h2>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Admins can add multiple Discord webhooks. Use each webhook's <span className="font-medium">Notifications</span> button to choose which events it receives (print start/stop/pause/resume/cancel, out of filament, temperature reached target, printer online/offline, and new queue submissions). New webhooks receive every event by default. Use each webhook's toggle to turn its notifications on or off without removing it.
               </p>
             </div>
@@ -1440,7 +1440,7 @@ export function Settings() {
                 discordWebhooks.map((webhook) => (
                   <div
                     key={webhook.id}
-                    className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950"
+                    className="rounded-2xl border border-border bg-card p-4 shadow-sm"
                   >
                     <div className="flex items-start gap-3">
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#5865f2] font-semibold text-white uppercase">
@@ -1449,14 +1449,14 @@ export function Settings() {
                       <div className="flex min-w-0 flex-1 items-start justify-between gap-4">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-baseline gap-2">
-                            <div className="font-semibold text-gray-900 dark:text-white">{webhook.name}</div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400">Webhook Target</div>
+                            <div className="font-semibold text-foreground">{webhook.name}</div>
+                            <div className="text-xs text-muted-foreground">Webhook Target</div>
                           </div>
-                          <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900">
+                          <div className="mt-2 rounded-md border border-border bg-muted p-3">
                             <div className="flex items-start gap-3">
                               <div className="h-full w-1 shrink-0 rounded-full bg-[#5865f2]" />
                               <div className="min-w-0 flex-1">
-                                <div className="truncate font-mono text-sm text-gray-600 dark:text-gray-300">
+                                <div className="truncate font-mono text-sm text-muted-foreground">
                                   {webhook.webhookUrl}
                                 </div>
                               </div>
@@ -1477,12 +1477,12 @@ export function Settings() {
                             </PopoverTrigger>
                             <PopoverContent align="end" className="w-80">
                               <div className="space-y-3">
-                                <div className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+                                <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2">
                                   <div className="min-w-0">
-                                    <div className="font-medium text-gray-900 dark:text-white">
+                                    <div className="font-medium text-foreground">
                                       Notifications
                                     </div>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    <p className="text-xs text-muted-foreground">
                                       {isWebhookEnabled(webhook)
                                         ? 'This webhook is sending notifications.'
                                         : 'This webhook is muted.'}
@@ -1495,12 +1495,12 @@ export function Settings() {
                                     aria-label={`Toggle notifications for ${webhook.name}`}
                                   />
                                 </div>
-                                <div className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+                                <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2">
                                   <div className="min-w-0">
-                                    <div className="font-medium text-gray-900 dark:text-white">
+                                    <div className="font-medium text-foreground">
                                       Text-to-speech
                                     </div>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    <p className="text-xs text-muted-foreground">
                                       {isWebhookTts(webhook)
                                         ? 'Discord reads these notifications aloud.'
                                         : 'Notifications are delivered silently.'}
@@ -1514,10 +1514,10 @@ export function Settings() {
                                   />
                                 </div>
                                 <div>
-                                  <div className="font-medium text-gray-900 dark:text-white">
+                                  <div className="font-medium text-foreground">
                                     Notifications sent
                                   </div>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  <p className="text-xs text-muted-foreground">
                                     Choose which events this webhook receives.
                                   </p>
                                 </div>
@@ -1526,7 +1526,7 @@ export function Settings() {
                                     <label
                                       key={notificationEvent.key}
                                       htmlFor={`${webhook.id}-${notificationEvent.key}`}
-                                      className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200"
+                                      className="flex items-center gap-2 text-sm text-muted-foreground"
                                     >
                                       <Checkbox
                                         id={`${webhook.id}-${notificationEvent.key}`}
@@ -1576,7 +1576,7 @@ export function Settings() {
                   </div>
                 ))
               ) : (
-                <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
+                <div className="rounded-2xl border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
                   No Discord webhooks configured yet.
                 </div>
               )}
@@ -1585,21 +1585,21 @@ export function Settings() {
         </TabsContent>
 
         <TabsContent value="branding">
-          <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+          <Card className="p-6">
             <div className="mb-5">
               <div className="flex items-center gap-2">
                 <ImageIcon className="size-5 text-blue-500" />
-                <h2 className="text-xl font-semibold dark:text-white">Branding</h2>
+                <h2 className="text-xl font-semibold text-foreground">Branding</h2>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Upload a custom logo to replace the default mark on the login screen and the sidebar. PNG, JPEG, WebP, GIF, or SVG up to 512&nbsp;KB. A single-color SVG is recolored to follow the light/dark theme automatically.
               </p>
             </div>
 
-            <div className="border-b border-gray-200 pb-6 mb-6 dark:border-gray-800">
+            <div className="border-b border-border pb-6 mb-6">
               <div className="mb-4">
-                <h3 className="text-lg font-semibold dark:text-white">Site Name</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                <h3 className="text-lg font-semibold text-foreground">Site Name</h3>
+                <p className="text-sm text-muted-foreground mt-1">
                   Set the name shown in the browser tab and dashboard heading. Saving reloads
                   the app so the change applies everywhere. Leave blank / reset to use the
                   built-in default.
@@ -1674,7 +1674,7 @@ export function Settings() {
                     );
                   })}
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   The logo is shown dark on light backgrounds and white on dark backgrounds.
                 </p>
               </div>
@@ -1688,7 +1688,7 @@ export function Settings() {
                   onChange={handleLogoFileChange}
                   disabled={user?.role !== 'admin'}
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   The image is stored in the database, so it survives container rebuilds.
                 </p>
               </div>
@@ -1696,7 +1696,7 @@ export function Settings() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="logo-scale">Logo size</Label>
-                  <span className="text-sm tabular-nums text-gray-600 dark:text-gray-400">
+                  <span className="text-sm tabular-nums text-muted-foreground">
                     {Math.round(logoScale * 100)}%
                   </span>
                 </div>
@@ -1709,7 +1709,7 @@ export function Settings() {
                   onValueChange={(values) => setLogoScale((values[0] ?? 100) / 100)}
                   disabled={user?.role !== 'admin'}
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   Scales the logo in the sidebar and on the login screen (50–200% of the default size).
                 </p>
               </div>
@@ -1728,10 +1728,10 @@ export function Settings() {
                 </Button>
               </div>
 
-              <div className="border-t border-gray-200 pt-6 dark:border-gray-800">
+              <div className="border-t border-border pt-6">
                 <div className="mb-4">
-                  <h3 className="text-lg font-semibold dark:text-white">Website Background</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  <h3 className="text-lg font-semibold text-foreground">Website Background</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
                     Upload a custom image to use as the dashboard background. Choose{' '}
                     <span className="font-medium">Use Default</span> to fall back to the built-in
                     light/dark theme. PNG, JPEG, WebP, GIF, or SVG up to 3&nbsp;MB.
@@ -1742,7 +1742,7 @@ export function Settings() {
                   <div className="space-y-2">
                     <Label>Preview</Label>
                     <div
-                      className="flex h-40 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 bg-cover bg-center dark:border-gray-800 dark:bg-gray-950"
+                      className="flex h-40 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted bg-cover bg-center"
                       style={
                         backgroundDataUrl
                           ? { backgroundImage: `url(${backgroundDataUrl})` }
@@ -1750,7 +1750,7 @@ export function Settings() {
                       }
                     >
                       {!backgroundDataUrl && (
-                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                        <span className="text-sm text-muted-foreground">
                           Default theme background
                         </span>
                       )}
@@ -1766,7 +1766,7 @@ export function Settings() {
                       onChange={handleBackgroundFileChange}
                       disabled={user?.role !== 'admin'}
                     />
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                    <p className="text-xs text-muted-foreground">
                       The image is stored in the database, so it survives container rebuilds.
                     </p>
                   </div>
@@ -1787,10 +1787,10 @@ export function Settings() {
                 </div>
               </div>
 
-              <div className="border-t border-gray-200 pt-6 dark:border-gray-800">
+              <div className="border-t border-border pt-6">
                 <div className="mb-4">
-                  <h3 className="text-lg font-semibold dark:text-white">Browser / App Icon</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  <h3 className="text-lg font-semibold text-foreground">Browser / App Icon</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
                     Upload a custom icon shown in the browser tab, bookmarks, and when the app is installed as a PWA.
                     PNG, SVG, or ICO up to 256&nbsp;KB. A square image (e.g. 64×64 or 32×32) works best.
                   </p>
@@ -1800,14 +1800,14 @@ export function Settings() {
                   <div className="space-y-2">
                     <Label>Preview</Label>
                     <div className="flex items-center gap-4">
-                      <div className="flex size-16 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-950">
+                      <div className="flex size-16 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted">
                         {faviconDataUrl ? (
                           <img src={faviconDataUrl} alt="Favicon preview" className="size-10 object-contain" />
                         ) : (
                           <img src="/icon.svg" alt="Default favicon" className="size-10 object-contain opacity-50" />
                         )}
                       </div>
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                      <span className="text-sm text-muted-foreground">
                         {faviconDataUrl ? 'Custom icon' : 'Default icon'}
                       </span>
                     </div>
@@ -1822,7 +1822,7 @@ export function Settings() {
                       onChange={handleFaviconFileChange}
                       disabled={user?.role !== 'admin'}
                     />
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                    <p className="text-xs text-muted-foreground">
                       Stored in the database — survives container rebuilds.
                     </p>
                   </div>
@@ -1847,17 +1847,17 @@ export function Settings() {
         </TabsContent>
 
         <TabsContent value="slicer-upload">
-          <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+          <Card className="p-6">
             <div className="mb-5">
               <div className="flex items-center gap-2">
                 <KeyRound className="size-5 text-blue-500" />
-                <h2 className="text-xl font-semibold dark:text-white">API Keys</h2>
+                <h2 className="text-xl font-semibold text-foreground">API Keys</h2>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Generate named API keys and scope each to what it may do. For slicer upload, in your slicer
                 (Orca / PrusaSlicer / Cura) add a <span className="font-medium">Physical Printer</span> with host type{' '}
                 <span className="font-medium">OctoPrint</span>, host{' '}
-                <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
+                <code className="rounded bg-muted px-1">
                   https://{typeof window !== 'undefined' ? window.location.hostname : 'host'}/printers/&lt;printerId&gt;
                 </code>
                 , and paste a key below as the API key. One key works for every printer.
@@ -1885,7 +1885,7 @@ export function Settings() {
                     <label
                       key={option.value}
                       htmlFor={`slicer-key-perm-${option.value}`}
-                      className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200"
+                      className="flex items-start gap-2 text-sm text-muted-foreground"
                     >
                       <Checkbox
                         id={`slicer-key-perm-${option.value}`}
@@ -1895,7 +1895,7 @@ export function Settings() {
                       />
                       <span>
                         <span className="font-medium">{option.label}</span>
-                        <span className="block text-xs text-gray-500 dark:text-gray-400">{option.description}</span>
+                        <span className="block text-xs text-muted-foreground">{option.description}</span>
                       </span>
                     </label>
                   ))}
@@ -1908,7 +1908,7 @@ export function Settings() {
                     Copy this key now — it will not be shown again.
                   </div>
                   <div className="mt-2 flex items-center gap-2">
-                    <code className="min-w-0 flex-1 truncate rounded bg-white px-3 py-2 font-mono text-sm dark:bg-gray-950">
+                    <code className="min-w-0 flex-1 truncate rounded bg-muted px-3 py-2 font-mono text-sm">
                       {createdSlicerKey.key}
                     </code>
                     <Button type="button" variant="outline" size="sm" onClick={handleCopyCreatedKey}>
@@ -1929,11 +1929,11 @@ export function Settings() {
                 slicerKeys.map((key) => (
                   <div
                     key={key.id}
-                    className="flex items-center justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950"
+                    className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card p-4 shadow-sm"
                   >
                     <div className="min-w-0">
-                      <div className="font-semibold text-gray-900 dark:text-white">{key.name}</div>
-                      <div className="mt-1 font-mono text-sm text-gray-500 dark:text-gray-400">
+                      <div className="font-semibold text-foreground">{key.name}</div>
+                      <div className="mt-1 font-mono text-sm text-muted-foreground">
                         {key.keyPrefix}…
                       </div>
                       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1946,7 +1946,7 @@ export function Settings() {
                           </span>
                         ))}
                       </div>
-                      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      <div className="mt-1 text-xs text-muted-foreground">
                         {key.createdAt ? `Created ${new Date(key.createdAt).toLocaleDateString()}` : 'Created —'}
                         {' · '}
                         {key.lastUsedAt ? `Last used ${new Date(key.lastUsedAt).toLocaleString()}` : 'Never used'}
@@ -1965,22 +1965,22 @@ export function Settings() {
                   </div>
                 ))
               ) : (
-                <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
+                <div className="rounded-2xl border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
                   No slicer API keys yet.
                 </div>
               )}
             </div>
 
             {printers.filter((printer) => printer.profile === 'snapmaker_u1' || isBambuProfile(printer.profile)).length > 0 && (
-              <div className="mt-6 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900">
-                <div className="text-sm font-medium text-gray-900 dark:text-white">Printer IDs for slicer host URLs</div>
+              <div className="mt-6 rounded-md border border-border bg-muted p-4">
+                <div className="text-sm font-medium text-foreground">Printer IDs for slicer host URLs</div>
                 <div className="mt-2 space-y-1">
                   {printers
                     .filter((printer) => printer.profile === 'snapmaker_u1' || isBambuProfile(printer.profile))
                     .map((printer) => (
                       <div key={printer.id} className="flex items-baseline gap-2 text-sm">
-                        <span className="text-gray-600 dark:text-gray-300">{printer.name}</span>
-                        <code className="rounded bg-white px-1 font-mono text-xs dark:bg-gray-950">
+                        <span className="text-muted-foreground">{printer.name}</span>
+                        <code className="rounded bg-muted px-1 font-mono text-xs">
                           /printers/{printer.id}
                         </code>
                       </div>
@@ -1990,10 +1990,10 @@ export function Settings() {
             )}
           </Card>
 
-          <Card className="mt-6 p-6 dark:bg-gray-900 dark:border-gray-800">
+          <Card className="mt-6 p-6">
             <form onSubmit={handleSavePrinterCallbackUrl} className="space-y-2">
               <Label htmlFor="printer-callback-url">Printer callback URL (site-wide default)</Label>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-muted-foreground">
                 Bambu Lab H2-series printers (H2S / H2D / H2C) refuse FTP writes
                 to their own storage, so a print sent through the slicer is
                 staged here instead and the printer fetches it back over HTTP.
@@ -2032,21 +2032,21 @@ export function Settings() {
         </TabsContent>
 
         <TabsContent value="managers">
-          <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+          <Card className="p-6">
             <div className="mb-5">
               <div className="flex items-center gap-2">
                 <MonitorCheck className="size-5 text-blue-500" />
-                <h2 className="text-xl font-semibold dark:text-white">Managers</h2>
+                <h2 className="text-xl font-semibold text-foreground">Managers</h2>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                External apps can request a <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">printfarm_manage</code> API key.
+              <p className="text-sm text-muted-foreground mt-1">
+                External apps can request a <code className="rounded bg-muted px-1">printfarm_manage</code> API key.
                 Approve pending requests to grant access. Revoking removes the key immediately.
               </p>
             </div>
 
             <div className="space-y-3">
                 {managerRequests.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
+                  <div className="rounded-2xl border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
                     No manager connection requests yet.
                   </div>
                 ) : (
@@ -2055,16 +2055,16 @@ export function Settings() {
                       pending: 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300',
                       approved: 'bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300',
                       denied: 'bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300',
-                      revoked: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+                      revoked: 'bg-muted text-muted-foreground',
                     };
                     return (
                       <div
                         key={req.id}
-                        className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:flex-row sm:items-start sm:justify-between dark:border-gray-800 dark:bg-gray-950"
+                        className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-start sm:justify-between"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold text-gray-900 dark:text-white">
+                            <span className="font-semibold text-foreground">
                               {req.name}
                             </span>
                             <span
@@ -2074,11 +2074,11 @@ export function Settings() {
                             </span>
                           </div>
                           {req.description && (
-                            <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                            <p className="mt-0.5 text-sm text-muted-foreground">
                               {req.description}
                             </p>
                           )}
-                          <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                          <div className="mt-1 text-xs text-muted-foreground">
                             Requested {new Date(req.createdAt).toLocaleString()}
                           </div>
                         </div>
@@ -2140,13 +2140,13 @@ export function Settings() {
 
         <TabsContent value="sign-in">
           <div className="space-y-6">
-            <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+            <Card className="p-6">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1">
                   <Label htmlFor="public-viewer-toggle" className="text-base">
                     Public dashboard viewing
                   </Label>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                  <p className="text-sm text-muted-foreground">
                     When on, anyone can open the dashboard read-only without
                     signing in (connection secrets stay hidden). When off,
                     visitors are sent to the login screen and must sign in to see
@@ -2162,10 +2162,10 @@ export function Settings() {
               </div>
             </Card>
 
-            <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+            <Card className="p-6">
               <form onSubmit={handleSaveSsoPublicUrl} className="space-y-2">
                 <Label htmlFor="sso-public-url">SSO public URL</Label>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+                <p className="text-sm text-muted-foreground">
                   The public HTTPS address SSO providers should redirect back to
                   after sign-in (e.g. <code>https://printfarm.example.com</code>).
                   Overrides the server's <code>APP_BASE_URL</code> env var and
@@ -2202,10 +2202,10 @@ export function Settings() {
               </form>
             </Card>
 
-            <Card className="p-6 dark:bg-gray-900 dark:border-gray-800">
+            <Card className="p-6">
               <div className="space-y-2">
                 <Label htmlFor="sso-provider">Single sign-on provider</Label>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+                <p className="text-sm text-muted-foreground">
                   Choose which provider to configure. Each provider has its own
                   enable toggle and they can be turned on independently — the login
                   screen shows a button for every enabled provider.

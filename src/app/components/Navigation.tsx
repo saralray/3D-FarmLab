@@ -89,11 +89,11 @@ export function Navigation() {
 
   return (
     <nav
-      className={`relative hidden h-screen h-[100dvh] flex-shrink-0 flex-col border-r border-gray-200 bg-white transition-[width] duration-300 ease-in-out lg:flex dark:border-gray-700 dark:bg-gray-900 ${
+      className={`relative hidden h-screen h-[100dvh] flex-shrink-0 flex-col border-r border-border bg-card transition-[width] duration-300 ease-in-out lg:flex ${
         isCollapsed ? 'w-[84px]' : 'w-72'
       }`}
     >
-      <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+      <div className="p-6 border-b border-border">
         <div className="space-y-3 overflow-hidden">
           <button
             type="button"
@@ -138,7 +138,7 @@ export function Navigation() {
               } ${
                 musicSync
                   ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-                  : 'text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800'
+                  : 'text-muted-foreground hover:bg-muted'
               }`}
             >
               <Music className={`size-4 shrink-0 ${musicSync ? 'animate-pulse' : ''}`} />
@@ -152,7 +152,7 @@ export function Navigation() {
             </button>
           )}
           {!isCollapsed && (
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground">
               Manager v1.0
             </p>
           )}
@@ -172,7 +172,7 @@ export function Navigation() {
                 className={`relative flex items-center rounded-lg px-4 py-3 transition-colors ${
                   isActive(item.path)
                     ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                    : 'text-muted-foreground hover:bg-muted'
                 }`}
               >
                 <item.icon className="size-5" />
@@ -194,7 +194,7 @@ export function Navigation() {
                 setFormOpen(true);
               }
             }}
-            className="flex w-full items-center rounded-lg px-4 py-3 text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
+            className="flex w-full items-center rounded-lg px-4 py-3 text-muted-foreground transition-colors hover:bg-muted"
           >
             <ClipboardList className="size-5" />
             {!isCollapsed && (
@@ -205,18 +205,18 @@ export function Navigation() {
         </div>
       </div>
 
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
+      <div className="p-4 border-t border-border space-y-3">
         {showUserProfile && (
-          <div className={`flex items-center rounded-lg bg-gray-50 p-3 dark:bg-gray-800 ${isCollapsed ? 'justify-center' : 'gap-3'}`}>
+          <div className={`flex items-center rounded-lg bg-muted p-3 ${isCollapsed ? 'justify-center' : 'gap-3'}`}>
             <div className="flex size-10 items-center justify-center rounded-full bg-blue-500 font-semibold text-white">
               {user.name.charAt(0)}
             </div>
             {!isCollapsed && (
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium dark:text-white">
+                <div className="truncate text-sm font-medium text-foreground">
                   {user.name}
                 </div>
-                <div className="text-xs capitalize text-gray-500 dark:text-gray-400">
+                <div className="text-xs capitalize text-muted-foreground">
                   {user.role}
                 </div>
               </div>
@@ -225,7 +225,7 @@ export function Navigation() {
         )}
         
         <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
-          {!isCollapsed && <span className="text-sm text-gray-600 dark:text-gray-400">Theme</span>}
+          {!isCollapsed && <span className="text-sm text-muted-foreground">Theme</span>}
           <div className="flex items-center gap-1">
             <ThemeToggle />
             <NotificationBell />
@@ -244,7 +244,7 @@ export function Navigation() {
         )}
 
         {!isCollapsed && (
-          <div className="space-y-1 text-xs text-gray-500 dark:text-gray-400">
+          <div className="space-y-1 text-xs text-muted-foreground">
             <div>{PUBLIC_VIEWER_MODE ? 'Access' : 'Developer'}</div>
             {PUBLIC_VIEWER_MODE ? (
               <div className="truncate">Public Viewer Mode</div>
