@@ -1038,9 +1038,10 @@ Admin-only (covered by the `/api/settings/*` write rule).
 Restricts when the public print-request form (`/request`, `POST /api/queue/submit`)
 accepts new submissions to a configurable day/time window. Stored in `app_settings`
 under the `queue_availability` key; **defaults to disabled** (queue always open), so
-existing installs are unaffected until an admin opts in from Settings → System →
-Queue Availability. Also reachable via the generic `/api/v1/settings/queue_availability`
-passthrough (see Settings resource below) — no extra API-key route needed.
+existing installs are unaffected until an admin opts in from the "Queue Availability"
+button on the Queue page. Also reachable via the generic
+`/api/v1/settings/queue_availability` passthrough (see Settings resource below) —
+no extra API-key route needed.
 
 #### `GET /api/settings/queue-availability`
 
