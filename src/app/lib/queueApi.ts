@@ -24,6 +24,19 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export interface QueueAvailabilityStatus {
+  open: boolean;
+  message?: string;
+}
+
+// Public read-only check of the admin-configured submission window (Settings
+// → System → Queue Availability). Used by the /request page to show a closed
+// notice before the form is even shown.
+export async function fetchQueueAvailability(): Promise<QueueAvailabilityStatus> {
+  const response = await fetch('/api/queue/availability', { cache: 'no-store' });
+  return readJsonResponse<QueueAvailabilityStatus>(response);
+}
+
 export async function fetchQueueJobs(): Promise<QueueData> {
   const response = await fetch('/api/queue', {
     cache: 'no-store',

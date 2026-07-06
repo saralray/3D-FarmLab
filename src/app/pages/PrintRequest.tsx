@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -7,6 +7,7 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import {
   CheckCircle2,
+  Clock,
   UploadCloud,
   LayoutDashboard,
   Plus,
@@ -14,7 +15,7 @@ import {
 } from 'lucide-react';
 import { Logo } from '../components/Logo';
 import { ThemeToggle } from '../components/ThemeToggle';
-import { submitPrintRequest } from '../lib/queueApi';
+import { fetchQueueAvailability, submitPrintRequest, type QueueAvailabilityStatus } from '../lib/queueApi';
 import { useBrandingSettings } from '../lib/settingsApi';
 
 const ACCEPTED_FILE_TYPES = '.stl,.3mf,.obj';
@@ -43,7 +44,23 @@ export function PrintRequest() {
   const [entries, setEntries] = useState<FileEntry[]>(() => [makeEntry()]);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [availability, setAvailability] = useState<QueueAvailabilityStatus | null>(null);
   const { backgroundDataUrl } = useBrandingSettings();
+
+  useEffect(() => {
+    let active = true;
+    fetchQueueAvailability()
+      .then((value) => {
+        if (active) setAvailability(value);
+      })
+      .catch(() => {
+        // Treat a failed check as open rather than blocking submissions.
+        if (active) setAvailability({ open: true });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const hasFile = entries.some((e) => e.file !== null);
   const canSubmit =
@@ -189,7 +206,23 @@ export function PrintRequest() {
 
           {/* Card */}
           <div className="rounded-2xl border border-border/80 bg-card/80 shadow-xl backdrop-blur-sm">
-            {submitted ? (
+            {availability && !availability.open ? (
+              <div className="flex flex-col items-center gap-4 px-8 py-16 text-center">
+                <Clock className="size-16 text-muted-foreground" />
+                <div>
+                  <h2 className="text-xl font-semibold text-foreground">Queue closed</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {availability.message || 'The print queue is not currently accepting submissions.'}
+                  </p>
+                </div>
+                <Button asChild variant="outline">
+                  <Link to="/">
+                    <LayoutDashboard className="mr-2 size-4" />
+                    Go to dashboard
+                  </Link>
+                </Button>
+              </div>
+            ) : submitted ? (
               <div className="flex flex-col items-center gap-4 px-8 py-16 text-center">
                 <CheckCircle2 className="size-16 text-green-500" />
                 <div>

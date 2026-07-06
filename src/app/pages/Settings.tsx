@@ -24,6 +24,7 @@ import { buttonVariants } from '../components/ui/button';
 import { cn } from '../components/ui/utils';
 import { SoftwareUpdateSettings } from '../components/SoftwareUpdateSettings';
 import { BackupSettings } from '../components/BackupSettings';
+import { QueueAvailabilitySettings } from '../components/QueueAvailabilitySettings';
 import { useAuth } from '../contexts/AuthContext';
 import { ADMIN_USERNAME } from '../lib/runtimeConfig';
 import { Printer, PrinterProfile } from '../types';
@@ -2131,6 +2132,7 @@ export function Settings() {
           <div className="space-y-6">
             {user?.role === 'admin' && <SoftwareUpdateSettings />}
             {user?.role === 'admin' && <BackupSettings />}
+            {user?.role === 'admin' && <QueueAvailabilitySettings />}
           </div>
         </TabsContent>
 

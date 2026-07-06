@@ -505,6 +505,69 @@ async function getPublicViewerSetting() {
   return { enabled: stored.enabled !== false };
 }
 
+// Configurable window during which the public print-request form (/request)
+// accepts new submissions. Stored in app_settings; defaults to disabled (queue
+// always open) so existing installs aren't suddenly locked out until an admin
+// opts in.
+const QUEUE_AVAILABILITY_KEY = 'queue_availability';
+const QUEUE_AVAILABILITY_DEFAULTS = {
+  enabled: false,
+  timezone: 'Asia/Bangkok',
+  days: [1, 2, 3, 4, 5],
+  startTime: '09:00',
+  endTime: '17:00',
+  closedMessage: 'The print queue is currently closed. Please check back during open hours.',
+};
+
+async function getQueueAvailabilitySetting() {
+  const stored = (await getAppSetting(QUEUE_AVAILABILITY_KEY)) || {};
+  return { ...QUEUE_AVAILABILITY_DEFAULTS, ...stored };
+}
+
+// Evaluates whether the queue is currently open, computing "now" in the
+// setting's configured IANA timezone rather than the container's ambient TZ
+// (commonly UTC in Docker) — otherwise "9am-5pm" would silently mean UTC to
+// an admin expecting local time.
+function evaluateQueueAvailability(setting) {
+  if (!setting.enabled) {
+    return { open: true };
+  }
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: setting.timezone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const weekday = weekdayMap[parts.find((p) => p.type === 'weekday').value];
+  const hour = Number(parts.find((p) => p.type === 'hour').value) % 24;
+  const minute = Number(parts.find((p) => p.type === 'minute').value);
+  const nowMinutes = hour * 60 + minute;
+
+  const [startH, startM] = setting.startTime.split(':').map(Number);
+  const [endH, endM] = setting.endTime.split(':').map(Number);
+  const startMinutes = startH * 60 + startM;
+  const endMinutes = endH * 60 + endM;
+
+  const dayOk = setting.days.includes(weekday);
+  const timeOk = nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  if (dayOk && timeOk) {
+    return { open: true };
+  }
+  return { open: false, message: setting.closedMessage };
+}
+
+function isValidIanaTimezone(timezone) {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // OAuth (SSO) sign-in config. Two providers are supported — Google and Microsoft
 // Entra ID (Azure AD) — and each is configured independently in Settings →
 // Sign-in (client id/secret, optional allowed-email-domain list, and, for
@@ -3706,10 +3769,24 @@ async function handleApi(req, res, requestUrl) {
     }
   }
 
+  // Public, read-only status check for the queue-availability window — lets
+  // /request show a "closed" notice before a student even opens the form,
+  // without duplicating the day/time logic client-side.
+  if (requestUrl.pathname === '/api/queue/availability' && req.method === 'GET') {
+    sendJson(res, 200, evaluateQueueAvailability(await getQueueAvailabilitySetting()));
+    return true;
+  }
+
   // In-app print-request form. Public (no auth, like the rest of the frontend
   // /api/* surface): a student fills out /request and the model file is stored
   // directly in Postgres. Replaces the old Google Form → Sheet → CSV sync.
   if (requestUrl.pathname === '/api/queue/submit' && req.method === 'POST') {
+    const availability = evaluateQueueAvailability(await getQueueAvailabilitySetting());
+    if (!availability.open) {
+      sendJson(res, 403, { error: availability.message });
+      return true;
+    }
+
     let parsed;
     try {
       parsed = await parsePrintRequest(req);
@@ -5026,6 +5103,63 @@ async function handleApi(req, res, requestUrl) {
       }
       await setAppSetting(PUBLIC_VIEWER_KEY, { enabled: body.enabled });
       sendJson(res, 200, await getPublicViewerSetting());
+      return true;
+    }
+  }
+
+  // Queue submission window — restricts when the public print-request form
+  // (/request) accepts new submissions. GET is public (the unauthenticated
+  // /request page reads it); PUT is admin-gated by isAdminMutation's
+  // /api/settings/* rule.
+  if (requestUrl.pathname === '/api/settings/queue-availability') {
+    if (req.method === 'GET') {
+      sendJson(res, 200, await getQueueAvailabilitySetting());
+      return true;
+    }
+    if (req.method === 'PUT') {
+      const body = await readJsonBody(req);
+      const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+      if (typeof body?.enabled !== 'boolean') {
+        sendJson(res, 400, { error: 'enabled must be a boolean' });
+        return true;
+      }
+      if (
+        !Array.isArray(body.days) ||
+        body.days.length === 0 ||
+        !body.days.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+      ) {
+        sendJson(res, 400, { error: 'days must be a non-empty array of integers 0-6' });
+        return true;
+      }
+      if (typeof body.startTime !== 'string' || !timeRe.test(body.startTime)) {
+        sendJson(res, 400, { error: 'startTime must be an "HH:MM" string' });
+        return true;
+      }
+      if (typeof body.endTime !== 'string' || !timeRe.test(body.endTime)) {
+        sendJson(res, 400, { error: 'endTime must be an "HH:MM" string' });
+        return true;
+      }
+      if (body.endTime <= body.startTime) {
+        sendJson(res, 400, { error: 'endTime must be after startTime' });
+        return true;
+      }
+      if (typeof body.timezone !== 'string' || !isValidIanaTimezone(body.timezone)) {
+        sendJson(res, 400, { error: 'timezone must be a valid IANA timezone string' });
+        return true;
+      }
+      if (typeof body.closedMessage !== 'string' || body.closedMessage.trim().length === 0) {
+        sendJson(res, 400, { error: 'closedMessage must be a non-empty string' });
+        return true;
+      }
+      await setAppSetting(QUEUE_AVAILABILITY_KEY, {
+        enabled: body.enabled,
+        timezone: body.timezone,
+        days: [...new Set(body.days)].sort(),
+        startTime: body.startTime,
+        endTime: body.endTime,
+        closedMessage: body.closedMessage.trim().slice(0, 300),
+      });
+      sendJson(res, 200, await getQueueAvailabilitySetting());
       return true;
     }
   }
