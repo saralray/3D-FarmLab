@@ -3526,7 +3526,10 @@ async function handleApi(req, res, requestUrl) {
   // session, matching the frontend's existing staff-only gate.
   if (requestUrl.pathname === '/api/events' && req.method === 'GET') {
     const session = await resolveSession(req);
-    addEventSubscriber(req, res, { wantsMaintenance: isPrivilegedRole(sessionRole(session)) });
+    const privileged = isPrivilegedRole(sessionRole(session));
+    // `privileged` also gates PII in queue-added (submitterName); maintenance
+    // events use the same staff-only gate.
+    addEventSubscriber(req, res, { wantsMaintenance: privileged, privileged });
     return true;
   }
 

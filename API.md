@@ -630,7 +630,7 @@ batched.
 
 | Event | Payload | Sent to |
 |---|---|---|
-| `queue-added` | `{ id, filename, fileCount, submitterName }` | every connected client, the instant a job is inserted (matches the existing `queue_added` Discord webhook trigger) |
+| `queue-added` | `{ id, filename, fileCount }`, plus `submitterName` **only for privileged (admin/operator) connections** | every connected client, the instant a job is inserted (matches the existing `queue_added` Discord webhook trigger). `submitterName` is print-request PII and is withheld from anonymous/viewer subscribers, mirroring the `GET /api/queue` submitter-PII redaction. |
 | `queue-status` | `{ hasUnfinished: boolean }` | every connected client, after any mutation that can change whether an unfinished job exists (submit/printed/delete/reset, both the frontend `/api/queue/*` and `/api/v1/queue/*` routes) |
 | `maintenance-notification` | `{ id, printerId, kind, title, body, read, createdAt }` (same shape as `GET /api/maintenance/notifications` rows) | only connections whose session was privileged (admin/operator) at connect time, the instant the 5-minute maintenance worker creates a notification row |
 | `maintenance-status` | `{ hasPending: boolean }` | only privileged connections, after a task is completed or a worker pass finishes (mirrors `GET /api/maintenance/summary`'s `printersRequiringMaintenance > 0`) |
