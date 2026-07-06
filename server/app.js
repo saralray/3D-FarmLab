@@ -1791,6 +1791,19 @@ const PUBLIC_API_MUTATIONS = new Set([
   'POST /api/queue/submit', // public student print-request intake
 ]);
 
+// Non-sensitive reads that expose fleet/queue operational data (queue contents,
+// fleet health aggregates). World-readable only when the anonymous public-viewer
+// dashboard is enabled; otherwise they require a session so a non-public
+// deployment doesn't leak this to unauthenticated callers.
+const VIEWER_GATED_READS = new Set([
+  '/api/queue',
+  '/api/maintenance/summary',
+]);
+
+function publicViewerModeEnabled() {
+  return process.env.VITE_PUBLIC_VIEWER_MODE === 'true';
+}
+
 // GET/HEAD endpoints that must NOT be world-readable because they expose
 // credentials, account lists, audit trails, or IdP config.
 function isSensitiveRead(pathname) {
@@ -1884,7 +1897,13 @@ function classifyApiRequest(method, pathname) {
     return 'public';
   }
   if (method === 'GET' || method === 'HEAD') {
-    return isSensitiveRead(pathname) ? 'admin' : 'public';
+    if (isSensitiveRead(pathname)) {
+      return 'admin';
+    }
+    if (VIEWER_GATED_READS.has(pathname) && !publicViewerModeEnabled()) {
+      return 'authed';
+    }
+    return 'public';
   }
   // Mutations
   if (PUBLIC_API_MUTATIONS.has(`${method} ${pathname}`)) {

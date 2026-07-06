@@ -272,7 +272,7 @@ when an interval is crossed (never duplicated while one is open), and a rolling
 | Method & path | Description |
 |---------------|-------------|
 | `GET /maintenance?printer=&status=&type=` | List maintenance events. Filters optional (`status` defaults to all). |
-| `GET /maintenance/summary` | Fleet aggregates: `{ printersRequiringMaintenance, overdueTasks, averageHealth, totalFleetHours, printerCount }`. |
+| `GET /maintenance/summary` | Fleet aggregates: `{ printersRequiringMaintenance, overdueTasks, averageHealth, totalFleetHours, printerCount }`. Public only when `VITE_PUBLIC_VIEWER_MODE=true`; otherwise requires any session. |
 | `GET /maintenance/printer/:printerId` | Per-printer summary (hours, health, pending/completed tasks, `nextService`). |
 | `POST /maintenance/:eventId/complete` | Mark a pending task completed. Body `{ notes? }`. Stamps completion hours/time, advances `lastMaintenanceAt`, and resets nozzle hours for a nozzle service. `404` if not pending. |
 
@@ -518,7 +518,8 @@ classified below requires an admin session.
 
 | Class | Who | Examples |
 | --- | --- | --- |
-| **public read** | anyone | `GET /api/printers`, `GET /api/queue`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/summary`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, `GET /api/settings/favicon`, `GET /api/events`, branding/layout reads |
+| **public read** | anyone | `GET /api/printers`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, `GET /api/settings/favicon`, `GET /api/events`, branding/layout reads |
+| **viewer-gated read** | anyone when `VITE_PUBLIC_VIEWER_MODE=true`, else any session | `GET /api/queue`, `GET /api/maintenance/summary` — public only while the anonymous viewer dashboard is enabled; otherwise a session is required so a non-public deployment doesn't leak queue contents / fleet health |
 | **admin read** | admin only | `GET /api/users`, `GET /api/slicer-keys`, `GET /api/audit-logs`, `GET /api/admin/update-status`, `GET /api/admin/backup/download`, `GET /api/notifications/*`, `GET /api/manager/requests`, `GET /api/settings/saml`, `GET /api/settings/home-assistant*` |
 | **public mutation** | anyone | `POST /api/queue/submit` (student intake), `POST /api/manager/request`, the auth endpoints above |
 | **operator** | operator or admin | `POST /api/printers` (create/edit/reorder), `POST /api/printers/:id/command`, `POST /api/queue/:id/printed`, `POST /api/maintenance/:id/complete`, `POST /api/maintenance/notifications/read` |
@@ -592,7 +593,7 @@ mark-read writes are operator-or-admin; interval config is admin).
 | `GET /api/printers/:id/maintenance` | Per-printer summary: `{ printerId, totalHours, nozzleHours, healthScore, healthStatus, lastMaintenanceAt, pendingTasks[], completedTasks[], nextService:{ type, intervalHours, remainingHours } }`. Pending tasks carry an `overdue` flag. |
 | `GET /api/maintenance?printer=&status=&type=` | List maintenance events. `status` defaults to `pending`. |
 | `POST /api/maintenance/:id/complete` | Mark a pending task done. Body `{ notes? }`. |
-| `GET /api/maintenance/summary` | Fleet widget aggregates (`printersRequiringMaintenance`, `overdueTasks`, `averageHealth`, `totalFleetHours`, `printerCount`). |
+| `GET /api/maintenance/summary` | Fleet widget aggregates (`printersRequiringMaintenance`, `overdueTasks`, `averageHealth`, `totalFleetHours`, `printerCount`). Public only when `VITE_PUBLIC_VIEWER_MODE=true`; otherwise requires any session. |
 | `GET /api/maintenance/notifications[?unread=true]` | In-app maintenance notifications for the bell. |
 | `POST /api/maintenance/notifications/read` | Mark notifications read. Body `{ ids? }` (all unread when omitted). |
 | `GET /api/settings/maintenance-intervals` | Global default service intervals (array of `{ type, intervalHours, description }`). |
