@@ -1033,6 +1033,60 @@ Admin-only (covered by the `/api/settings/*` write rule).
 
 **Response `200`:** the saved setting, e.g. `{ "enabled": false }`.
 
+## Queue submission window (`/api/settings/queue-availability`, `/api/queue/availability`)
+
+Restricts when the public print-request form (`/request`, `POST /api/queue/submit`)
+accepts new submissions to a configurable day/time window. Stored in `app_settings`
+under the `queue_availability` key; **defaults to disabled** (queue always open), so
+existing installs are unaffected until an admin opts in from the "Queue Availability"
+button on the Queue page. Also reachable via the generic
+`/api/v1/settings/queue_availability` passthrough (see Settings resource below) —
+no extra API-key route needed.
+
+#### `GET /api/settings/queue-availability`
+
+Public (the unauthenticated `/request` page and admin Settings UI both read it).
+
+**Response `200`:**
+
+```json
+{
+  "enabled": false,
+  "timezone": "Asia/Bangkok",
+  "days": [1, 2, 3, 4, 5],
+  "startTime": "09:00",
+  "endTime": "17:00",
+  "closedMessage": "The print queue is currently closed. Please check back during open hours."
+}
+```
+
+#### `PUT /api/settings/queue-availability`
+
+Admin-only (covered by the `/api/settings/*` write rule).
+
+**Request body:** the same shape as the `GET` response. Validated: `enabled` must be a
+boolean; `days` a non-empty array of integers `0`–`6` (`0` = Sunday); `startTime`/`endTime`
+`"HH:MM"` 24-hour strings with `endTime` after `startTime` (overnight windows are not
+supported); `timezone` a resolvable IANA timezone name; `closedMessage` a non-empty
+string (truncated to 300 chars). Any violation returns `400`.
+
+**Response `200`:** the saved setting.
+
+#### `GET /api/queue/availability`
+
+Public, read-only status check — evaluates the stored schedule against the current
+time in the configured timezone, so the frontend doesn't need to duplicate the
+day/time logic.
+
+**Response `200`:** `{ "open": true }`, or when closed:
+`{ "open": false, "message": "<closedMessage>" }`.
+
+#### `POST /api/queue/submit` (amended)
+
+Now returns **`403`** with `{ "error": "<closedMessage>" }` when called outside the
+configured window, checked before the multipart body is parsed. No change when the
+setting is disabled or the request falls inside the window.
+
 ## SSO public URL (`/api/settings/sso-public-url`)
 
 Admin override for the site's own public origin, used as the top-priority tier

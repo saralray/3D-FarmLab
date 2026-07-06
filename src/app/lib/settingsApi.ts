@@ -157,6 +157,38 @@ export async function saveIntegrationSettings(
   return response.json() as Promise<IntegrationSettings>;
 }
 
+export interface QueueAvailabilitySettings {
+  enabled: boolean;
+  timezone: string;
+  days: number[];
+  startTime: string;
+  endTime: string;
+  closedMessage: string;
+}
+
+export async function fetchQueueAvailabilitySettings(): Promise<QueueAvailabilitySettings> {
+  const response = await fetch('/api/settings/queue-availability', { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+  return response.json() as Promise<QueueAvailabilitySettings>;
+}
+
+export async function saveQueueAvailabilitySettings(
+  settings: QueueAvailabilitySettings,
+): Promise<QueueAvailabilitySettings> {
+  const response = await fetch('/api/settings/queue-availability', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+  logAuditEvent('settings.queue_availability');
+  return response.json() as Promise<QueueAvailabilitySettings>;
+}
+
 // Read-only hook for the components that just need the effective URLs (Login,
 // Navigation, Queue). Starts from the env defaults and refreshes from the API.
 export function useIntegrationSettings(): IntegrationSettings {

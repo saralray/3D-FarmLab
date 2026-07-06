@@ -3,9 +3,10 @@ import { PrintJob } from '../types';
 import { QueueItem } from '../components/QueueItem';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { List, ClipboardList, ChevronLeft, ChevronRight, FileSpreadsheet } from 'lucide-react';
+import { List, ClipboardList, ChevronLeft, ChevronRight, FileSpreadsheet, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { PrintRequestDialog } from '../components/PrintRequestDialog';
+import { QueueAvailabilityDialog } from '../components/QueueAvailabilityDialog';
 import { deleteQueueJob, fetchQueueJobs, markQueueJobAsPrinted, resetQueueJobStatuses } from '../lib/queueApi';
 import { useAuth } from '../contexts/AuthContext';
 import { usePrinters } from '../contexts/PrintersContext';
@@ -185,6 +186,14 @@ export function Queue() {
           <p className="text-muted-foreground">Only 3D Print submissions are shown</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {user?.role === 'admin' && (
+            <QueueAvailabilityDialog>
+              <Button type="button" variant="outline">
+                <Clock className="size-4 mr-2" />
+                Queue Availability
+              </Button>
+            </QueueAvailabilityDialog>
+          )}
           {user?.role === 'admin' && (
             <Button
               type="button"
