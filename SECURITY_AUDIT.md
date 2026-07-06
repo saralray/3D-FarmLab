@@ -173,6 +173,27 @@ When `autoProvisionUsers` is enabled, the `role` attribute from the SAML asserti
 
 ---
 
+### N-1 — Queue Model-File Download Not Gated by Viewer Mode
+
+> **Status (Node web): fixed.** `GET /api/queue/:id/file` now classifies as a
+> viewer-gated read (`isViewerGatedRead`), so when public viewer mode is **off**
+> it requires a session, matching the `/api/queue` listing. Previously it was
+> classified `public` regardless of mode, leaving uploaded model files
+> world-downloadable to anyone with (or guessing) a job id on a deployment that
+> had deliberately disabled the public dashboard.
+
+**File:** `server/app.js` (`classifyApiRequest`)
+
+Found during the second scan pass. The recent PII-redaction work protected the
+queue *listing* metadata, but the model *file bytes* (which can themselves carry
+identifying detail — embedded thumbnails, project names) streamed from
+`/api/queue/:id/file` were not gated. Job ids are UUIDv4 (not enumerable), so
+severity is moderate, but the endpoint contradicted the intent of gating the
+queue when viewer mode is disabled. The key-gated `/api/v1/queue/:id/file` path
+is separate and unaffected.
+
+---
+
 ### M-1 — OAuth JWT Claims Not Signature-Verified
 
 **File:** `go-services/cmd/web/oauth.go:195-209`

@@ -1946,6 +1946,16 @@ const VIEWER_GATED_READS = new Set([
   '/api/maintenance/summary',
 ]);
 
+// The stored model file for a queue job (GET /api/queue/:id/file). Its bytes are
+// the student's uploaded model — gate it with the same viewer-mode rule as the
+// /api/queue listing so a deployment that disables the public dashboard doesn't
+// leave the files world-downloadable to anyone who has (or guesses) a job id.
+const QUEUE_FILE_READ_RE = /^\/api\/queue\/[^/]+\/file$/;
+
+function isViewerGatedRead(pathname) {
+  return VIEWER_GATED_READS.has(pathname) || QUEUE_FILE_READ_RE.test(pathname);
+}
+
 function publicViewerModeEnabled() {
   return process.env.VITE_PUBLIC_VIEWER_MODE === 'true';
 }
@@ -2046,7 +2056,7 @@ function classifyApiRequest(method, pathname) {
     if (isSensitiveRead(pathname)) {
       return 'admin';
     }
-    if (VIEWER_GATED_READS.has(pathname) && !publicViewerModeEnabled()) {
+    if (isViewerGatedRead(pathname) && !publicViewerModeEnabled()) {
       return 'authed';
     }
     return 'public';
