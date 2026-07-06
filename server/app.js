@@ -6019,14 +6019,21 @@ async function handlePrinterProxy(req, res, requestUrl, prefix, makeTargetUrl, e
   // The webcam prefix (/__printer_webcam/) is a read-only camera feed embedded in
   // the dashboard (and used in public viewer mode), so it stays unauthenticated.
   if (prefix === '/__printer_proxy/') {
-    const session = await resolveSession(req);
-    if (!session) {
-      sendJson(res, 401, { error: 'Authentication required.' });
-      return true;
-    }
-    if (!isPrivilegedRole(sessionRole(session))) {
-      sendJson(res, 403, { error: 'Operator access required.' });
-      return true;
+    const isControlGet = req.method === 'GET' && (
+      requestUrl.pathname.includes('/gcode') ||
+      requestUrl.pathname.includes('/print/') ||
+      requestUrl.pathname.includes('/system/')
+    );
+    if (req.method !== 'GET' && req.method !== 'HEAD' || isControlGet) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Authentication required.' });
+        return true;
+      }
+      if (!isPrivilegedRole(sessionRole(session))) {
+        sendJson(res, 403, { error: 'Operator access required.' });
+        return true;
+      }
     }
   }
 

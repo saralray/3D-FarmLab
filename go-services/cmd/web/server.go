@@ -134,10 +134,21 @@ func handleRequest(w http.ResponseWriter, req *http.Request) {
 	// nginx can drive arbitrary Bambu / Moonraker commands on every printer.
 	if strings.HasPrefix(pathname, proxyPrefix) || strings.HasPrefix(pathname, webcamPrefix) ||
 		strings.HasPrefix(pathname, "/webcam/") {
-		sess, _ := resolveSession(req.Context(), req)
-		if sess == nil {
-			sendJSON(rec, http.StatusUnauthorized, map[string]any{"error": "Authentication required."}, "")
-			return
+		isControl := true
+		if strings.HasPrefix(pathname, webcamPrefix) || strings.HasPrefix(pathname, "/webcam/") {
+			isControl = false
+		} else if req.Method == http.MethodGet || req.Method == http.MethodHead {
+			// Allow non-control read queries (like objects/query?print_task_config)
+			if !strings.Contains(pathname, "/gcode") && !strings.Contains(pathname, "/print/") && !strings.Contains(pathname, "/system/") {
+				isControl = false
+			}
+		}
+		if isControl {
+			sess, _ := resolveSession(req.Context(), req)
+			if sess == nil {
+				sendJSON(rec, http.StatusUnauthorized, map[string]any{"error": "Authentication required."}, "")
+				return
+			}
 		}
 	}
 	if handlePrinterProxy(rec, req, proxyPrefix, proxyTarget) {

@@ -3,7 +3,7 @@ import { PrintJob } from '../types';
 import { QueueItem } from '../components/QueueItem';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { List, ClipboardList, ChevronLeft, ChevronRight, FileSpreadsheet, Clock, Boxes } from 'lucide-react';
+import { List, ClipboardList, ChevronLeft, ChevronRight, FileSpreadsheet, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { PrintRequestDialog } from '../components/PrintRequestDialog';
 import { QueueAvailabilityDialog } from '../components/QueueAvailabilityDialog';
@@ -201,43 +201,6 @@ export function Queue() {
           <div className="text-3xl font-bold mt-1 text-foreground">{totalFiles}</div>
         </Card>
       </div>
-
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Boxes className="size-5 text-foreground" />
-          <h2 className="text-xl font-semibold text-foreground">Current Filament</h2>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {printers.map((printer) => (
-            <div key={printer.id} className="p-3 bg-muted/50 rounded-lg border border-border flex flex-col justify-between gap-2">
-              <div>
-                <div className="font-semibold text-foreground truncate">{printer.name}</div>
-                <div className="text-xs text-muted-foreground capitalize">{printer.model} • {printer.status}</div>
-              </div>
-              {printer.spools && printer.spools.length > 0 ? (
-                <div className="flex flex-wrap gap-2 mt-1">
-                  {printer.spools.map((spool, index) => (
-                    <div
-                      key={`${printer.id}-filament-${spool.id}-${index}`}
-                      className="flex items-center gap-1.5 bg-card px-2 py-1 rounded border border-border text-xs"
-                    >
-                      <span
-                        className="size-3 rounded-full border border-border flex-shrink-0"
-                        style={{ backgroundColor: spool.color }}
-                      />
-                      <span className="font-medium text-foreground truncate max-w-[80px]" title={spool.vendor ? `${spool.vendor} ${spool.material}` : spool.material}>
-                        {spool.material}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground italic">No filament loaded</div>
-              )}
-            </div>
-          ))}
-        </div>
-      </Card>
 
       <Card className="p-6">
         <div className="flex items-center gap-2 mb-4">
