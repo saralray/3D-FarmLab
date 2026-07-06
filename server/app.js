@@ -1398,16 +1398,36 @@ function isPrivateOrReservedIp(ip) {
     return false;
   }
   if (kind === 6) {
-    const v6 = ip.toLowerCase();
+    let v6 = ip.toLowerCase();
+    const zone = v6.indexOf('%'); // strip a scope/zone id (fe80::1%eth0)
+    if (zone !== -1) v6 = v6.slice(0, zone);
     if (v6 === '::1' || v6 === '::') return true; // loopback / unspecified
     if (v6.startsWith('fe80')) return true; // link-local
     if (v6.startsWith('fc') || v6.startsWith('fd')) return true; // unique-local fc00::/7
-    // IPv4-mapped (::ffff:a.b.c.d) — validate the embedded v4 address.
-    const mapped = /::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v6);
-    if (mapped) return isPrivateOrReservedIp(mapped[1]);
+    // IPv4-mapped/compatible/translated forms embed an IPv4 address in the low
+    // 32 bits — extract and re-check it, covering both the dotted tail
+    // (::ffff:127.0.0.1) and the hex tail (::ffff:7f00:1) an attacker could use
+    // to smuggle a loopback/LAN literal past a dotted-only check.
+    const embedded = embeddedIpv4FromV6(v6);
+    if (embedded) return isPrivateOrReservedIp(embedded);
     return false;
   }
   return true; // not a valid IP literal → refuse
+}
+
+// Extract the IPv4 address embedded in an IPv4-mapped/compatible/translated IPv6
+// literal (…:a.b.c.d dotted, or …:hhhh:hhhh hex), or null if there is none.
+function embeddedIpv4FromV6(v6) {
+  const dotted = /:((?:\d{1,3}\.){3}\d{1,3})$/.exec(v6);
+  if (dotted && isIP(dotted[1]) === 4) return dotted[1];
+  // Hex tail: last two 16-bit groups encode the four octets (e.g. 7f00:0001).
+  const hex = /:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v6);
+  if (hex && (v6.startsWith('::ffff:') || v6.startsWith('::') || v6.startsWith('64:ff9b'))) {
+    const hi = parseInt(hex[1], 16);
+    const lo = parseInt(hex[2], 16);
+    return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+  }
+  return null;
 }
 
 // Resolve the URL's host and throw if it points at a private/reserved address.
@@ -1803,12 +1823,17 @@ async function clearBucket(key) {
 
 // ── Public-intake rate limit ─────────────────────────────────────────────────
 // M-2 FIX: the unauthenticated intake endpoints (queue submit — up to
-// QUEUE_UPLOAD_MAX_BYTES stored in the DB per call — and manager request, which
-// fans out Discord notifications) had no throttle, so a bot could exhaust DB
-// storage or spam webhooks. Apply a coarse per-IP limit reusing the generic
-// Redis+memory bucket counter. Returns true when the request may proceed; on
-// limit it writes a 429 (with Retry-After) and returns false.
-const INTAKE_MAX_PER_WINDOW = Number(process.env.PUBLIC_INTAKE_MAX_PER_WINDOW) || 10;
+// QUEUE_UPLOAD_MAX_BYTES stored in the DB per call — and manager request) had no
+// throttle, so a bot could exhaust DB storage or spam requests. Apply a coarse
+// per-IP limit reusing the generic Redis+memory bucket counter. Returns true
+// when the request may proceed; on limit it writes a 429 (with Retry-After).
+//
+// The default (60/hour) is deliberately generous: the queue-submit form is the
+// primary student flow and a whole class often shares ONE public IP behind
+// institutional NAT (getClientIp sees that shared address), so a low cap would
+// 429 legitimate submissions. It still stops runaway bots. Operators behind
+// heavy shared NAT can raise PUBLIC_INTAKE_MAX_PER_WINDOW further.
+const INTAKE_MAX_PER_WINDOW = Number(process.env.PUBLIC_INTAKE_MAX_PER_WINDOW) || 60;
 const INTAKE_WINDOW_SECONDS = Number(process.env.PUBLIC_INTAKE_WINDOW_SECONDS) || 3600;
 
 async function guardPublicIntake(req, res, name) {
