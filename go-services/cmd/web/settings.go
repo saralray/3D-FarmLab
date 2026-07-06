@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // settings.go ports the read-side shaping helpers for the app_settings-backed
@@ -132,6 +133,13 @@ func layoutShape(raw json.RawMessage) map[string]any {
 		return map[string]any{"layout": nil}
 	}
 	return map[string]any{"layout": raw}
+}
+
+// isValidIanaTimezone mirrors the Node helper of the same name (which probes
+// Intl.DateTimeFormat); Go's equivalent probe is a location load.
+func isValidIanaTimezone(timezone string) bool {
+	_, err := time.LoadLocation(timezone)
+	return err == nil
 }
 
 // decodeURIComponent mirrors JS decodeURIComponent for path segments. PathUnescape

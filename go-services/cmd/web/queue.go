@@ -32,9 +32,138 @@ const queueFileStreamChunkBytes = 256 * 1024
 // queueAllowedFileExt mirrors QUEUE_ALLOWED_FILE_EXT in server/app.js.
 var queueAllowedFileExt = map[string]bool{".stl": true, ".3mf": true, ".obj": true}
 
+// ── Queue-availability window ────────────────────────────────────────────────
+// Ports QUEUE_AVAILABILITY_KEY / QUEUE_AVAILABILITY_DEFAULTS / evaluateQueueAvailability
+// from server/app.js: a configurable window during which the public print-request
+// form (/request) accepts new submissions, enforced server-side on POST
+// /api/queue/submit — not just as a frontend UI gate.
+const queueAvailabilityKey = "queue_availability"
+
+type queueAvailabilitySetting struct {
+	Enabled       bool   `json:"enabled"`
+	Timezone      string `json:"timezone"`
+	Days          []int  `json:"days"`
+	StartTime     string `json:"startTime"`
+	EndTime       string `json:"endTime"`
+	ClosedMessage string `json:"closedMessage"`
+}
+
+var queueAvailabilityDefaults = queueAvailabilitySetting{
+	Enabled:       false,
+	Timezone:      "Asia/Bangkok",
+	Days:          []int{1, 2, 3, 4, 5},
+	StartTime:     "09:00",
+	EndTime:       "17:00",
+	ClosedMessage: "The print queue is currently closed. Please check back during open hours.",
+}
+
+// getQueueAvailabilitySetting mirrors `{ ...QUEUE_AVAILABILITY_DEFAULTS, ...stored }`.
+func getQueueAvailabilitySetting(ctx context.Context) (queueAvailabilitySetting, error) {
+	raw, err := getAppSetting(ctx, queueAvailabilityKey)
+	if err != nil {
+		return queueAvailabilityDefaults, err
+	}
+	return queueAvailabilityShape(raw), nil
+}
+
+// queueAvailabilityShape merges a stored app_settings value over the defaults,
+// keeping a default field when the stored value is absent or the wrong type.
+func queueAvailabilityShape(raw json.RawMessage) queueAvailabilitySetting {
+	m := decodeStored(raw)
+	setting := queueAvailabilityDefaults
+	if v, ok := m["enabled"].(bool); ok {
+		setting.Enabled = v
+	}
+	if v, ok := m["timezone"].(string); ok && v != "" {
+		setting.Timezone = v
+	}
+	if arr, ok := m["days"].([]any); ok && len(arr) > 0 {
+		days := make([]int, 0, len(arr))
+		for _, d := range arr {
+			if f, ok := d.(float64); ok {
+				days = append(days, int(f))
+			}
+		}
+		if len(days) > 0 {
+			setting.Days = days
+		}
+	}
+	if v, ok := m["startTime"].(string); ok && v != "" {
+		setting.StartTime = v
+	}
+	if v, ok := m["endTime"].(string); ok && v != "" {
+		setting.EndTime = v
+	}
+	if v, ok := m["closedMessage"].(string); ok && v != "" {
+		setting.ClosedMessage = v
+	}
+	return setting
+}
+
+type queueAvailabilityStatus struct {
+	Open    bool   `json:"open"`
+	Message string `json:"message,omitempty"`
+}
+
+// evaluateQueueAvailability mirrors the Node function of the same name. Unlike
+// Node (which has to fight Intl.DateTimeFormat to get "now" in an arbitrary IANA
+// zone), Go's time.Time.In() does this directly, and time.Weekday numbering
+// (Sunday=0 .. Saturday=6) already matches Node's weekdayMap.
+func evaluateQueueAvailability(setting queueAvailabilitySetting, now time.Time) queueAvailabilityStatus {
+	if !setting.Enabled {
+		return queueAvailabilityStatus{Open: true}
+	}
+	loc, err := time.LoadLocation(setting.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	local := now.In(loc)
+	weekday := int(local.Weekday())
+	nowMinutes := local.Hour()*60 + local.Minute()
+
+	startMinutes, _ := parseHHMM(setting.StartTime)
+	endMinutes, _ := parseHHMM(setting.EndTime)
+
+	dayOk := false
+	for _, d := range setting.Days {
+		if d == weekday {
+			dayOk = true
+			break
+		}
+	}
+	timeOk := nowMinutes >= startMinutes && nowMinutes < endMinutes
+	if dayOk && timeOk {
+		return queueAvailabilityStatus{Open: true}
+	}
+	return queueAvailabilityStatus{Open: false, Message: setting.ClosedMessage}
+}
+
+// parseHHMM parses a "HH:MM" string into minutes since midnight.
+func parseHHMM(s string) (int, bool) {
+	if len(s) != 5 || s[2] != ':' {
+		return 0, false
+	}
+	h, ok1 := jsParseInt(s[0:2])
+	m, ok2 := jsParseInt(s[3:5])
+	if !ok1 || !ok2 {
+		return 0, false
+	}
+	return h*60 + m, true
+}
+
 func handleQueueIntake(w http.ResponseWriter, req *http.Request) bool {
 	p := req.URL.Path
 	switch {
+	// Public, read-only status check for the queue-availability window — lets
+	// /request show a "closed" notice before a student even opens the form.
+	case p == "/api/queue/availability" && req.Method == http.MethodGet:
+		setting, err := getQueueAvailabilitySetting(req.Context())
+		if err != nil {
+			internalError(w, "getQueueAvailabilitySetting", err)
+			return true
+		}
+		sendJSON(w, http.StatusOK, evaluateQueueAvailability(setting, time.Now()), "")
+		return true
 	case p == "/api/queue/submit" && req.Method == http.MethodPost:
 		handleQueueSubmit(w, req)
 		return true
@@ -58,6 +187,17 @@ func handleQueueIntake(w http.ResponseWriter, req *http.Request) bool {
 
 func handleQueueSubmit(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
+
+	setting, err := getQueueAvailabilitySetting(ctx)
+	if err != nil {
+		internalError(w, "getQueueAvailabilitySetting", err)
+		return
+	}
+	if availability := evaluateQueueAvailability(setting, time.Now()); !availability.Open {
+		sendJSON(w, http.StatusForbidden, map[string]any{"error": availability.Message}, "")
+		return
+	}
+
 	fields, file, err := parsePrintRequest(req)
 	if err != nil {
 		if err == errFileTooLarge {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -118,6 +120,10 @@ func handleMutations(w http.ResponseWriter, req *http.Request, sessFn func() *se
 		handlePublicViewerPut(ctx, w, req)
 		return true
 
+	case p == "/api/settings/queue-availability" && m == http.MethodPut:
+		handleQueueAvailabilityPut(ctx, w, req)
+		return true
+
 	case p == "/api/settings/analytics-layout" && m == http.MethodPut:
 		handleAnalyticsLayoutPut(ctx, w, req)
 		return true
@@ -202,6 +208,83 @@ func handlePublicViewerPut(ctx context.Context, w http.ResponseWriter, req *http
 	}
 	stored, err := getAppSetting(ctx, "public_viewer")
 	respondShaped(w, publicViewerShape(stored), err)
+}
+
+// hhmmPattern mirrors /^([01]\d|2[0-3]):[0-5]\d$/.
+var hhmmPattern = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
+
+func handleQueueAvailabilityPut(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	m := decodeBodyMap(req)
+
+	enabled, ok := m["enabled"].(bool)
+	if !ok {
+		badRequest(w, "enabled must be a boolean")
+		return
+	}
+
+	daysRaw, ok := m["days"].([]any)
+	if !ok || len(daysRaw) == 0 {
+		badRequest(w, "days must be a non-empty array of integers 0-6")
+		return
+	}
+	daySet := map[int]bool{}
+	for _, d := range daysRaw {
+		f, ok := d.(float64)
+		if !ok || float64(int(f)) != f || f < 0 || f > 6 {
+			badRequest(w, "days must be a non-empty array of integers 0-6")
+			return
+		}
+		daySet[int(f)] = true
+	}
+	days := make([]int, 0, len(daySet))
+	for d := range daySet {
+		days = append(days, d)
+	}
+	sort.Ints(days)
+
+	startTime, ok := m["startTime"].(string)
+	if !ok || !hhmmPattern.MatchString(startTime) {
+		badRequest(w, `startTime must be an "HH:MM" string`)
+		return
+	}
+	endTime, ok := m["endTime"].(string)
+	if !ok || !hhmmPattern.MatchString(endTime) {
+		badRequest(w, `endTime must be an "HH:MM" string`)
+		return
+	}
+	if endTime <= startTime {
+		badRequest(w, "endTime must be after startTime")
+		return
+	}
+	timezone, ok := m["timezone"].(string)
+	if !ok || !isValidIanaTimezone(timezone) {
+		badRequest(w, "timezone must be a valid IANA timezone string")
+		return
+	}
+	closedMessage, ok := m["closedMessage"].(string)
+	closedMessage = strings.TrimSpace(closedMessage)
+	if !ok || closedMessage == "" {
+		badRequest(w, "closedMessage must be a non-empty string")
+		return
+	}
+	if runes := []rune(closedMessage); len(runes) > 300 {
+		closedMessage = string(runes[:300])
+	}
+
+	value := map[string]any{
+		"enabled":       enabled,
+		"timezone":      timezone,
+		"days":          days,
+		"startTime":     startTime,
+		"endTime":       endTime,
+		"closedMessage": closedMessage,
+	}
+	if err := setAppSetting(ctx, queueAvailabilityKey, value); err != nil {
+		internalError(w, "setAppSetting queue_availability", err)
+		return
+	}
+	setting, err := getQueueAvailabilitySetting(ctx)
+	respondShaped(w, setting, err)
 }
 
 func handleAnalyticsLayoutPut(ctx context.Context, w http.ResponseWriter, req *http.Request) {
