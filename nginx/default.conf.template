@@ -34,7 +34,11 @@ server {
   # by nginx so backend services cannot be fooled by a spoofed header value from
   # the client. $remote_addr is always the TCP peer address — no client can forge
   # it. The backend now receives exactly one IP and trusts it for rate limiting.
+  # X-Real-IP is set to the same value; the backend (getClientIp) prefers it and,
+  # for defense in depth, reads the rightmost X-Forwarded-For otherwise — so login
+  # rate limiting keys on an IP the client cannot spoof even if nginx is bypassed.
   proxy_set_header X-Forwarded-For $remote_addr;
+  proxy_set_header X-Real-IP $remote_addr;
 
   location = /nginx-health {
     access_log off;
