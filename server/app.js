@@ -1589,6 +1589,44 @@ function isPrivilegedRole(role) {
   return role === 'admin' || role === 'operator';
 }
 
+// The queue read (`GET /api/queue`) is part of the public, cookieless frontend
+// surface — anyone can poll it to see farm/queue depth. But the stored jobs
+// carry student PII from the print-request form (name, email, free-text notes),
+// which must not leak to anonymous/viewer/student callers. Whitelist the
+// operational fields the public queue view needs and drop everything else, so a
+// future column added to listQueueData can't silently start leaking. An
+// operator/admin session gets the full record (submitter identity + notes).
+const PUBLIC_QUEUE_FIELDS = [
+  'id',
+  'filename',
+  'fileCount',
+  'printedStatus',
+  'status',
+  'progress',
+  'estimatedTime',
+  'timeRemaining',
+  'filamentUsed',
+  'priority',
+  'stlFileUrl',
+  'hasFile',
+  'submittedAt',
+];
+
+function toPublicQueueJob(job) {
+  const view = {};
+  for (const key of PUBLIC_QUEUE_FIELDS) {
+    if (key in job) view[key] = job[key];
+  }
+  return view;
+}
+
+function redactQueueDataForPublic({ queue, history }) {
+  return {
+    queue: (queue || []).map(toPublicQueueJob),
+    history: (history || []).map(toPublicQueueJob),
+  };
+}
+
 // Credential-attempt throttle. Every credential check (login + the two verify
 // oracles) is guarded on TWO buckets so a wordlist/dictionary run can't succeed:
 //   • per client IP  — a coarse limit (8 failures / 15 min) that trips regardless
@@ -3916,10 +3954,14 @@ async function handleApi(req, res, requestUrl) {
     return true;
   }
 
-  // Read path: cheap DB read of the stored queue.
+  // Read path: cheap DB read of the stored queue. Submitter PII (name, email,
+  // notes) is stripped for anonymous/viewer/student callers; only an operator/
+  // admin session sees the full record.
   if (requestUrl.pathname === '/api/queue') {
     if (req.method === 'GET') {
-      sendJson(res, 200, await listQueueData());
+      const privileged = isPrivilegedRole(sessionRole(await resolveSession(req)));
+      const data = await listQueueData();
+      sendJson(res, 200, privileged ? data : redactQueueDataForPublic(data));
       return true;
     }
   }

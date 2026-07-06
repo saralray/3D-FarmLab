@@ -531,6 +531,16 @@ classified below requires an admin session.
 > an operator/admin session. Anonymous, viewer, and student sessions always get
 > the redacted record, regardless of `VITE_PUBLIC_VIEWER_MODE`.
 
+> **Submitter-PII redaction:** `GET /api/queue` returns the submitter identity
+> fields from the print-request form (`submitterName`, `submitterEmail`, `notes`)
+> only to an operator/admin session. Anonymous, viewer, and student callers get a
+> whitelisted operational view (`id`, `filename`, `fileCount`, `printedStatus`,
+> `status`, `progress`, `estimatedTime`, `timeRemaining`, `filamentUsed`,
+> `priority`, `stlFileUrl`, `hasFile`, `submittedAt`) with those PII fields
+> omitted, regardless of `VITE_PUBLIC_VIEWER_MODE`. The key-gated
+> `GET /api/v1/queue` is unaffected — it returns the full record (the API key is
+> the guard).
+
 > **Conditional GET:** `GET /api/printers` sets an `ETag` (a sha1 of the
 > serialized body). Send it back as `If-None-Match` and an unchanged response
 > comes back as `304 Not Modified` with no body — the poll that drives
