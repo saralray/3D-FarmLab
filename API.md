@@ -531,6 +531,16 @@ classified below requires an admin session.
 > an operator/admin session. Anonymous, viewer, and student sessions always get
 > the redacted record, regardless of `VITE_PUBLIC_VIEWER_MODE`.
 
+> **Submitter-PII redaction:** `GET /api/queue` returns the submitter identity
+> fields from the print-request form (`submitterName`, `submitterEmail`, `notes`)
+> only to an operator/admin session. Anonymous, viewer, and student callers get a
+> whitelisted operational view (`id`, `filename`, `fileCount`, `printedStatus`,
+> `status`, `progress`, `estimatedTime`, `timeRemaining`, `filamentUsed`,
+> `priority`, `stlFileUrl`, `hasFile`, `submittedAt`) with those PII fields
+> omitted, regardless of `VITE_PUBLIC_VIEWER_MODE`. The key-gated
+> `GET /api/v1/queue` is unaffected — it returns the full record (the API key is
+> the guard).
+
 > **Conditional GET:** `GET /api/printers` sets an `ETag` (a sha1 of the
 > serialized body). Send it back as `If-None-Match` and an unchanged response
 > comes back as `304 Not Modified` with no body — the poll that drives
@@ -620,7 +630,7 @@ batched.
 
 | Event | Payload | Sent to |
 |---|---|---|
-| `queue-added` | `{ id, filename, fileCount, submitterName }` | every connected client, the instant a job is inserted (matches the existing `queue_added` Discord webhook trigger) |
+| `queue-added` | `{ id, filename, fileCount }`, plus `submitterName` **only for privileged (admin/operator) connections** | every connected client, the instant a job is inserted (matches the existing `queue_added` Discord webhook trigger). `submitterName` is print-request PII and is withheld from anonymous/viewer subscribers, mirroring the `GET /api/queue` submitter-PII redaction. |
 | `queue-status` | `{ hasUnfinished: boolean }` | every connected client, after any mutation that can change whether an unfinished job exists (submit/printed/delete/reset, both the frontend `/api/queue/*` and `/api/v1/queue/*` routes) |
 | `maintenance-notification` | `{ id, printerId, kind, title, body, read, createdAt }` (same shape as `GET /api/maintenance/notifications` rows) | only connections whose session was privileged (admin/operator) at connect time, the instant the 5-minute maintenance worker creates a notification row |
 | `maintenance-status` | `{ hasPending: boolean }` | only privileged connections, after a task is completed or a worker pass finishes (mirrors `GET /api/maintenance/summary`'s `printersRequiringMaintenance > 0`) |

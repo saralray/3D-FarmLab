@@ -21,14 +21,14 @@ function writeEvent(res, event, data) {
   }
 }
 
-export function addEventSubscriber(req, res, { wantsMaintenance }) {
+export function addEventSubscriber(req, res, { wantsMaintenance, privileged = false }) {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Connection', 'keep-alive');
   res.write(':ok\n\n');
 
-  const subscriber = { res, wantsMaintenance };
+  const subscriber = { res, wantsMaintenance, privileged };
   subscribers.add(subscriber);
 
   const remove = () => subscribers.delete(subscriber);
@@ -38,10 +38,15 @@ export function addEventSubscriber(req, res, { wantsMaintenance }) {
 }
 
 // Sent to every connected client (matches the previous public, unauthenticated
-// GET /api/queue poll that any open tab performed).
+// GET /api/queue poll that any open tab performed) — but the submitter's name is
+// PII from the print-request form and must not fan out to anonymous/viewer tabs,
+// mirroring the redaction on the GET /api/queue read. Only a privileged
+// (admin/operator) subscriber receives `submitterName`; everyone else gets the
+// operational subset (id/filename/fileCount) that drives the sidebar dot/toast.
 export function broadcastQueueAdded(job) {
+  const { submitterName, ...publicJob } = job;
   for (const subscriber of subscribers) {
-    writeEvent(subscriber.res, 'queue-added', job);
+    writeEvent(subscriber.res, 'queue-added', subscriber.privileged ? job : publicJob);
   }
 }
 
