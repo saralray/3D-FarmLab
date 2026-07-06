@@ -114,12 +114,18 @@ export async function deleteUserApi(userId: string): Promise<MutationResult> {
 export async function changeUserPasswordApi(
   userId: string,
   passwordHash: string,
+  currentPasswordHash?: string,
 ): Promise<MutationResult> {
   try {
     const response = await fetch(`/api/users/${encodeURIComponent(userId)}/password`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passwordHash }),
+      // The server requires the current password when changing your OWN account
+      // (it can't be used to silently re-key another admin); include it when the
+      // caller supplied it.
+      body: JSON.stringify(
+        currentPasswordHash ? { passwordHash, currentPasswordHash } : { passwordHash },
+      ),
     });
     return response.ok ? { ok: true } : { ok: false, error: await readError(response) };
   } catch {

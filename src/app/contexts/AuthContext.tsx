@@ -41,7 +41,11 @@ interface AuthContextType {
   ) => Promise<ChangePasswordResult>;
   createUser: (input: CreateUserInput) => Promise<CreateUserResult>;
   removeUser: (userId: string) => Promise<RemoveUserResult>;
-  changeUserPassword: (userId: string, password: string) => Promise<ChangePasswordResult>;
+  changeUserPassword: (
+    userId: string,
+    password: string,
+    currentPassword: string,
+  ) => Promise<ChangePasswordResult>;
   changeUserRole: (userId: string, role: UserRole) => Promise<ChangeRoleResult>;
   logout: () => void;
   isLoading: boolean;
@@ -717,6 +721,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const changeUserPassword = async (
     userId: string,
     password: string,
+    currentPassword: string,
   ): Promise<ChangePasswordResult> => {
     if (PUBLIC_VIEWER_MODE) {
       return {
@@ -740,15 +745,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const trimmedPassword = password.trim();
+    const trimmedCurrent = currentPassword.trim();
     if (!userId || !trimmedPassword) {
       return {
         success: false,
         error: 'User and password are required.',
       };
     }
+    // Self-change must prove knowledge of the current password (server-enforced).
+    if (!trimmedCurrent) {
+      return { success: false, error: 'Enter your current password.' };
+    }
 
-    const passwordHash = await hashPassword(trimmedPassword);
-    const result = await changeUserPasswordApi(userId, passwordHash);
+    const [passwordHash, currentPasswordHash] = await Promise.all([
+      hashPassword(trimmedPassword),
+      hashPassword(trimmedCurrent),
+    ]);
+    const result = await changeUserPasswordApi(userId, passwordHash, currentPasswordHash);
     if (!result.ok) {
       return { success: false, error: result.error ?? 'Unable to change password.' };
     }

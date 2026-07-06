@@ -5091,7 +5091,10 @@ async function handleApi(req, res, requestUrl) {
 
   // Per-user management, keyed by id:
   //   DELETE /api/users/:id           → remove the account.
-  //   PUT    /api/users/:id/password  → set a new password ({ passwordHash }).
+  //   PUT    /api/users/:id/password  → set a new password ({ passwordHash },
+  //          plus { currentPasswordHash } when changing your own account). An
+  //          admin may reset a lower-privileged account, but not another admin's
+  //          password; self-change requires the current password.
   //   PUT    /api/users/:id/role      → change the account role ({ role }).
   if (requestUrl.pathname.startsWith('/api/users/')) {
     const [rawId, action] = requestUrl.pathname.slice('/api/users/'.length).split('/');
@@ -5120,7 +5123,7 @@ async function handleApi(req, res, requestUrl) {
     }
 
     if (action === 'password' && req.method === 'PUT') {
-      const { passwordHash } = await readJsonBody(req);
+      const { passwordHash, currentPasswordHash } = await readJsonBody(req);
       if (!isSha256Hex(passwordHash)) {
         sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
         return true;
@@ -5131,8 +5134,35 @@ async function handleApi(req, res, requestUrl) {
         sendJson(res, 404, { error: 'user not found' });
         return true;
       }
+      const target = usersList[index];
+
+      // Authorization policy (on top of the admin-only route gate): an admin may
+      // RESET a lower-privileged account (operator/viewer) without its current
+      // password, but MUST NOT be able to silently change another admin's
+      // password — that would let one admin take over another admin's account.
+      // Changing your OWN account's password requires proving knowledge of the
+      // current one (so a hijacked session / CSRF can't quietly re-key it). The
+      // primary `admin` account changes its own password via
+      // /api/admin/credential, which already enforces the current-password check.
+      const session = await resolveSession(req);
+      const isSelf = !!session && session.user_id === userId;
+      if (isSelf) {
+        const currentOk =
+          isSha256Hex(currentPasswordHash) &&
+          (await verifyPassword(target.passwordHash || '', currentPasswordHash));
+        if (!currentOk) {
+          sendJson(res, 403, { error: 'Current password is incorrect.' });
+          return true;
+        }
+      } else if (target.role === 'admin') {
+        sendJson(res, 403, {
+          error: "You cannot change another administrator's password.",
+        });
+        return true;
+      }
+
       const nextUsers = [...usersList];
-      nextUsers[index] = { ...nextUsers[index], passwordHash: await derivePasswordHash(passwordHash) };
+      nextUsers[index] = { ...target, passwordHash: await derivePasswordHash(passwordHash) };
       await setAppSetting(STAFF_USERS_KEY, nextUsers);
       // A password change invalidates the account's existing sessions.
       await deleteSessionsForUser(userId).catch(() => {});
