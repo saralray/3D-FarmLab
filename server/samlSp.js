@@ -245,9 +245,10 @@ export function parseAndVerifySamlResponse({
     throw new SamlError('Empty SAMLResponse');
   }
 
-  const doc = new DOMParser({
-    errorHandler: { warning() {}, error() {}, fatalError() {} },
-  }).parseFromString(xml, 'text/xml');
+  // @xmldom/xmldom 0.9 replaced the `errorHandler` object with a single
+  // `onError(level, message)` callback; swallow parser diagnostics either way so
+  // a malformed assertion surfaces as our own SamlError below, not a console spew.
+  const doc = new DOMParser({ onError() {} }).parseFromString(xml, 'text/xml');
 
   const response = selectNs('/samlp:Response', doc)[0];
   if (!response) {

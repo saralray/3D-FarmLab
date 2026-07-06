@@ -10,6 +10,15 @@
 
 ### C-1 — Unauthenticated Access to Printer Control Proxy
 
+> **Status (Node web): fixed.** `handlePrinterProxy` (`server/app.js`) now requires
+> an **operator/admin** session for the `/__printer_proxy/` prefix (401 with no
+> session, 403 for a non-privileged one), matching the RBAC on
+> `/api/printers/:id/command`. This covers GET too, because Moonraker executes
+> gcode via `GET /printer/gcode/script?script=`. The read-only webcam prefix
+> (`/__printer_webcam/`) stays public so the dashboard camera works in viewer
+> mode. The Go port is not deployed by `docker-compose.yml`; apply the same gate
+> there if it is ever built.
+
 **Files:** `go-services/cmd/web/server.go:131-137`, `go-services/cmd/web/proxy.go:48-125`, `go-services/cmd/web/auth.go:280-283`
 
 `handlePrinterProxy` and `handleWebcamStream` are dispatched in `handleRequest` **after** `handleAPI`, which only guards paths under `/api/`. The authorization gate explicitly skips everything else:
@@ -161,6 +170,27 @@ When `autoProvisionUsers` is enabled, the `role` attribute from the SAML asserti
 ---
 
 ## MEDIUM
+
+---
+
+### N-1 — Queue Model-File Download Not Gated by Viewer Mode
+
+> **Status (Node web): fixed.** `GET /api/queue/:id/file` now classifies as a
+> viewer-gated read (`isViewerGatedRead`), so when public viewer mode is **off**
+> it requires a session, matching the `/api/queue` listing. Previously it was
+> classified `public` regardless of mode, leaving uploaded model files
+> world-downloadable to anyone with (or guessing) a job id on a deployment that
+> had deliberately disabled the public dashboard.
+
+**File:** `server/app.js` (`classifyApiRequest`)
+
+Found during the second scan pass. The recent PII-redaction work protected the
+queue *listing* metadata, but the model *file bytes* (which can themselves carry
+identifying detail — embedded thumbnails, project names) streamed from
+`/api/queue/:id/file` were not gated. Job ids are UUIDv4 (not enumerable), so
+severity is moderate, but the endpoint contradicted the intent of gating the
+queue when viewer mode is disabled. The key-gated `/api/v1/queue/:id/file` path
+is separate and unaffected.
 
 ---
 

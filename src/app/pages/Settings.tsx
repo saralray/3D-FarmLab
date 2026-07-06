@@ -440,7 +440,7 @@ export function Settings() {
       // current password; other users are updated client-side as before.
       const result = isAdminAccount
         ? await changeAdminPassword(currentPasswordDraft, passwordDrafts[userId] ?? '')
-        : await changeUserPassword(userId, passwordDrafts[userId] ?? '');
+        : await changeUserPassword(userId, passwordDrafts[userId] ?? '', currentPasswordDraft);
       if (!result.success) {
         toast.error(result.error ?? 'Unable to change password.');
         return;
@@ -450,9 +450,9 @@ export function Settings() {
         ...prev,
         [userId]: '',
       }));
-      if (isAdminAccount) {
-        setCurrentPasswordDraft('');
-      }
+      // Both self-change paths (primary admin + staff) consume the current
+      // password now, so always clear it.
+      setCurrentPasswordDraft('');
       toast.success('Password updated');
     } finally {
       setChangingPasswordUserId(null);
@@ -1346,19 +1346,19 @@ export function Settings() {
                   </div>
                   {account.id === user?.id && (
                     <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
-                      {account.username === ADMIN_USERNAME && (
-                        <div className="flex-1 space-y-2">
-                          <Label htmlFor={`current-password-${account.id}`}>Current Password</Label>
-                          <Input
-                            id={`current-password-${account.id}`}
-                            type="password"
-                            value={currentPasswordDraft}
-                            onChange={(event) => setCurrentPasswordDraft(event.target.value)}
-                            placeholder="Enter your current password"
-                            autoComplete="current-password"
-                          />
-                        </div>
-                      )}
+                      {/* Every self-change (primary admin and staff alike) now
+                          requires the current password, so always show this. */}
+                      <div className="flex-1 space-y-2">
+                        <Label htmlFor={`current-password-${account.id}`}>Current Password</Label>
+                        <Input
+                          id={`current-password-${account.id}`}
+                          type="password"
+                          value={currentPasswordDraft}
+                          onChange={(event) => setCurrentPasswordDraft(event.target.value)}
+                          placeholder="Enter your current password"
+                          autoComplete="current-password"
+                        />
+                      </div>
                       <div className="flex-1 space-y-2">
                         <Label htmlFor={`reset-password-${account.id}`}>New Password</Label>
                         <Input

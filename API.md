@@ -531,6 +531,17 @@ classified below requires an admin session.
 > an operator/admin session. Anonymous, viewer, and student sessions always get
 > the redacted record, regardless of `VITE_PUBLIC_VIEWER_MODE`.
 
+> **Password-change policy (`PUT /api/users/:id/password`):** beyond the admin-only
+> route gate, the handler enforces that an admin may reset a **lower-privileged**
+> account (operator/viewer) with body `{ passwordHash }`, but **cannot** change
+> **another admin's** password (`403`) — preventing one admin from silently taking
+> over another admin's account. Changing your **own** account requires the current
+> password: body `{ passwordHash, currentPasswordHash }`, and a wrong/missing
+> `currentPasswordHash` returns `403`. (The primary `admin` account changes its own
+> password via `PUT /api/admin/credential`, which already requires the current one.)
+> The key-gated `PUT /api/v1/users/:id/password` is unaffected — the API key is the
+> guard there and grants full write.
+
 > **Submitter-PII redaction:** `GET /api/queue` returns the submitter identity
 > fields from the print-request form (`submitterName`, `submitterEmail`, `notes`)
 > only to an operator/admin session. Anonymous, viewer, and student callers get a
@@ -727,6 +738,10 @@ Submit a new manager access request. **Public. CORS-enabled.**
 ```
 
 The `id` is a UUIDv4 string. The caller stores it to poll the status endpoint.
+
+Rate-limited per client IP (default 10 requests/hour, tunable via
+`PUBLIC_INTAKE_MAX_PER_WINDOW` / `PUBLIC_INTAKE_WINDOW_SECONDS`); over the limit
+returns `429` with a `Retry-After` header.
 
 ---
 
@@ -1099,6 +1114,10 @@ day/time logic.
 Now returns **`403`** with `{ "error": "<closedMessage>" }` when called outside the
 configured window, checked before the multipart body is parsed. No change when the
 setting is disabled or the request falls inside the window.
+
+Also rate-limited per client IP (default 10 requests/hour, tunable via
+`PUBLIC_INTAKE_MAX_PER_WINDOW` / `PUBLIC_INTAKE_WINDOW_SECONDS`); over the limit
+returns **`429`** with a `Retry-After` header, checked before the window check.
 
 ## SSO public URL (`/api/settings/sso-public-url`)
 
