@@ -728,6 +728,10 @@ Submit a new manager access request. **Public. CORS-enabled.**
 
 The `id` is a UUIDv4 string. The caller stores it to poll the status endpoint.
 
+Rate-limited per client IP (default 10 requests/hour, tunable via
+`PUBLIC_INTAKE_MAX_PER_WINDOW` / `PUBLIC_INTAKE_WINDOW_SECONDS`); over the limit
+returns `429` with a `Retry-After` header.
+
 ---
 
 #### `GET /api/manager/requests/:id/status`
@@ -1099,6 +1103,10 @@ day/time logic.
 Now returns **`403`** with `{ "error": "<closedMessage>" }` when called outside the
 configured window, checked before the multipart body is parsed. No change when the
 setting is disabled or the request falls inside the window.
+
+Also rate-limited per client IP (default 10 requests/hour, tunable via
+`PUBLIC_INTAKE_MAX_PER_WINDOW` / `PUBLIC_INTAKE_WINDOW_SECONDS`); over the limit
+returns **`429`** with a `Retry-After` header, checked before the window check.
 
 ## SSO public URL (`/api/settings/sso-public-url`)
 

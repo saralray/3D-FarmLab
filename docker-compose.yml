@@ -22,11 +22,16 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    # L-1 FIX: require a password when REDIS_PASSWORD is set so a co-located
+    # compromised container can't read/flush rate-limit keys or sessions. Empty
+    # (the default) leaves Redis open — backward compatible with the "Redis is
+    # optional" design, for LAN-only deploys where the network is the boundary.
+    # Set REDIS_PASSWORD in .env and use redis://:<password>@redis:6379 as REDIS_URL.
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000", "--requirepass", "${REDIS_PASSWORD:-}"]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD:-}\" ping 2>/dev/null | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5

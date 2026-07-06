@@ -10,6 +10,15 @@
 
 ### C-1 — Unauthenticated Access to Printer Control Proxy
 
+> **Status (Node web): fixed.** `handlePrinterProxy` (`server/app.js`) now requires
+> an **operator/admin** session for the `/__printer_proxy/` prefix (401 with no
+> session, 403 for a non-privileged one), matching the RBAC on
+> `/api/printers/:id/command`. This covers GET too, because Moonraker executes
+> gcode via `GET /printer/gcode/script?script=`. The read-only webcam prefix
+> (`/__printer_webcam/`) stays public so the dashboard camera works in viewer
+> mode. The Go port is not deployed by `docker-compose.yml`; apply the same gate
+> there if it is ever built.
+
 **Files:** `go-services/cmd/web/server.go:131-137`, `go-services/cmd/web/proxy.go:48-125`, `go-services/cmd/web/auth.go:280-283`
 
 `handlePrinterProxy` and `handleWebcamStream` are dispatched in `handleRequest` **after** `handleAPI`, which only guards paths under `/api/`. The authorization gate explicitly skips everything else:

@@ -1,7 +1,9 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { lookup as dnsLookup } from 'node:dns/promises';
 import { createServer } from 'node:http';
+import { isIP } from 'node:net';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import tls from 'node:tls';
@@ -999,14 +1001,35 @@ function decodeSvgDataUrl(dataUrl) {
 // markup into the DOM. Upload is admin-only, but this is cheap insurance against
 // a stored XSS via <script>, event handlers, or external/script URLs.
 function sanitizeSvg(svg) {
+  const hasDangerousCss = (css) =>
+    /javascript:|expression\(|url\s*\(\s*['"]?\s*(?:javascript|data|https?|file|blob):/i.test(css);
   return svg
     .replace(/<\?xml[\s\S]*?\?>/gi, '')
     .replace(/<!DOCTYPE[\s\S]*?>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // M-6 FIX: drop scripting, external-resource, and animation elements. SMIL
+    // animation (<animate>/<set>/<animateTransform>/<animateMotion>) can set an
+    // element's attribute (including href) to a script/navigation URL, so it is
+    // an XSS vector even without an inline handler; <script>/<foreignObject>/
+    // <handler>/<listener> execute directly.
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, '')
+    .replace(/<\/?(?:script|foreignObject|animate|animateTransform|animateMotion|set|handler|listener)\b[^>]*>/gi, '')
+    // M-6 FIX: event-handler attributes — quoted (") or (') *and* unquoted
+    // (onerror=alert(1)); the old sanitizer only stripped the quoted forms.
     .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
     .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/(?:xlink:href|href)\s*=\s*"(?:\s*javascript:|\s*https?:|\s*data:)[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
+    // href / xlink:href pointing at script or external/data URLs, in any quoting.
+    // Local fragment refs (href="#gradient") are left intact.
+    .replace(/(?:xlink:href|href)\s*=\s*"\s*(?:javascript|data|https?|file|blob):[^"]*"/gi, '')
+    .replace(/(?:xlink:href|href)\s*=\s*'\s*(?:javascript|data|https?|file|blob):[^']*'/gi, '')
+    .replace(/(?:xlink:href|href)\s*=\s*(?:javascript|data|https?|file|blob):[^\s>]*/gi, '')
+    // M-6 FIX: CSS payloads inside style="" — javascript:, expression(), and
+    // url() to a remote/script scheme. Only strip the style attribute when it
+    // carries a dangerous token so legitimate url(#localGradient) refs survive.
+    .replace(/style\s*=\s*"([^"]*)"/gi, (m, css) => (hasDangerousCss(css) ? '' : m))
+    .replace(/style\s*=\s*'([^']*)'/gi, (m, css) => (hasDangerousCss(css) ? '' : m))
     .trim();
 }
 
@@ -1347,6 +1370,67 @@ function getClientIp(req) {
     return parts[parts.length - 1].trim();
   }
   return req.socket?.remoteAddress || null;
+}
+
+// ── SSRF guard for admin-supplied outbound URLs ──────────────────────────────
+// H-3 FIX: endpoints that fetch an admin-configured URL (e.g. the SAML "test
+// connection" probe) must not be usable to reach the loopback interface, the
+// LAN, or the cloud metadata endpoint (169.254.169.254). Reject any URL whose
+// host resolves to a private/reserved address before making the request. This
+// is DNS-resolution based (an IP literal is checked directly; a hostname is
+// resolved and every A/AAAA answer is checked), which closes the common SSRF
+// vectors. A determined DNS-rebinding attacker with control of an authoritative
+// resolver is out of scope for this admin-only diagnostic.
+function isPrivateOrReservedIp(ip) {
+  const kind = isIP(ip);
+  if (kind === 4) {
+    const parts = ip.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return true;
+    const [a, b] = parts;
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 127) return true; // loopback
+    if (a === 0) return true; // "this" network
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 169 && b === 254) return true; // link-local incl. 169.254.169.254 (IMDS)
+    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
+    if (a >= 224) return true; // multicast / reserved / broadcast
+    return false;
+  }
+  if (kind === 6) {
+    const v6 = ip.toLowerCase();
+    if (v6 === '::1' || v6 === '::') return true; // loopback / unspecified
+    if (v6.startsWith('fe80')) return true; // link-local
+    if (v6.startsWith('fc') || v6.startsWith('fd')) return true; // unique-local fc00::/7
+    // IPv4-mapped (::ffff:a.b.c.d) — validate the embedded v4 address.
+    const mapped = /::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v6);
+    if (mapped) return isPrivateOrReservedIp(mapped[1]);
+    return false;
+  }
+  return true; // not a valid IP literal → refuse
+}
+
+// Resolve the URL's host and throw if it points at a private/reserved address.
+async function assertPublicHttpTarget(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error('invalid URL');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('unsupported URL scheme');
+  }
+  const host = parsed.hostname;
+  if (isIP(host)) {
+    if (isPrivateOrReservedIp(host)) throw new Error('target address is not allowed');
+    return;
+  }
+  const answers = await dnsLookup(host, { all: true });
+  if (!answers.length) throw new Error('host did not resolve');
+  for (const { address } of answers) {
+    if (isPrivateOrReservedIp(address)) throw new Error('target address is not allowed');
+  }
 }
 
 // ── Server-side sessions + RBAC ──────────────────────────────────────────────
@@ -1715,6 +1799,30 @@ async function clearBucket(key) {
     await redisDel(loginAttemptKey(key));
   }
   LOGIN_ATTEMPTS.delete(key);
+}
+
+// ── Public-intake rate limit ─────────────────────────────────────────────────
+// M-2 FIX: the unauthenticated intake endpoints (queue submit — up to
+// QUEUE_UPLOAD_MAX_BYTES stored in the DB per call — and manager request, which
+// fans out Discord notifications) had no throttle, so a bot could exhaust DB
+// storage or spam webhooks. Apply a coarse per-IP limit reusing the generic
+// Redis+memory bucket counter. Returns true when the request may proceed; on
+// limit it writes a 429 (with Retry-After) and returns false.
+const INTAKE_MAX_PER_WINDOW = Number(process.env.PUBLIC_INTAKE_MAX_PER_WINDOW) || 10;
+const INTAKE_WINDOW_SECONDS = Number(process.env.PUBLIC_INTAKE_WINDOW_SECONDS) || 3600;
+
+async function guardPublicIntake(req, res, name) {
+  const ip = getClientIp(req) || 'unknown';
+  const key = `intake:${name}:${ip}`;
+  const rate = await checkBucket(key, INTAKE_MAX_PER_WINDOW, INTAKE_WINDOW_SECONDS);
+  if (!rate.allowed) {
+    const retryAfter = Math.ceil((rate.retryAfterMs || INTAKE_WINDOW_SECONDS * 1000) / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    sendJson(res, 429, { error: 'Too many requests. Please try again later.' });
+    return false;
+  }
+  await recordBucketFailure(key, INTAKE_WINDOW_SECONDS);
+  return true;
 }
 
 // ── Per-username escalating lockout ──────────────────────────────────────────
@@ -3579,6 +3687,9 @@ async function handleApi(req, res, requestUrl) {
       return true;
     }
     if (req.method === 'POST') {
+      if (!(await guardPublicIntake(req, res, 'manager-request'))) {
+        return true;
+      }
       const { name, description } = await readJsonBody(req);
       if (typeof name !== 'string' || !name.trim()) {
         sendJson(res, 400, { error: 'name is required' });
@@ -3981,6 +4092,9 @@ async function handleApi(req, res, requestUrl) {
   // /api/* surface): a student fills out /request and the model file is stored
   // directly in Postgres. Replaces the old Google Form → Sheet → CSV sync.
   if (requestUrl.pathname === '/api/queue/submit' && req.method === 'POST') {
+    if (!(await guardPublicIntake(req, res, 'queue-submit'))) {
+      return true;
+    }
     const availability = evaluateQueueAvailability(await getQueueAvailabilitySetting());
     if (!availability.open) {
       sendJson(res, 403, { error: availability.message });
@@ -5676,6 +5790,10 @@ async function handleApi(req, res, requestUrl) {
       let reachable = false;
       let detail = '';
       try {
+        // H-3: refuse to probe a URL that resolves to a private/reserved address
+        // (loopback, LAN, cloud metadata) so this admin diagnostic can't be used
+        // as an SSRF primitive.
+        await assertPublicHttpTarget(idpSsoUrl);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
         try {
@@ -5827,6 +5945,26 @@ async function handleApi(req, res, requestUrl) {
 async function handlePrinterProxy(req, res, requestUrl, prefix, makeTargetUrl, extraHeaders = {}) {
   if (!requestUrl.pathname.startsWith(prefix)) {
     return false;
+  }
+
+  // C-1 FIX: the printer-control proxy (/__printer_proxy/) is a raw passthrough
+  // to the printer hardware API (Moonraker for Snapmaker), which executes
+  // gcode/pause/resume/cancel — including via GET (`/printer/gcode/script?script=`).
+  // It is dispatched outside the /api/ auth gate, so without this check any
+  // anonymous caller reaching the site could drive every printer. Require an
+  // operator/admin session here, matching the RBAC on /api/printers/:id/command.
+  // The webcam prefix (/__printer_webcam/) is a read-only camera feed embedded in
+  // the dashboard (and used in public viewer mode), so it stays unauthenticated.
+  if (prefix === '/__printer_proxy/') {
+    const session = await resolveSession(req);
+    if (!session) {
+      sendJson(res, 401, { error: 'Authentication required.' });
+      return true;
+    }
+    if (!isPrivilegedRole(sessionRole(session))) {
+      sendJson(res, 403, { error: 'Operator access required.' });
+      return true;
+    }
   }
 
   const pathParts = requestUrl.pathname.slice(prefix.length).split('/').filter(Boolean);
@@ -6208,9 +6346,15 @@ async function handleRequest(req, res) {
   } catch (error) {
     logger.error('unhandled request error', { route, reqId: requestId, err: error });
     if (!res.headersSent) {
-      sendJson(res, error.message === 'Request body is too large' ? 413 : 500, {
-        error: error instanceof Error ? error.message : 'Request failed',
-      });
+      // M-7 FIX: the full error string can carry internal detail (a printer's
+      // LAN IP/port/hostname from a failed proxy fetch, DB DSN fragments, etc.).
+      // Log it server-side (above) but return only a generic message to the
+      // client. The body-too-large case is a known, safe, actionable 413.
+      if (error && error.message === 'Request body is too large') {
+        sendJson(res, 413, { error: 'Request body is too large' });
+      } else {
+        sendJson(res, 500, { error: 'Internal server error', requestId });
+      }
     } else {
       res.end();
     }
