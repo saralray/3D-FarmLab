@@ -92,15 +92,6 @@ export async function markQueueJobAsPrinted(jobId: string) {
   logAuditEvent('queue.mark_printed', jobId);
 }
 
-export async function resetQueueJobStatuses() {
-  const response = await fetch('/api/queue/reset', {
-    method: 'POST',
-  });
-
-  await readJsonResponse<void>(response);
-  logAuditEvent('queue.reset');
-}
-
 export async function deleteQueueJob(jobId: string) {
   const response = await fetch(`/api/queue/${encodeURIComponent(jobId)}`, {
     method: 'DELETE',

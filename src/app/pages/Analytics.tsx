@@ -22,7 +22,6 @@ import { Button } from '../components/ui/button';
 import { useAuth } from '../contexts/AuthContext';
 import { formatMaxTwoDecimals, roundToMaxTwoDecimals } from '../lib/numberFormat';
 import { AnalyticsCardGrid } from '../components/AnalyticsCardGrid';
-import { logAuditEvent } from '../lib/auditApi';
 import {
   DEFAULT_ANALYTICS_LAYOUT,
   fetchAnalyticsLayout,
@@ -37,7 +36,6 @@ export function Analytics() {
   const { user } = useAuth();
   const { printers } = usePrinters();
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData[]>([]);
-  const [resetInFlight, setResetInFlight] = useState(false);
   const [layout, setLayout] = useState<AnalyticsLayout>(DEFAULT_ANALYTICS_LAYOUT);
   const [isLayoutEditing, setIsLayoutEditing] = useState(false);
   const [layoutError, setLayoutError] = useState<string | null>(null);
@@ -100,38 +98,6 @@ export function Analytics() {
   ].filter((status) => status.value > 0);
 
   const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#ef4444', '#6b7280'];
-
-  const handleResetAnalytics = async () => {
-    if (user?.role !== 'admin' || resetInFlight) {
-      return;
-    }
-
-    setResetInFlight(true);
-
-    try {
-      const response = await fetch('/api/analytics/daily/reset', {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        throw new Error(`Reset failed with ${response.status}`);
-      }
-
-      logAuditEvent('analytics.reset');
-
-      const refreshed = await fetch('/api/analytics/daily', { cache: 'no-store' });
-      if (!refreshed.ok) {
-        throw new Error(`Analytics refresh failed with ${refreshed.status}`);
-      }
-
-      const payload = await refreshed.json();
-      if (Array.isArray(payload)) {
-        setAnalyticsData(payload);
-      }
-    } finally {
-      setResetInFlight(false);
-    }
-  };
 
   const handleCommitLayout = (next: AnalyticsLayout) => {
     // Reconcile to the full card set before saving so a partial/empty layout
@@ -343,14 +309,6 @@ export function Analytics() {
                   Edit layout
                 </>
               )}
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={handleResetAnalytics}
-              disabled={resetInFlight}
-            >
-              {resetInFlight ? 'Resetting...' : 'Set Zero'}
             </Button>
           </div>
         )}
