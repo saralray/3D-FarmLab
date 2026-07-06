@@ -1328,12 +1328,23 @@ function staffUserWithHash(record) {
   };
 }
 
-// Best-effort client IP for the audit trail: prefer the first hop in
-// X-Forwarded-For (nginx sets it) and fall back to the socket address.
+// Client IP used for the audit trail AND for login rate limiting, so it must not
+// be spoofable from a client-supplied header. nginx sets X-Real-IP and replaces
+// X-Forwarded-For with the real peer address ($remote_addr), so we trust, in
+// order: X-Real-IP, then the RIGHTMOST X-Forwarded-For value (the hop appended by
+// the trusted proxy — the leftmost is attacker-controllable on a multi-value
+// header), then the socket peer. Reading the rightmost token means a client that
+// injects its own `X-Forwarded-For: <fake>` can no longer mint a fresh rate-limit
+// bucket per request.
 function getClientIp(req) {
+  const realIp = req.headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) {
+    return realIp.trim();
+  }
   const forwarded = req.headers['x-forwarded-for'];
   if (typeof forwarded === 'string' && forwarded.trim()) {
-    return forwarded.split(',')[0].trim();
+    const parts = forwarded.split(',');
+    return parts[parts.length - 1].trim();
   }
   return req.socket?.remoteAddress || null;
 }
@@ -1578,64 +1589,189 @@ function isPrivilegedRole(role) {
   return role === 'admin' || role === 'operator';
 }
 
-// Login throttle (per client IP). Backed by Redis when REDIS_URL is set — a single
-// shared counter so the limit holds across multiple web instances — and by this
-// in-memory Map otherwise (or whenever Redis is unreachable). Both signals are
-// consulted on check so a Redis outage mid-window can't silently reset a client's
-// failure count; failures are recorded to whichever backend is live.
-const LOGIN_ATTEMPTS = new Map();
-const LOGIN_MAX_FAILURES = 8;
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_WINDOW_SECONDS = Math.floor(LOGIN_WINDOW_MS / 1000);
-const loginAttemptKey = (key) => `loginfail:${key}`;
+// Credential-attempt throttle. Every credential check (login + the two verify
+// oracles) is guarded on TWO buckets so a wordlist/dictionary run can't succeed:
+//   • per client IP  — a coarse limit (8 failures / 15 min) that trips regardless
+//     of which account is being probed.
+//   • per username   — an escalating account lockout so a wordlist aimed at one
+//     account is banned even when the attacker rotates source IPs (botnet).
+// Each bucket is backed by Redis when REDIS_URL is set — shared counters so the
+// limit holds across multiple web instances — and by an in-memory Map otherwise
+// (or whenever Redis is unreachable). Both signals are consulted on check so a
+// Redis outage mid-window can't silently reset a client's failure count; failures
+// are recorded to whichever backend is live. All lockouts auto-expire (temporary,
+// no admin action needed).
+const LOGIN_ATTEMPTS = new Map(); // bucketKey -> { count, resetAt }
+const USERNAME_LOCKS = new Map(); // username    -> { lockUntil, tier, tierResetAt }
 
-function checkLoginRateMemory(key, now = Date.now()) {
+const IP_MAX_FAILURES = 8;
+const IP_WINDOW_MS = 15 * 60 * 1000;
+const IP_WINDOW_SECONDS = Math.floor(IP_WINDOW_MS / 1000);
+
+// Per-username: N failures inside the counting window trip a lock whose length
+// doubles each time the same account is re-locked (15m → 30m → 1h … capped 6h),
+// tracked by a penalty "tier" that itself decays after a day of good behaviour.
+const USERNAME_MAX_FAILURES = 5;
+const USERNAME_WINDOW_SECONDS = Math.floor((15 * 60 * 1000) / 1000);
+const USERNAME_BASE_LOCK_MS = 15 * 60 * 1000;
+const USERNAME_MAX_LOCK_MS = 6 * 60 * 60 * 1000;
+const USERNAME_PENALTY_TTL_SECONDS = 24 * 60 * 60;
+
+const ipBucketKey = (ip) => `ip:${ip}`;
+const loginAttemptKey = (key) => `loginfail:${key}`;
+const usernameLockKey = (name) => `loginlock:user:${name}`;
+const usernamePenaltyKey = (name) => `loginpenalty:user:${name}`;
+
+function lockWindowMsForTier(tier) {
+  const ms = USERNAME_BASE_LOCK_MS * 2 ** Math.max(0, tier - 1);
+  return Math.min(ms, USERNAME_MAX_LOCK_MS);
+}
+
+// ── Generic per-bucket counter (the coarse IP limiter is one caller) ─────────
+function checkBucketMemory(key, maxFailures, now = Date.now()) {
   const entry = LOGIN_ATTEMPTS.get(key);
   if (!entry || now >= entry.resetAt) {
     return { allowed: true };
   }
-  if (entry.count >= LOGIN_MAX_FAILURES) {
+  if (entry.count >= maxFailures) {
     return { allowed: false, retryAfterMs: entry.resetAt - now };
   }
   return { allowed: true };
 }
 
-function recordLoginFailureMemory(key, now = Date.now()) {
+function recordBucketFailureMemory(key, windowMs, now = Date.now()) {
   const entry = LOGIN_ATTEMPTS.get(key);
   if (!entry || now >= entry.resetAt) {
-    LOGIN_ATTEMPTS.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    LOGIN_ATTEMPTS.set(key, { count: 1, resetAt: now + windowMs });
     return;
   }
   entry.count += 1;
 }
 
-async function checkLoginRate(key) {
+async function checkBucket(key, maxFailures, windowSeconds) {
   if (isRedisEnabled()) {
     const raw = await redisGet(loginAttemptKey(key));
-    if (raw !== null && Number(raw) >= LOGIN_MAX_FAILURES) {
+    if (raw !== null && Number(raw) >= maxFailures) {
       const ttl = await redisTtl(loginAttemptKey(key));
-      return { allowed: false, retryAfterMs: (ttl ?? LOGIN_WINDOW_SECONDS) * 1000 };
+      return { allowed: false, retryAfterMs: (ttl ?? windowSeconds) * 1000 };
     }
   }
   // Always honor the in-memory signal too (covers Redis-down windows).
-  return checkLoginRateMemory(key);
+  return checkBucketMemory(key, maxFailures);
 }
 
-async function recordLoginFailure(key) {
+async function recordBucketFailure(key, windowSeconds) {
   if (isRedisEnabled()) {
-    const count = await redisIncrWithTtl(loginAttemptKey(key), LOGIN_WINDOW_SECONDS);
+    const count = await redisIncrWithTtl(loginAttemptKey(key), windowSeconds);
     if (count !== null) {
-      return; // recorded in Redis (the shared counter)
+      return count; // recorded in Redis (the shared counter)
     }
   }
-  recordLoginFailureMemory(key); // Redis disabled or unreachable → in-memory
+  recordBucketFailureMemory(key, windowSeconds * 1000); // Redis down/disabled → memory
+  const entry = LOGIN_ATTEMPTS.get(key);
+  return entry ? entry.count : 1;
 }
 
-async function clearLoginAttempts(key) {
+async function clearBucket(key) {
   if (isRedisEnabled()) {
     await redisDel(loginAttemptKey(key));
   }
   LOGIN_ATTEMPTS.delete(key);
+}
+
+// ── Per-username escalating lockout ──────────────────────────────────────────
+async function checkUsernameLock(username) {
+  if (!username) {
+    return { allowed: true };
+  }
+  if (isRedisEnabled()) {
+    const ttl = await redisTtl(usernameLockKey(username));
+    if (ttl !== null && ttl > 0) {
+      return { allowed: false, retryAfterMs: ttl * 1000 };
+    }
+  }
+  const entry = USERNAME_LOCKS.get(username);
+  if (entry && entry.lockUntil > Date.now()) {
+    return { allowed: false, retryAfterMs: entry.lockUntil - Date.now() };
+  }
+  return { allowed: true };
+}
+
+// Record one failed attempt for a username; once the counting window collects
+// USERNAME_MAX_FAILURES failures, (re)arm the escalating lock and bump the tier.
+async function recordUsernameFailure(username) {
+  if (!username) {
+    return;
+  }
+  const failures = await recordBucketFailure(usernameLockKey(username), USERNAME_WINDOW_SECONDS);
+  if (failures < USERNAME_MAX_FAILURES) {
+    return;
+  }
+  // Threshold crossed → escalate. The penalty tier persists across windows so a
+  // persistent attacker faces ever-longer locks, then decays after a quiet day.
+  let tier = 1;
+  if (isRedisEnabled()) {
+    const bumped = await redisIncrWithTtl(usernamePenaltyKey(username), USERNAME_PENALTY_TTL_SECONDS);
+    if (bumped !== null) {
+      tier = bumped;
+    }
+  } else {
+    const now = Date.now();
+    const prev = USERNAME_LOCKS.get(username);
+    tier = prev && prev.tierResetAt > now ? prev.tier + 1 : 1;
+  }
+  const lockMs = lockWindowMsForTier(tier);
+  const lockSeconds = Math.ceil(lockMs / 1000);
+  if (isRedisEnabled()) {
+    await redisSet(usernameLockKey(username), '1', lockSeconds);
+    // Reset the failure counter so the next window starts fresh after the lock.
+    await clearBucket(usernameLockKey(username));
+  }
+  USERNAME_LOCKS.set(username, {
+    lockUntil: Date.now() + lockMs,
+    tier,
+    tierResetAt: Date.now() + USERNAME_PENALTY_TTL_SECONDS * 1000,
+  });
+  LOGIN_ATTEMPTS.delete(usernameLockKey(username));
+  logger.warn('login.lockout', { username, tier, lockSeconds });
+}
+
+async function clearUsernameLock(username) {
+  if (!username) {
+    return;
+  }
+  if (isRedisEnabled()) {
+    await redisDel(usernameLockKey(username), usernamePenaltyKey(username));
+  }
+  USERNAME_LOCKS.delete(username);
+  LOGIN_ATTEMPTS.delete(usernameLockKey(username));
+}
+
+// ── Combined guard shared by /api/auth/login and the two verify endpoints ────
+// Locked when EITHER the IP bucket or the username lock trips; retryAfterMs is
+// the longer of the two so the client is told the true wait.
+async function guardCredentialAttempt({ ip, username }) {
+  const ipKey = ipBucketKey(ip || 'unknown');
+  const [ipRate, userRate] = await Promise.all([
+    checkBucket(ipKey, IP_MAX_FAILURES, IP_WINDOW_SECONDS),
+    checkUsernameLock(username),
+  ]);
+  if (ipRate.allowed && userRate.allowed) {
+    return { allowed: true };
+  }
+  const retryAfterMs = Math.max(ipRate.retryAfterMs || 0, userRate.retryAfterMs || 0);
+  return { allowed: false, retryAfterMs };
+}
+
+async function recordCredentialFailure({ ip, username }) {
+  await Promise.all([
+    recordBucketFailure(ipBucketKey(ip || 'unknown'), IP_WINDOW_SECONDS),
+    recordUsernameFailure(username),
+  ]);
+}
+
+async function clearCredentialAttempts({ ip, username }) {
+  await Promise.all([clearBucket(ipBucketKey(ip || 'unknown')), clearUsernameLock(username)]);
 }
 
 // ── Authorization matrix for the frontend /api/* surface ─────────────────────
@@ -4211,8 +4347,15 @@ async function handleApi(req, res, requestUrl) {
   // as before), then issues an HttpOnly session cookie. This is what actually
   // authorizes subsequent mutations; the client role state is presentation only.
   if (requestUrl.pathname === '/api/auth/login' && req.method === 'POST') {
-    const rateKey = getClientIp(req) || 'unknown';
-    const rate = await checkLoginRate(rateKey);
+    const ip = getClientIp(req) || 'unknown';
+    // Parse the body first so the username is available for the per-account lock.
+    const body = await readJsonBody(req);
+    const username = typeof body?.username === 'string' ? body.username.trim().toLowerCase() : '';
+    const passwordHash = body?.passwordHash;
+    const remember = Boolean(body?.remember);
+    const rateKey = { ip, username };
+
+    const rate = await guardCredentialAttempt(rateKey);
     if (!rate.allowed) {
       res.setHeader('Retry-After', String(Math.ceil(rate.retryAfterMs / 1000)));
       sendJson(res, 429, {
@@ -4222,13 +4365,8 @@ async function handleApi(req, res, requestUrl) {
       return true;
     }
 
-    const body = await readJsonBody(req);
-    const username = typeof body?.username === 'string' ? body.username.trim().toLowerCase() : '';
-    const passwordHash = body?.passwordHash;
-    const remember = Boolean(body?.remember);
-
     if (!username || !isSha256Hex(passwordHash)) {
-      await recordLoginFailure(rateKey);
+      await recordCredentialFailure(rateKey);
       sendJson(res, 401, { error: 'Invalid credentials.' });
       return true;
     }
@@ -4263,12 +4401,12 @@ async function handleApi(req, res, requestUrl) {
     }
 
     if (!user) {
-      await recordLoginFailure(rateKey);
+      await recordCredentialFailure(rateKey);
       sendJson(res, 401, { error: 'Invalid credentials.' });
       return true;
     }
 
-    await clearLoginAttempts(rateKey);
+    await clearCredentialAttempts(rateKey);
     await issueSession(req, res, user, { remember });
     await recordAuditLog({
       actorName: user.name,
@@ -4644,13 +4782,30 @@ async function handleApi(req, res, requestUrl) {
 
   // Validates an admin login. Returns { valid } and an HTTP 401 on mismatch so
   // the client can branch without parsing the body. The hash is compared in
-  // constant time; the stored hash is never echoed back.
+  // constant time; the stored hash is never echoed back. Brute-force throttled on
+  // the same IP + username buckets as /api/auth/login, so this can't be used as an
+  // unlimited oracle to sidestep the login lockout.
   if (requestUrl.pathname === '/api/admin/credential/verify' && req.method === 'POST') {
+    const rateKey = { ip: getClientIp(req) || 'unknown', username: RESERVED_USERNAME };
+    const rate = await guardCredentialAttempt(rateKey);
+    if (!rate.allowed) {
+      res.setHeader('Retry-After', String(Math.ceil(rate.retryAfterMs / 1000)));
+      sendJson(res, 429, {
+        error: 'Too many failed attempts. Please wait and try again.',
+        retryAfterMs: rate.retryAfterMs,
+      });
+      return true;
+    }
     const stored = await getAppSetting(ADMIN_CREDENTIAL_KEY);
     const storedHash =
       stored && typeof stored.passwordHash === 'string' ? stored.passwordHash : '';
     const { passwordHash } = await readJsonBody(req);
     const valid = storedHash.length > 0 && (await verifyPassword(storedHash, passwordHash));
+    if (valid) {
+      await clearCredentialAttempts(rateKey);
+    } else {
+      await recordCredentialFailure(rateKey);
+    }
     sendJson(res, valid ? 200 : 401, { valid });
     return true;
   }
@@ -4714,20 +4869,34 @@ async function handleApi(req, res, requestUrl) {
 
   // Verify a staff (non-admin) login. Returns { valid } and, on success, the
   // sanitized user record so the client can open a session. The hash is compared
-  // in constant time and never echoed back.
+  // in constant time and never echoed back. Brute-force throttled on the same
+  // IP + username buckets as /api/auth/login (shared lock — an attacker can't
+  // dodge the login lockout by hammering this endpoint instead).
   if (requestUrl.pathname === '/api/users/verify' && req.method === 'POST') {
     const body = await readJsonBody(req);
     const username =
       typeof body?.username === 'string' ? body.username.trim().toLowerCase() : '';
     const passwordHash = body?.passwordHash;
+    const rateKey = { ip: getClientIp(req) || 'unknown', username };
+    const rate = await guardCredentialAttempt(rateKey);
+    if (!rate.allowed) {
+      res.setHeader('Retry-After', String(Math.ceil(rate.retryAfterMs / 1000)));
+      sendJson(res, 429, {
+        error: 'Too many failed attempts. Please wait and try again.',
+        retryAfterMs: rate.retryAfterMs,
+      });
+      return true;
+    }
     const usersList = await readStaffUsers();
     const found = isSha256Hex(passwordHash)
       ? await findUserByCredential(usersList, username, passwordHash)
       : undefined;
     if (!found) {
+      await recordCredentialFailure(rateKey);
       sendJson(res, 401, { valid: false });
       return true;
     }
+    await clearCredentialAttempts(rateKey);
     sendJson(res, 200, { valid: true, user: sanitizeStaffUser(found) });
     return true;
   }

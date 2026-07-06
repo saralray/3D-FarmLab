@@ -30,6 +30,14 @@ Because `/__printer_proxy/` and `/__printer_webcam/` do not start with `/api/`, 
 
 ### C-2 — Login Rate Limiter Bypassed via X-Forwarded-For Spoofing
 
+> **Status (Node web): addressed.** nginx now sets `X-Real-IP $remote_addr` in
+> addition to replacing `X-Forwarded-For` (`nginx/default.conf.template`), and
+> `getClientIp` (`server/app.js`) prefers `X-Real-IP`, then the **rightmost**
+> `X-Forwarded-For` value (the trusted-proxy hop), then the socket peer — so a
+> client-supplied header can no longer mint a fresh rate-limit bucket. The Go port
+> (`go-services/cmd/web/`) is not deployed by `docker-compose.yml`; apply the same
+> change there if it is ever built.
+
 **Files:** `go-services/cmd/web/auth.go:115-127`, `server/app.js:1023-1029`
 
 The rate limiter keys on `getClientIP`, which takes the **first** (leftmost) value in `X-Forwarded-For`:
@@ -45,6 +53,15 @@ Behind nginx, `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for` **ap
 ---
 
 ### C-3 — No Rate Limiting on `/api/admin/credential/verify` and `/api/users/verify`
+
+> **Status (Node web): addressed.** Both frontend verify endpoints (`server/app.js`)
+> now run through the same combined `guardCredentialAttempt` / `recordCredentialFailure`
+> throttle as `/api/auth/login`, keyed on the shared per-IP and per-username buckets —
+> so they return `429` when locked and can't be used as an unthrottled oracle to
+> sidestep the login lockout. A new **per-username escalating lockout** (5 failures →
+> 15 min, doubling to a 6 h cap, auto-unlock) also defends against wordlist attacks
+> that rotate source IPs. The Go port (`go-services/cmd/web/`) is not deployed; apply
+> the same guard there if it is ever built.
 
 **File:** `go-services/cmd/web/authroutes.go:338-366`
 
