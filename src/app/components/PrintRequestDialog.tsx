@@ -133,28 +133,6 @@ export function PrintRequestDialog({ children, open: controlledOpen, onOpenChang
           : `${validEntries.length} print requests submitted!`,
       );
 
-      if (email.trim()) {
-        const subject =
-          validEntries.length === 1
-            ? `3D Print Request Received — ${validEntries[0].file!.name}`
-            : `3D Print Request Received — ${validEntries.length} files`;
-        const body = [
-          `Hi ${[firstName.trim(), lastName.trim()].filter(Boolean).join(' ') || studentId.trim()},`,
-          '',
-          'We have received your 3D print request:',
-          ...validEntries.map(
-            (e) =>
-              `  • ${e.file!.name} (${Math.max(1, Number(e.quantity) || 1)} piece${Math.max(1, Number(e.quantity) || 1) === 1 ? '' : 's'})`,
-          ),
-          '',
-          'Our staff will review and queue your job.',
-          '',
-          '— STEM Lab Print Farm',
-        ].join('\n');
-        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email.trim())}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-        window.open(gmailUrl, '_blank', 'noopener,noreferrer');
-      }
-
       resetForm();
     } catch (error) {
       console.error('Failed to submit print request', error);
