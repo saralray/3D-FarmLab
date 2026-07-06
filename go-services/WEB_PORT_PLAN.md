@@ -120,7 +120,17 @@ go-services/
   `limit-1`) — confirmed against Node at the 998/999/1000/1001 boundary — so the Go check is
   `>=` not `>`. The `id` (sha1 of `submittedAt.toISOString()|studentId||name|filename`) is
   non-deterministic across runs by design, so it's structure-normalized (`queue-<HEX16>`)
-  rather than byte-compared.
+  rather than byte-compared. **Gap found & fixed (security):** this phase was originally
+  ported from a `server/app.js` snapshot that predated the queue-availability window
+  (`queue_availability` app_setting, `evaluateQueueAvailability`), so the Go submit path
+  never rejected a submission outside the admin-configured closing schedule regardless of
+  how it was set — confirmed independently on a live deployment. `queue.go` now carries its
+  own `getQueueAvailabilitySetting`/`evaluateQueueAvailability` (using `time.LoadLocation`
+  instead of Node's `Intl.DateTimeFormat` workaround; `time.Weekday` numbering already
+  matches Node's Sunday=0..Saturday=6), checked at the top of `handleQueueSubmit` before
+  parsing the multipart body, plus the previously-missing `GET /api/queue/availability` and
+  `GET`/`PUT /api/settings/queue-availability` routes (`api.go`/`mutations.go`), so all three
+  endpoints are now at parity with Node.
 - **Phase 6 — done & verified.** Printer hardware: the raw HTTP passthrough
   (`handlePrinterProxy` in `cmd/web/proxy.go`, backing `/__printer_proxy/` and
   `/__printer_webcam/`, plus the friendly `/webcam/<id-or-name>` URL), and the Bambu MQTT

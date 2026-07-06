@@ -225,6 +225,13 @@ func handleAPI(w http.ResponseWriter, req *http.Request) bool {
 		respondShaped(w, publicViewerShape(stored), err)
 		return true
 
+	// Queue submission window — GET is public (the unauthenticated /request page
+	// reads it); PUT is admin-gated by isAdminMutation's /api/settings/* rule.
+	case pathname == "/api/settings/queue-availability" && req.Method == http.MethodGet:
+		setting, err := getQueueAvailabilitySetting(ctx)
+		respondShaped(w, setting, err)
+		return true
+
 	case pathname == "/api/settings/analytics-layout" && req.Method == http.MethodGet:
 		stored, err := getAppSetting(ctx, "analytics_layout")
 		respondShaped(w, layoutShape(stored), err)
