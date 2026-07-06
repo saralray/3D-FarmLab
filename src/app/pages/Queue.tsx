@@ -7,7 +7,7 @@ import { List, ClipboardList, ChevronLeft, ChevronRight, FileSpreadsheet, Clock 
 import { toast } from 'sonner';
 import { PrintRequestDialog } from '../components/PrintRequestDialog';
 import { QueueAvailabilityDialog } from '../components/QueueAvailabilityDialog';
-import { deleteQueueJob, fetchQueueJobs, markQueueJobAsPrinted, resetQueueJobStatuses } from '../lib/queueApi';
+import { deleteQueueJob, fetchQueueJobs, markQueueJobAsPrinted } from '../lib/queueApi';
 import { useAuth } from '../contexts/AuthContext';
 import { usePrinters } from '../contexts/PrintersContext';
 import { isReadOnlyRole } from '../lib/usersApi';
@@ -20,7 +20,6 @@ export function Queue() {
   const [queue, setQueue] = useState<PrintJob[]>([]);
   const [history, setHistory] = useState<PrintJob[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
-  const [resetInFlight, setResetInFlight] = useState(false);
 
   const HISTORY_PAGE_SIZE = 5;
 
@@ -49,27 +48,6 @@ export function Queue() {
     } catch (error) {
       console.error('Failed to mark queue job as printed', error);
       toast.error('Unable to update printed status');
-    }
-  };
-
-  const handleResetQueue = async () => {
-    if (user?.role !== 'admin' || resetInFlight) {
-      return;
-    }
-
-    setResetInFlight(true);
-
-    try {
-      await resetQueueJobStatuses();
-      const refreshed = await fetchQueueJobs();
-      setQueue(refreshed.queue);
-      setHistory(refreshed.history);
-      toast.success('Queue reset for development');
-    } catch (error) {
-      console.error('Failed to reset queue jobs', error);
-      toast.error('Unable to reset queue');
-    } finally {
-      setResetInFlight(false);
     }
   };
 
@@ -193,16 +171,6 @@ export function Queue() {
                 Queue Availability
               </Button>
             </QueueAvailabilityDialog>
-          )}
-          {user?.role === 'admin' && (
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={handleResetQueue}
-              disabled={resetInFlight}
-            >
-              {resetInFlight ? 'Resetting...' : 'Reset Queue'}
-            </Button>
           )}
           {canExport && (
             <Button variant="outline" onClick={handleExportExcel}>
