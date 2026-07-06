@@ -19,7 +19,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    if (PUBLIC_VIEWER_MODE) {
+    if (PUBLIC_VIEWER_MODE || location.pathname === '/queue') {
       return <>{children}</>;
     }
     return <Navigate to="/login" state={{ from: location }} replace />;

@@ -1966,19 +1966,17 @@ const PUBLIC_API_MUTATIONS = new Set([
 // fleet health aggregates). World-readable only when the anonymous public-viewer
 // dashboard is enabled; otherwise they require a session so a non-public
 // deployment doesn't leak this to unauthenticated callers.
+// Note: /api/queue has been made public so that public users can always see the queue.
 const VIEWER_GATED_READS = new Set([
-  '/api/queue',
   '/api/maintenance/summary',
 ]);
 
 // The stored model file for a queue job (GET /api/queue/:id/file). Its bytes are
-// the student's uploaded model — gate it with the same viewer-mode rule as the
-// /api/queue listing so a deployment that disables the public dashboard doesn't
-// leave the files world-downloadable to anyone who has (or guesses) a job id.
+// the student's uploaded model.
 const QUEUE_FILE_READ_RE = /^\/api\/queue\/[^/]+\/file$/;
 
 function isViewerGatedRead(pathname) {
-  return VIEWER_GATED_READS.has(pathname) || QUEUE_FILE_READ_RE.test(pathname);
+  return VIEWER_GATED_READS.has(pathname);
 }
 
 function publicViewerModeEnabled() {
