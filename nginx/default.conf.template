@@ -3,6 +3,21 @@ map $http_upgrade $connection_upgrade {
   '' close;
 }
 
+# ── DDoS / abuse mitigation (L7) ─────────────────────────────────────────────
+# Per-client-IP request-rate and concurrent-connection limits. nginx is the
+# internet-facing edge here, so $binary_remote_addr is the real client IP (the
+# same value the app rate-limits on via X-Real-IP). These blunt application-layer
+# request floods, connection exhaustion, and slowloris. A volumetric (L3/L4)
+# flood is beyond a single host and still needs an upstream CDN/scrubber.
+#
+# Defaults are deliberately generous: a whole class often shares ONE public IP
+# behind institutional NAT, so a tight per-IP cap would throttle legitimate use.
+# Tune via RATE_LIMIT_* in .env. Rejections return 429 (not the default 503).
+limit_req_zone $binary_remote_addr zone=req_per_ip:10m rate=${RATE_LIMIT_REQ_RATE};
+limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;
+limit_req_status 429;
+limit_conn_status 429;
+
 server {
   listen 80;
   server_name ${SERVER_NAME};
@@ -13,6 +28,25 @@ server {
 
   client_max_body_size 2m;
   server_tokens off;
+
+  # DDoS: apply the per-IP request-rate + connection caps to the whole site.
+  # `burst` absorbs legitimate spikes (a single page load pulls many JS/CSS
+  # chunks at once); `nodelay` serves that burst immediately instead of queueing.
+  # A stream/upload is a single long-lived request, so it costs one token — the
+  # long-lived streaming locations below raise only the *connection* cap so a
+  # multi-camera public dashboard on shared NAT isn't blocked.
+  limit_req zone=req_per_ip burst=${RATE_LIMIT_REQ_BURST} nodelay;
+  limit_conn conn_per_ip ${RATE_LIMIT_CONN};
+
+  # Slowloris / slow-request defense: drop clients that dribble their request
+  # line + headers too slowly to tie up a worker connection. Combined with the
+  # per-IP connection cap above (which bounds how many slow sockets one attacker
+  # can hold), this closes the classic slow-header and slow-POST vectors. The
+  # body timeout is between-reads and generous, so a large upload on a slow link
+  # is fine as long as bytes keep flowing. Free timed-out sockets promptly.
+  client_header_timeout 15s;
+  client_body_timeout 60s;
+  reset_timedout_connection on;
 
   # Every dashboard poll is a JSON response and every page load pulls the
   # fingerprinted JS/CSS bundle — neither was compressed before, so this cuts
@@ -56,6 +90,10 @@ server {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;
     proxy_read_timeout 3600s;
+    # DDoS: a live dashboard holds one MJPEG connection per visible camera, and
+    # many viewers can share one NAT IP, so give streams far more connection
+    # headroom than the general per-IP cap (which would otherwise block them).
+    limit_conn conn_per_ip 300;
 
     # The webcam player is embedded in a same-origin <iframe> on the detail
     # page, so allow SAMEORIGIN framing here instead of the global DENY. Drop
@@ -82,6 +120,7 @@ server {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;
     proxy_read_timeout 3600s;
+    limit_conn conn_per_ip 300; # DDoS: long-lived MJPEG — see /__printer_webcam/
   }
 
   # Slicer-upload proxy, served on the same origin as the dashboard. Slicers
@@ -205,6 +244,7 @@ server {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;
     proxy_read_timeout 3600s;
+    limit_conn conn_per_ip 300; # DDoS: long-lived SSE — see /__printer_webcam/
   }
 
   location / {
