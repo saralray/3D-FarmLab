@@ -173,6 +173,26 @@ When `autoProvisionUsers` is enabled, the `role` attribute from the SAML asserti
 
 ---
 
+### N-2 — No Edge Rate Limiting / DDoS Mitigation (L7)
+
+> **Status: added.** nginx now enforces per-client-IP request-rate, burst, and
+> concurrent-connection limits (`limit_req`/`limit_conn` on `$binary_remote_addr`,
+> `nginx/default.conf.template`), plus slowloris timeouts
+> (`client_header_timeout`, `reset_timedout_connection`). Rejections return `429`.
+> Defaults are generous (`RATE_LIMIT_REQ_RATE=50r/s`, `RATE_LIMIT_REQ_BURST=100`,
+> `RATE_LIMIT_CONN=100`, tunable in `.env`) so a shared-NAT classroom isn't
+> throttled; long-lived streaming locations (webcam MJPEG, SSE) get a raised
+> connection cap so live multi-camera views keep working. This blunts
+> application-layer floods, connection exhaustion, and slow-request attacks. A
+> **volumetric (L3/L4) DDoS is out of scope for a single host** — put a CDN /
+> scrubbing provider (Cloudflare etc.) in front of nginx for that.
+
+Previously there was no `limit_req`/`limit_conn` anywhere at the nginx edge, so
+every endpoint relied entirely on app-level throttles (which cover only the
+credential paths). Validated with `nginx -t` on the rendered template.
+
+---
+
 ### N-1 — Queue Model-File Download Not Gated by Viewer Mode
 
 > **Status (Node web): fixed.** `GET /api/queue/:id/file` now classifies as a
