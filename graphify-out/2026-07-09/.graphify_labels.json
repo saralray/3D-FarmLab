@@ -126,7 +126,6 @@
   "124": "send_discord_embed",
   "125": "alert.tsx",
   "126": "SSO configuration (`/api/settings/saml`)",
-  "127": "Operational endpoints",
   "128": "10-prometheus-htpasswd.sh",
   "129": "Google Sheet queue sync (legacy, superseded)",
   "130": "Analytics resource (/api/v1/analytics)",

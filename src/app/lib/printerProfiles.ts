@@ -889,15 +889,15 @@ export type FilamentMaterial = (typeof FILAMENT_MATERIALS)[number];
 // Common filament vendors offered as suggestions by the "Edit filament" dialog.
 // The field is free-text (any brand is allowed); these just populate a datalist.
 export const FILAMENT_VENDORS = [
+  'Generic',
   'Bambu Lab',
-  'Snapmaker',
-  'Polymaker',
   'eSUN',
   'Hatchbox',
-  'Prusament',
   'Overture',
+  'Polymaker',
+  'Prusament',
+  'Snapmaker',
   'SUNLU',
-  'Generic',
 ] as const;
 
 export function printerSupportsFilamentEdit(printer: Printer) {

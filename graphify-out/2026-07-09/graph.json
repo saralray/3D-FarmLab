@@ -499,7 +499,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "poller_bambuclient",
-      "community": 68,
+      "community": 18,
       "norm_label": "bambuclient"
     },
     {
@@ -509,7 +509,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "go_services_cmd_poller_bambu_go_mutex",
-      "community": 68,
+      "community": 18,
       "norm_label": "mutex"
     },
     {
@@ -529,7 +529,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "go_services_cmd_poller_bambu_go_time",
-      "community": 68,
+      "community": 18,
       "norm_label": "time"
     },
     {
@@ -549,7 +549,7 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "poller_bambuclient_onconnect",
-      "community": 68,
+      "community": 18,
       "norm_label": ".onconnect()"
     },
     {
@@ -579,7 +579,7 @@
       "source_location": "L94",
       "_origin": "ast",
       "id": "poller_bambuclient_requestpushall",
-      "community": 68,
+      "community": 18,
       "norm_label": ".requestpushall()"
     },
     {
@@ -589,7 +589,7 @@
       "source_location": "L110",
       "_origin": "ast",
       "id": "poller_bambuclient_latestreport",
-      "community": 68,
+      "community": 18,
       "norm_label": ".latestreport()"
     },
     {
@@ -599,7 +599,7 @@
       "source_location": "L131",
       "_origin": "ast",
       "id": "poller_bambuclient_close",
-      "community": 68,
+      "community": 18,
       "norm_label": ".close()"
     },
     {
@@ -619,7 +619,7 @@
       "source_location": "L164",
       "_origin": "ast",
       "id": "go_services_cmd_poller_bambu_prunebambuclients",
-      "community": 68,
+      "community": 18,
       "norm_label": "prunebambuclients()"
     },
     {
@@ -1399,7 +1399,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers",
-      "community": 18,
+      "community": 40,
       "norm_label": "helpers.go"
     },
     {
@@ -1419,7 +1419,7 @@
       "source_location": "L24",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mget",
-      "community": 18,
+      "community": 40,
       "norm_label": "mget()"
     },
     {
@@ -1429,7 +1429,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_go_pmap",
-      "community": 18,
+      "community": 40,
       "norm_label": "pmap"
     },
     {
@@ -1459,7 +1459,7 @@
       "source_location": "L56",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_isnum",
-      "community": 18,
+      "community": 40,
       "norm_label": "isnum()"
     },
     {
@@ -1469,7 +1469,7 @@
       "source_location": "L61",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mfloat",
-      "community": 18,
+      "community": 40,
       "norm_label": "mfloat()"
     },
     {
@@ -1479,7 +1479,7 @@
       "source_location": "L66",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mfloatdef",
-      "community": 18,
+      "community": 40,
       "norm_label": "mfloatdef()"
     },
     {
@@ -1489,7 +1489,7 @@
       "source_location": "L73",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mint",
-      "community": 18,
+      "community": 40,
       "norm_label": "mint()"
     },
     {
@@ -1499,7 +1499,7 @@
       "source_location": "L80",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mmap",
-      "community": 41,
+      "community": 40,
       "norm_label": "mmap()"
     },
     {
@@ -1509,7 +1509,7 @@
       "source_location": "L87",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mslice",
-      "community": 18,
+      "community": 40,
       "norm_label": "mslice()"
     },
     {
@@ -1579,7 +1579,7 @@
       "source_location": "L137",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_parseisoepoch",
-      "community": 18,
+      "community": 33,
       "norm_label": "parseisoepoch()"
     },
     {
@@ -1589,7 +1589,7 @@
       "source_location": "L146",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_clone",
-      "community": 18,
+      "community": 40,
       "norm_label": "clone()"
     },
     {
@@ -1599,7 +1599,7 @@
       "source_location": "L155",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_merge",
-      "community": 18,
+      "community": 40,
       "norm_label": "merge()"
     },
     {
@@ -1709,7 +1709,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "go_services_cmd_poller_netbytes",
-      "community": 68,
+      "community": 34,
       "norm_label": "netbytes.go"
     },
     {
@@ -1719,7 +1719,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "go_services_cmd_poller_netbytes_resetcyclebytes",
-      "community": 68,
+      "community": 34,
       "norm_label": "resetcyclebytes()"
     },
     {
@@ -1729,7 +1729,7 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "go_services_cmd_poller_netbytes_addbytesout",
-      "community": 68,
+      "community": 34,
       "norm_label": "addbytesout()"
     },
     {
@@ -1749,7 +1749,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "go_services_cmd_poller_netbytes_snapshotcyclebytes",
-      "community": 68,
+      "community": 34,
       "norm_label": "snapshotcyclebytes()"
     },
     {
@@ -1879,7 +1879,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "go_services_cmd_poller_offline",
-      "community": 34,
+      "community": 40,
       "norm_label": "offline.go"
     },
     {
@@ -1889,7 +1889,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "go_services_cmd_poller_offline_nowseconds",
-      "community": 34,
+      "community": 40,
       "norm_label": "nowseconds()"
     },
     {
@@ -1899,7 +1899,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "go_services_cmd_poller_offline_buildofflineprinterstate",
-      "community": 34,
+      "community": 40,
       "norm_label": "buildofflineprinterstate()"
     },
     {
@@ -1909,7 +1909,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "go_services_cmd_poller_offline_go_pmap",
-      "community": 34,
+      "community": 40,
       "norm_label": "pmap"
     },
     {
@@ -1919,7 +1919,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "go_services_cmd_poller_offline_applyofflinegraceperiod",
-      "community": 34,
+      "community": 40,
       "norm_label": "applyofflinegraceperiod()"
     },
     {
@@ -2169,7 +2169,7 @@
       "source_location": "L106",
       "_origin": "ast",
       "id": "go_services_cmd_poller_snapmaker_fetchsnapmakerstatus",
-      "community": 18,
+      "community": 40,
       "norm_label": "fetchsnapmakerstatus()"
     },
     {
@@ -10385,7 +10385,7 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "ios_filament_station_filamentstation_views_writetagview_writetagview_loadspools",
-      "community": 59,
+      "community": 71,
       "norm_label": ".loadspools()"
     },
     {
@@ -11543,7 +11543,7 @@
       "source_location": "L1058",
       "_origin": "ast",
       "id": "poller_printer_status_poller_build_bambu_current_job",
-      "community": 54,
+      "community": 23,
       "norm_label": "build_bambu_current_job()"
     },
     {
@@ -11673,7 +11673,7 @@
       "source_location": "L1490",
       "_origin": "ast",
       "id": "poller_printer_status_poller_spool_grams",
-      "community": 125,
+      "community": 23,
       "norm_label": "_spool_grams()"
     },
     {
@@ -11683,7 +11683,7 @@
       "source_location": "L1499",
       "_origin": "ast",
       "id": "poller_printer_status_poller_update_bambu_filament_used",
-      "community": 125,
+      "community": 23,
       "norm_label": "update_bambu_filament_used()"
     },
     {
@@ -11823,7 +11823,7 @@
       "source_location": "L1849",
       "_origin": "ast",
       "id": "poller_printer_status_poller_decode_nozzle_value",
-      "community": 23,
+      "community": 25,
       "norm_label": "_decode_nozzle_value()"
     },
     {
@@ -11833,7 +11833,7 @@
       "source_location": "L1871",
       "_origin": "ast",
       "id": "poller_printer_status_poller_build_bambu_dual_nozzles",
-      "community": 23,
+      "community": 25,
       "norm_label": "build_bambu_dual_nozzles()"
     },
     {
@@ -11933,7 +11933,7 @@
       "source_location": "L2271",
       "_origin": "ast",
       "id": "poller_printer_status_poller_webhook_wants",
-      "community": 54,
+      "community": 125,
       "norm_label": "webhook_wants()"
     },
     {
@@ -11943,7 +11943,7 @@
       "source_location": "L2283",
       "_origin": "ast",
       "id": "poller_printer_status_poller_tts_content_for_embed",
-      "community": 54,
+      "community": 125,
       "norm_label": "tts_content_for_embed()"
     },
     {
@@ -11953,7 +11953,7 @@
       "source_location": "L2293",
       "_origin": "ast",
       "id": "poller_printer_status_poller_send_discord_embed",
-      "community": 54,
+      "community": 125,
       "norm_label": "send_discord_embed()"
     },
     {
@@ -12323,7 +12323,7 @@
       "source_location": "L1491",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_1491",
-      "community": 125,
+      "community": 23,
       "norm_label": "remaining grams per spool id, for spools that actually report it (>0)."
     },
     {
@@ -12333,7 +12333,7 @@
       "source_location": "L1504",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_1504",
-      "community": 125,
+      "community": 23,
       "norm_label": "set job[\"filamentused\"] from the ams remaining-grams delta since print start."
     },
     {
@@ -12433,7 +12433,7 @@
       "source_location": "L2272",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_2272",
-      "community": 54,
+      "community": 125,
       "norm_label": "a webhook with events == none receives every event (historical default);     a l"
     },
     {
@@ -12443,7 +12443,7 @@
       "source_location": "L2284",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_2284",
-      "community": 54,
+      "community": 125,
       "norm_label": "discord only speaks the message `content` aloud (embeds are never read by     tt"
     },
     {
@@ -18080,7 +18080,7 @@
       "label": "TabConfig",
       "file_type": "code",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L25",
+      "source_location": "L26",
       "_origin": "ast",
       "id": "src_app_components_bottomtabbar_tabconfig",
       "community": 21,
@@ -18090,7 +18090,7 @@
       "label": "primaryTabs",
       "file_type": "code",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L31",
+      "source_location": "L32",
       "_origin": "ast",
       "id": "src_app_components_bottomtabbar_primarytabs",
       "community": 21,
@@ -18100,7 +18100,7 @@
       "label": "maintenanceTab",
       "file_type": "code",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L38",
+      "source_location": "L39",
       "_origin": "ast",
       "id": "src_app_components_bottomtabbar_maintenancetab",
       "community": 21,
@@ -18110,7 +18110,7 @@
       "label": "BottomTabBar()",
       "file_type": "code",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L44",
+      "source_location": "L45",
       "_origin": "ast",
       "id": "src_app_components_bottomtabbar_bottomtabbar",
       "community": 21,
@@ -25920,7 +25920,7 @@
       "label": "AddSpoolDialog()",
       "file_type": "code",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L259",
+      "source_location": "L257",
       "_origin": "ast",
       "id": "src_app_pages_filamentstation_addspooldialog",
       "community": 83,
@@ -25930,7 +25930,7 @@
       "label": "SpoolCard()",
       "file_type": "code",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L375",
+      "source_location": "L372",
       "_origin": "ast",
       "id": "src_app_pages_filamentstation_spoolcard",
       "community": 83,
@@ -25940,7 +25940,7 @@
       "label": "SpoolsTab()",
       "file_type": "code",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L481",
+      "source_location": "L478",
       "_origin": "ast",
       "id": "src_app_pages_filamentstation_spoolstab",
       "community": 83,
@@ -25950,7 +25950,7 @@
       "label": "AssignmentsTab()",
       "file_type": "code",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L559",
+      "source_location": "L556",
       "_origin": "ast",
       "id": "src_app_pages_filamentstation_assignmentstab",
       "community": 10,
@@ -25960,7 +25960,7 @@
       "label": "FilamentStation()",
       "file_type": "code",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L757",
+      "source_location": "L754",
       "_origin": "ast",
       "id": "src_app_pages_filamentstation_filamentstation",
       "community": 70,
@@ -26290,7 +26290,7 @@
       "label": "bambuTrayId()",
       "file_type": "code",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L147",
+      "source_location": "L143",
       "_origin": "ast",
       "id": "src_app_pages_printerdetail_bambutrayid",
       "community": 4,
@@ -26300,7 +26300,7 @@
       "label": "bambuSlotLabel()",
       "file_type": "code",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L159",
+      "source_location": "L155",
       "_origin": "ast",
       "id": "src_app_pages_printerdetail_bambuslotlabel",
       "community": 4,
@@ -26310,7 +26310,7 @@
       "label": "TemperatureTargetControl()",
       "file_type": "code",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L170",
+      "source_location": "L166",
       "_origin": "ast",
       "id": "src_app_pages_printerdetail_temperaturetargetcontrol",
       "community": 4,
@@ -26320,7 +26320,7 @@
       "label": "formatTargetForInput()",
       "file_type": "code",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L218",
+      "source_location": "L214",
       "_origin": "ast",
       "id": "src_app_pages_printerdetail_formattargetforinput",
       "community": 4,
@@ -26330,7 +26330,7 @@
       "label": "formatMinutesAsHourDotMinute()",
       "file_type": "code",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L222",
+      "source_location": "L218",
       "_origin": "ast",
       "id": "src_app_pages_printerdetail_formatminutesashourdotminute",
       "community": 4,
@@ -26340,7 +26340,7 @@
       "label": "CameraHealthBadge()",
       "file_type": "code",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L232",
+      "source_location": "L228",
       "_origin": "ast",
       "id": "src_app_pages_printerdetail_camerahealthbadge",
       "community": 4,
@@ -26350,7 +26350,7 @@
       "label": "thermalTextClass()",
       "file_type": "code",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L285",
+      "source_location": "L281",
       "_origin": "ast",
       "id": "src_app_pages_printerdetail_thermaltextclass",
       "community": 4,
@@ -26360,7 +26360,7 @@
       "label": "ThermalBar()",
       "file_type": "code",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L296",
+      "source_location": "L292",
       "_origin": "ast",
       "id": "src_app_pages_printerdetail_thermalbar",
       "community": 4,
@@ -26370,7 +26370,7 @@
       "label": "PrinterInfoDraft",
       "file_type": "code",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L316",
+      "source_location": "L312",
       "_origin": "ast",
       "id": "src_app_pages_printerdetail_printerinfodraft",
       "community": 4,
@@ -26380,7 +26380,7 @@
       "label": "PrinterDetail()",
       "file_type": "code",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L326",
+      "source_location": "L322",
       "_origin": "ast",
       "id": "src_app_pages_printerdetail_printerdetail",
       "community": 4,
@@ -26883,7 +26883,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "api",
-      "community": 108,
+      "community": 75,
       "norm_label": "api.md"
     },
     {
@@ -27423,7 +27423,7 @@
       "source_location": "L1035",
       "_origin": "ast",
       "id": "api_website_access_mode_api_settings_public_viewer",
-      "community": 126,
+      "community": 108,
       "norm_label": "website access mode (`/api/settings/public-viewer`)"
     },
     {
@@ -27433,7 +27433,7 @@
       "source_location": "L1045",
       "_origin": "ast",
       "id": "api_get_api_settings_public_viewer",
-      "community": 126,
+      "community": 108,
       "norm_label": "`get /api/settings/public-viewer`"
     },
     {
@@ -27443,7 +27443,7 @@
       "source_location": "L1056",
       "_origin": "ast",
       "id": "api_put_api_settings_public_viewer",
-      "community": 126,
+      "community": 108,
       "norm_label": "`put /api/settings/public-viewer`"
     },
     {
@@ -27513,7 +27513,7 @@
       "source_location": "L1154",
       "_origin": "ast",
       "id": "api_sso_public_url_api_settings_sso_public_url",
-      "community": 108,
+      "community": 126,
       "norm_label": "sso public url (`/api/settings/sso-public-url`)"
     },
     {
@@ -27523,7 +27523,7 @@
       "source_location": "L1166",
       "_origin": "ast",
       "id": "api_get_api_settings_sso_public_url",
-      "community": 108,
+      "community": 126,
       "norm_label": "`get /api/settings/sso-public-url`"
     },
     {
@@ -27533,7 +27533,7 @@
       "source_location": "L1178",
       "_origin": "ast",
       "id": "api_put_api_settings_sso_public_url",
-      "community": 108,
+      "community": 126,
       "norm_label": "`put /api/settings/sso-public-url`"
     },
     {
@@ -27703,7 +27703,7 @@
       "source_location": "L1442",
       "_origin": "ast",
       "id": "api_operational_endpoints",
-      "community": 127,
+      "community": 108,
       "norm_label": "operational endpoints"
     },
     {
@@ -27713,7 +27713,7 @@
       "source_location": "L1448",
       "_origin": "ast",
       "id": "api_get_healthz",
-      "community": 127,
+      "community": 108,
       "norm_label": "`get /healthz`"
     },
     {
@@ -27723,7 +27723,7 @@
       "source_location": "L1458",
       "_origin": "ast",
       "id": "api_get_readyz",
-      "community": 127,
+      "community": 108,
       "norm_label": "`get /readyz`"
     },
     {
@@ -27733,7 +27733,7 @@
       "source_location": "L1479",
       "_origin": "ast",
       "id": "api_get_metrics",
-      "community": 127,
+      "community": 108,
       "norm_label": "`get /metrics`"
     },
     {
@@ -27833,7 +27833,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "readme",
-      "community": 108,
+      "community": 75,
       "norm_label": "readme.md"
     },
     {
@@ -85212,7 +85212,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L44",
+      "source_location": "L45",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_bottomtabbar_bottomtabbar",
@@ -85222,7 +85222,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L38",
+      "source_location": "L39",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_bottomtabbar_maintenancetab",
@@ -85232,7 +85232,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L31",
+      "source_location": "L32",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_bottomtabbar_primarytabs",
@@ -85242,7 +85242,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L25",
+      "source_location": "L26",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_bottomtabbar_tabconfig",
@@ -85253,7 +85253,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L16",
+      "source_location": "L17",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_notificationbell",
@@ -85264,7 +85264,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L16",
+      "source_location": "L17",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_notificationbell_notificationbell",
@@ -85275,7 +85275,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L17",
+      "source_location": "L18",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_printrequestdialog",
@@ -85286,7 +85286,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L17",
+      "source_location": "L18",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_printrequestdialog_printrequestdialog",
@@ -85297,7 +85297,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L15",
+      "source_location": "L16",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_themetoggle",
@@ -85308,7 +85308,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L15",
+      "source_location": "L16",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_themetoggle_themetoggle",
@@ -85319,7 +85319,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L20",
+      "source_location": "L21",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_ui_button",
@@ -85330,7 +85330,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L20",
+      "source_location": "L21",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_ui_button_button",
@@ -85341,7 +85341,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L21",
+      "source_location": "L22",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_ui_sheet",
@@ -85352,7 +85352,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L21",
+      "source_location": "L22",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_ui_sheet_sheet",
@@ -85363,7 +85363,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L21",
+      "source_location": "L22",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_ui_sheet_sheetcontent",
@@ -85374,7 +85374,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L21",
+      "source_location": "L22",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_ui_sheet_sheetheader",
@@ -85385,7 +85385,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L21",
+      "source_location": "L22",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_components_ui_sheet_sheettitle",
@@ -85396,7 +85396,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L18",
+      "source_location": "L19",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_contexts_authcontext",
@@ -85407,7 +85407,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L18",
+      "source_location": "L19",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_contexts_authcontext_useauth",
@@ -85418,7 +85418,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L19",
+      "source_location": "L20",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_contexts_sidebarcontext",
@@ -85429,7 +85429,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L19",
+      "source_location": "L20",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_contexts_sidebarcontext_usesidebar",
@@ -85440,7 +85440,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L22",
+      "source_location": "L23",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_lib_runtimeconfig",
@@ -85451,7 +85451,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L23",
+      "source_location": "L24",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_lib_usersapi",
@@ -85462,7 +85462,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L23",
+      "source_location": "L24",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar",
       "target": "src_app_lib_usersapi_isreadonlyrole",
@@ -85485,7 +85485,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L47",
+      "source_location": "L48",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar_bottomtabbar",
       "target": "src_app_contexts_authcontext_useauth"
@@ -85496,7 +85496,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L48",
+      "source_location": "L49",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar_bottomtabbar",
       "target": "src_app_contexts_sidebarcontext_usesidebar"
@@ -85507,7 +85507,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/components/BottomTabBar.tsx",
-      "source_location": "L55",
+      "source_location": "L56",
       "weight": 1.0,
       "source": "src_app_components_bottomtabbar_bottomtabbar",
       "target": "src_app_lib_usersapi_isreadonlyrole"
@@ -98044,7 +98044,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L329",
+      "source_location": "L325",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_contexts_authcontext_useauth"
@@ -98527,7 +98527,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L568",
+      "source_location": "L565",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation_assignmentstab",
       "target": "src_app_contexts_printerscontext_useprinters"
@@ -98538,7 +98538,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L490",
+      "source_location": "L487",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation_spoolstab",
       "target": "src_app_contexts_printerscontext_useprinters"
@@ -102553,7 +102553,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L1513",
+      "source_location": "L1509",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_numberformat_formatmaxtwodecimals"
@@ -103854,7 +103854,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L1812",
+      "source_location": "L1808",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_isbambuprofile"
@@ -103898,7 +103898,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L2298",
+      "source_location": "L2294",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_ish2profile"
@@ -103953,7 +103953,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L1694",
+      "source_location": "L1690",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_profilehaschambertemp"
@@ -103986,7 +103986,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L1614",
+      "source_location": "L1610",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_getnozzledisplayorder"
@@ -104129,7 +104129,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L1466",
+      "source_location": "L1462",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_printersupportslight"
@@ -104151,7 +104151,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L894",
+      "source_location": "L890",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_printersupportstemperaturecontrol"
@@ -104184,7 +104184,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L898",
+      "source_location": "L894",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_printersupportscoolingcontrol"
@@ -104228,7 +104228,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L900",
+      "source_location": "L896",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_printersupportsairfilter"
@@ -104294,7 +104294,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L908",
+      "source_location": "L904",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_printersupportsfilamentcontrol"
@@ -104382,7 +104382,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L330",
+      "source_location": "L327",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation_addspooldialog",
       "target": "src_app_lib_printerprofiles_filament_vendors"
@@ -104404,7 +104404,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L2400",
+      "source_location": "L2395",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_filament_vendors"
@@ -104437,7 +104437,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L911",
+      "source_location": "L907",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_printersupportsfilamentedit"
@@ -104492,7 +104492,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L903",
+      "source_location": "L899",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_printersupportsmotioncontrol"
@@ -104591,7 +104591,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L918",
+      "source_location": "L914",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_buildprinterwebcamsnapshoturl"
@@ -104613,7 +104613,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L917",
+      "source_location": "L913",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_printersupportslivemjpeg"
@@ -104635,7 +104635,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L920",
+      "source_location": "L916",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_buildprinterwebcammjpegurl"
@@ -104657,7 +104657,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L916",
+      "source_location": "L912",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_printersupportswebcamstream"
@@ -104679,7 +104679,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L921",
+      "source_location": "L917",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_lib_printerprofiles_buildprinterwebcamplayerurl"
@@ -106318,7 +106318,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L774",
+      "source_location": "L771",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation_filamentstation",
       "target": "src_app_lib_useautorefresh_useautorefresh"
@@ -107141,7 +107141,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L259",
+      "source_location": "L257",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation",
       "target": "src_app_pages_filamentstation_addspooldialog",
@@ -107151,7 +107151,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L559",
+      "source_location": "L556",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation",
       "target": "src_app_pages_filamentstation_assignmentstab",
@@ -107161,7 +107161,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L757",
+      "source_location": "L754",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation",
       "target": "src_app_pages_filamentstation_filamentstation",
@@ -107231,7 +107231,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L375",
+      "source_location": "L372",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation",
       "target": "src_app_pages_filamentstation_spoolcard",
@@ -107261,7 +107261,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L481",
+      "source_location": "L478",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation",
       "target": "src_app_pages_filamentstation_spoolstab",
@@ -107325,7 +107325,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L399",
+      "source_location": "L396",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation_spoolcard",
       "target": "src_app_pages_filamentstation_spoolhex",
@@ -107358,7 +107358,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L403",
+      "source_location": "L400",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation_spoolcard",
       "target": "src_app_pages_filamentstation_spoollabel",
@@ -107400,7 +107400,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/FilamentStation.tsx",
-      "source_location": "L492",
+      "source_location": "L489",
       "weight": 1.0,
       "source": "src_app_pages_filamentstation_spoolstab",
       "target": "src_app_pages_filamentstation_usespooltagwriter",
@@ -107640,7 +107640,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L159",
+      "source_location": "L155",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail",
       "target": "src_app_pages_printerdetail_bambuslotlabel",
@@ -107650,7 +107650,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L147",
+      "source_location": "L143",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail",
       "target": "src_app_pages_printerdetail_bambutrayid",
@@ -107660,7 +107660,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L232",
+      "source_location": "L228",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail",
       "target": "src_app_pages_printerdetail_camerahealthbadge",
@@ -107680,7 +107680,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L222",
+      "source_location": "L218",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail",
       "target": "src_app_pages_printerdetail_formatminutesashourdotminute",
@@ -107690,7 +107690,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L218",
+      "source_location": "L214",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail",
       "target": "src_app_pages_printerdetail_formattargetforinput",
@@ -107700,7 +107700,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L326",
+      "source_location": "L322",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail",
       "target": "src_app_pages_printerdetail_printerdetail",
@@ -107710,7 +107710,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L316",
+      "source_location": "L312",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail",
       "target": "src_app_pages_printerdetail_printerinfodraft",
@@ -107730,7 +107730,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L170",
+      "source_location": "L166",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail",
       "target": "src_app_pages_printerdetail_temperaturetargetcontrol",
@@ -107740,7 +107740,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L296",
+      "source_location": "L292",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail",
       "target": "src_app_pages_printerdetail_thermalbar",
@@ -107750,7 +107750,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L285",
+      "source_location": "L281",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail",
       "target": "src_app_pages_printerdetail_thermaltextclass",
@@ -107783,7 +107783,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L956",
+      "source_location": "L952",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_pages_printerdetail_formatminutesashourdotminute",
@@ -107794,7 +107794,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/app/pages/PrinterDetail.tsx",
-      "source_location": "L1674",
+      "source_location": "L1670",
       "weight": 1.0,
       "source": "src_app_pages_printerdetail_printerdetail",
       "target": "src_app_pages_printerdetail_thermaltextclass",
@@ -110830,5 +110830,5 @@
       "source_file": "monitoring/README.md"
     }
   ],
-  "built_at_commit": "b935eeecea103a7e2fea889ca22c67b19b4d86f5"
+  "built_at_commit": "8156f6bc4f1ab2730498b8269edb18dc1015ef45"
 }

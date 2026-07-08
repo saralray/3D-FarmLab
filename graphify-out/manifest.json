@@ -830,8 +830,8 @@
     "semantic_hash": "b3431d9d72010db94dcc91d1abbd8f48"
   },
   "src/app/lib/printerProfiles.ts": {
-    "mtime": 1783172613.8629508,
-    "ast_hash": "2a3318bba05e188e591632bff5636cec",
+    "mtime": 1783538182.5890403,
+    "ast_hash": "aa8e5f64511dc02d072380f2ff5beab3",
     "semantic_hash": ""
   },
   "src/app/lib/printersApi.ts": {

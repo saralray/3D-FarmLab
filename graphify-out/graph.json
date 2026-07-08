@@ -499,7 +499,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "poller_bambuclient",
-      "community": 18,
+      "community": 68,
       "norm_label": "bambuclient"
     },
     {
@@ -509,7 +509,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "go_services_cmd_poller_bambu_go_mutex",
-      "community": 18,
+      "community": 68,
       "norm_label": "mutex"
     },
     {
@@ -529,7 +529,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "go_services_cmd_poller_bambu_go_time",
-      "community": 18,
+      "community": 68,
       "norm_label": "time"
     },
     {
@@ -549,7 +549,7 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "poller_bambuclient_onconnect",
-      "community": 18,
+      "community": 68,
       "norm_label": ".onconnect()"
     },
     {
@@ -579,7 +579,7 @@
       "source_location": "L94",
       "_origin": "ast",
       "id": "poller_bambuclient_requestpushall",
-      "community": 18,
+      "community": 68,
       "norm_label": ".requestpushall()"
     },
     {
@@ -589,7 +589,7 @@
       "source_location": "L110",
       "_origin": "ast",
       "id": "poller_bambuclient_latestreport",
-      "community": 18,
+      "community": 68,
       "norm_label": ".latestreport()"
     },
     {
@@ -599,7 +599,7 @@
       "source_location": "L131",
       "_origin": "ast",
       "id": "poller_bambuclient_close",
-      "community": 18,
+      "community": 68,
       "norm_label": ".close()"
     },
     {
@@ -619,7 +619,7 @@
       "source_location": "L164",
       "_origin": "ast",
       "id": "go_services_cmd_poller_bambu_prunebambuclients",
-      "community": 18,
+      "community": 68,
       "norm_label": "prunebambuclients()"
     },
     {
@@ -1399,7 +1399,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers",
-      "community": 40,
+      "community": 18,
       "norm_label": "helpers.go"
     },
     {
@@ -1419,7 +1419,7 @@
       "source_location": "L24",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mget",
-      "community": 40,
+      "community": 18,
       "norm_label": "mget()"
     },
     {
@@ -1429,7 +1429,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_go_pmap",
-      "community": 40,
+      "community": 18,
       "norm_label": "pmap"
     },
     {
@@ -1459,7 +1459,7 @@
       "source_location": "L56",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_isnum",
-      "community": 40,
+      "community": 18,
       "norm_label": "isnum()"
     },
     {
@@ -1469,7 +1469,7 @@
       "source_location": "L61",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mfloat",
-      "community": 40,
+      "community": 18,
       "norm_label": "mfloat()"
     },
     {
@@ -1479,7 +1479,7 @@
       "source_location": "L66",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mfloatdef",
-      "community": 40,
+      "community": 18,
       "norm_label": "mfloatdef()"
     },
     {
@@ -1489,7 +1489,7 @@
       "source_location": "L73",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mint",
-      "community": 40,
+      "community": 18,
       "norm_label": "mint()"
     },
     {
@@ -1499,7 +1499,7 @@
       "source_location": "L80",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mmap",
-      "community": 40,
+      "community": 41,
       "norm_label": "mmap()"
     },
     {
@@ -1509,7 +1509,7 @@
       "source_location": "L87",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_mslice",
-      "community": 40,
+      "community": 18,
       "norm_label": "mslice()"
     },
     {
@@ -1579,7 +1579,7 @@
       "source_location": "L137",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_parseisoepoch",
-      "community": 33,
+      "community": 18,
       "norm_label": "parseisoepoch()"
     },
     {
@@ -1589,7 +1589,7 @@
       "source_location": "L146",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_clone",
-      "community": 40,
+      "community": 18,
       "norm_label": "clone()"
     },
     {
@@ -1599,7 +1599,7 @@
       "source_location": "L155",
       "_origin": "ast",
       "id": "go_services_cmd_poller_helpers_merge",
-      "community": 40,
+      "community": 18,
       "norm_label": "merge()"
     },
     {
@@ -1709,7 +1709,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "go_services_cmd_poller_netbytes",
-      "community": 34,
+      "community": 68,
       "norm_label": "netbytes.go"
     },
     {
@@ -1719,7 +1719,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "go_services_cmd_poller_netbytes_resetcyclebytes",
-      "community": 34,
+      "community": 68,
       "norm_label": "resetcyclebytes()"
     },
     {
@@ -1729,7 +1729,7 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "go_services_cmd_poller_netbytes_addbytesout",
-      "community": 34,
+      "community": 68,
       "norm_label": "addbytesout()"
     },
     {
@@ -1749,7 +1749,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "go_services_cmd_poller_netbytes_snapshotcyclebytes",
-      "community": 34,
+      "community": 68,
       "norm_label": "snapshotcyclebytes()"
     },
     {
@@ -1879,7 +1879,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "go_services_cmd_poller_offline",
-      "community": 40,
+      "community": 34,
       "norm_label": "offline.go"
     },
     {
@@ -1889,7 +1889,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "go_services_cmd_poller_offline_nowseconds",
-      "community": 40,
+      "community": 34,
       "norm_label": "nowseconds()"
     },
     {
@@ -1899,7 +1899,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "go_services_cmd_poller_offline_buildofflineprinterstate",
-      "community": 40,
+      "community": 34,
       "norm_label": "buildofflineprinterstate()"
     },
     {
@@ -1909,7 +1909,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "go_services_cmd_poller_offline_go_pmap",
-      "community": 40,
+      "community": 34,
       "norm_label": "pmap"
     },
     {
@@ -1919,7 +1919,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "go_services_cmd_poller_offline_applyofflinegraceperiod",
-      "community": 40,
+      "community": 34,
       "norm_label": "applyofflinegraceperiod()"
     },
     {
@@ -2169,7 +2169,7 @@
       "source_location": "L106",
       "_origin": "ast",
       "id": "go_services_cmd_poller_snapmaker_fetchsnapmakerstatus",
-      "community": 40,
+      "community": 18,
       "norm_label": "fetchsnapmakerstatus()"
     },
     {
@@ -11173,7 +11173,7 @@
       "source_location": "L277",
       "_origin": "ast",
       "id": "poller_printer_status_poller_db_url",
-      "community": 69,
+      "community": 25,
       "norm_label": "db_url()"
     },
     {
@@ -11183,7 +11183,7 @@
       "source_location": "L284",
       "_origin": "ast",
       "id": "poller_printer_status_poller_connect_db",
-      "community": 69,
+      "community": 25,
       "norm_label": "connect_db()"
     },
     {
@@ -11193,7 +11193,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "connection",
-      "community": 32,
+      "community": 25,
       "norm_label": "connection"
     },
     {
@@ -11223,7 +11223,7 @@
       "source_location": "L315",
       "_origin": "ast",
       "id": "poller_printer_status_poller_upsert_poller_health",
-      "community": 32,
+      "community": 25,
       "norm_label": "upsert_poller_health()"
     },
     {
@@ -11293,7 +11293,7 @@
       "source_location": "L582",
       "_origin": "ast",
       "id": "poller_printer_status_poller_list_discord_webhooks",
-      "community": 32,
+      "community": 25,
       "norm_label": "list_discord_webhooks()"
     },
     {
@@ -11303,7 +11303,7 @@
       "source_location": "L600",
       "_origin": "ast",
       "id": "poller_printer_status_poller_list_slicer_estimates",
-      "community": 32,
+      "community": 25,
       "norm_label": "list_slicer_estimates()"
     },
     {
@@ -11313,7 +11313,7 @@
       "source_location": "L609",
       "_origin": "ast",
       "id": "poller_printer_status_poller_record_slicer_estimate",
-      "community": 32,
+      "community": 69,
       "norm_label": "record_slicer_estimate()"
     },
     {
@@ -11673,7 +11673,7 @@
       "source_location": "L1490",
       "_origin": "ast",
       "id": "poller_printer_status_poller_spool_grams",
-      "community": 23,
+      "community": 126,
       "norm_label": "_spool_grams()"
     },
     {
@@ -11683,7 +11683,7 @@
       "source_location": "L1499",
       "_origin": "ast",
       "id": "poller_printer_status_poller_update_bambu_filament_used",
-      "community": 23,
+      "community": 126,
       "norm_label": "update_bambu_filament_used()"
     },
     {
@@ -11693,7 +11693,7 @@
       "source_location": "L1548",
       "_origin": "ast",
       "id": "poller_printer_status_poller_parse_3mf_filament_grams",
-      "community": 32,
+      "community": 69,
       "norm_label": "parse_3mf_filament_grams()"
     },
     {
@@ -11753,7 +11753,7 @@
       "source_location": "L1687",
       "_origin": "ast",
       "id": "poller_printer_status_poller_ensure_bambu_slicer_estimate",
-      "community": 32,
+      "community": 69,
       "norm_label": "ensure_bambu_slicer_estimate()"
     },
     {
@@ -11823,7 +11823,7 @@
       "source_location": "L1849",
       "_origin": "ast",
       "id": "poller_printer_status_poller_decode_nozzle_value",
-      "community": 25,
+      "community": 23,
       "norm_label": "_decode_nozzle_value()"
     },
     {
@@ -11833,7 +11833,7 @@
       "source_location": "L1871",
       "_origin": "ast",
       "id": "poller_printer_status_poller_build_bambu_dual_nozzles",
-      "community": 25,
+      "community": 23,
       "norm_label": "build_bambu_dual_nozzles()"
     },
     {
@@ -11863,7 +11863,7 @@
       "source_location": "L2062",
       "_origin": "ast",
       "id": "poller_printer_status_poller_accrue_print_hours_and_trigger_maintenance",
-      "community": 32,
+      "community": 25,
       "norm_label": "accrue_print_hours_and_trigger_maintenance()"
     },
     {
@@ -11873,7 +11873,7 @@
       "source_location": "L2125",
       "_origin": "ast",
       "id": "poller_printer_status_poller_finalize_job_analytics",
-      "community": 32,
+      "community": 25,
       "norm_label": "finalize_job_analytics()"
     },
     {
@@ -11903,7 +11903,7 @@
       "source_location": "L2202",
       "_origin": "ast",
       "id": "poller_printer_status_poller_grab_mjpeg_frame",
-      "community": 25,
+      "community": 195,
       "norm_label": "grab_mjpeg_frame()"
     },
     {
@@ -11983,7 +11983,7 @@
       "source_location": "L2505",
       "_origin": "ast",
       "id": "poller_printer_status_poller_collect_analytics_for_transition",
-      "community": 32,
+      "community": 25,
       "norm_label": "collect_analytics_for_transition()"
     },
     {
@@ -11993,7 +11993,7 @@
       "source_location": "L2549",
       "_origin": "ast",
       "id": "poller_printer_status_poller_spool_ids",
-      "community": 25,
+      "community": 54,
       "norm_label": "spool_ids()"
     },
     {
@@ -12003,7 +12003,7 @@
       "source_location": "L2557",
       "_origin": "ast",
       "id": "poller_printer_status_poller_check_filament_runout",
-      "community": 25,
+      "community": 54,
       "norm_label": "check_filament_runout()"
     },
     {
@@ -12163,7 +12163,7 @@
       "source_location": "L285",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_285",
-      "community": 69,
+      "community": 25,
       "norm_label": "open the poll-loop's postgres connection with the same safety guards as the"
     },
     {
@@ -12183,7 +12183,7 @@
       "source_location": "L323",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_323",
-      "community": 32,
+      "community": 25,
       "norm_label": "record this shard's last-cycle health so the exporter can surface poller     liv"
     },
     {
@@ -12193,7 +12193,7 @@
       "source_location": "L601",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_601",
-      "community": 32,
+      "community": 25,
       "norm_label": "slicer-derived filament totals keyed by (printer_id, job_name)."
     },
     {
@@ -12203,7 +12203,7 @@
       "source_location": "L612",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_612",
-      "community": 32,
+      "community": 69,
       "norm_label": "upsert a slicer-derived filament total (grams) for one print.      same table/ke"
     },
     {
@@ -12323,7 +12323,7 @@
       "source_location": "L1491",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_1491",
-      "community": 23,
+      "community": 126,
       "norm_label": "remaining grams per spool id, for spools that actually report it (>0)."
     },
     {
@@ -12333,7 +12333,7 @@
       "source_location": "L1504",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_1504",
-      "community": 23,
+      "community": 126,
       "norm_label": "set job[\"filamentused\"] from the ams remaining-grams delta since print start."
     },
     {
@@ -12343,7 +12343,7 @@
       "source_location": "L1549",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_1549",
-      "community": 32,
+      "community": 69,
       "norm_label": "sum the plate-level filament weight (grams) from a 3mf's slice_info.config."
     },
     {
@@ -12383,7 +12383,7 @@
       "source_location": "L1694",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_1694",
-      "community": 32,
+      "community": 69,
       "norm_label": "fetch + store the slicer 3mf estimate for an active bambu print if missing."
     },
     {
@@ -12403,7 +12403,7 @@
       "source_location": "L2065",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_2065",
-      "community": 32,
+      "community": 25,
       "norm_label": "add this job's duration to the printer's lifetime + nozzle hour counters,     th"
     },
     {
@@ -12413,7 +12413,7 @@
       "source_location": "L2203",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_2203",
-      "community": 25,
+      "community": 195,
       "norm_label": "pull the first complete jpeg frame out of a multipart/x-mixed-replace mjpeg"
     },
     {
@@ -12453,7 +12453,7 @@
       "source_location": "L2558",
       "_origin": "ast",
       "id": "poller_printer_status_poller_rationale_2558",
-      "community": 25,
+      "community": 54,
       "norm_label": "fire once when filament runs out, from either signal:      - bambu: the hms/prin"
     },
     {
@@ -26883,7 +26883,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "api",
-      "community": 75,
+      "community": 108,
       "norm_label": "api.md"
     },
     {
@@ -27423,7 +27423,7 @@
       "source_location": "L1035",
       "_origin": "ast",
       "id": "api_website_access_mode_api_settings_public_viewer",
-      "community": 108,
+      "community": 127,
       "norm_label": "website access mode (`/api/settings/public-viewer`)"
     },
     {
@@ -27433,7 +27433,7 @@
       "source_location": "L1045",
       "_origin": "ast",
       "id": "api_get_api_settings_public_viewer",
-      "community": 108,
+      "community": 127,
       "norm_label": "`get /api/settings/public-viewer`"
     },
     {
@@ -27443,7 +27443,7 @@
       "source_location": "L1056",
       "_origin": "ast",
       "id": "api_put_api_settings_public_viewer",
-      "community": 108,
+      "community": 127,
       "norm_label": "`put /api/settings/public-viewer`"
     },
     {
@@ -27513,7 +27513,7 @@
       "source_location": "L1154",
       "_origin": "ast",
       "id": "api_sso_public_url_api_settings_sso_public_url",
-      "community": 126,
+      "community": 108,
       "norm_label": "sso public url (`/api/settings/sso-public-url`)"
     },
     {
@@ -27523,7 +27523,7 @@
       "source_location": "L1166",
       "_origin": "ast",
       "id": "api_get_api_settings_sso_public_url",
-      "community": 126,
+      "community": 108,
       "norm_label": "`get /api/settings/sso-public-url`"
     },
     {
@@ -27533,7 +27533,7 @@
       "source_location": "L1178",
       "_origin": "ast",
       "id": "api_put_api_settings_sso_public_url",
-      "community": 126,
+      "community": 108,
       "norm_label": "`put /api/settings/sso-public-url`"
     },
     {
@@ -27703,7 +27703,7 @@
       "source_location": "L1442",
       "_origin": "ast",
       "id": "api_operational_endpoints",
-      "community": 108,
+      "community": 32,
       "norm_label": "operational endpoints"
     },
     {
@@ -27713,7 +27713,7 @@
       "source_location": "L1448",
       "_origin": "ast",
       "id": "api_get_healthz",
-      "community": 108,
+      "community": 32,
       "norm_label": "`get /healthz`"
     },
     {
@@ -27723,7 +27723,7 @@
       "source_location": "L1458",
       "_origin": "ast",
       "id": "api_get_readyz",
-      "community": 108,
+      "community": 32,
       "norm_label": "`get /readyz`"
     },
     {
@@ -27733,7 +27733,7 @@
       "source_location": "L1479",
       "_origin": "ast",
       "id": "api_get_metrics",
-      "community": 108,
+      "community": 32,
       "norm_label": "`get /metrics`"
     },
     {
@@ -27833,7 +27833,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "readme",
-      "community": 75,
+      "community": 108,
       "norm_label": "readme.md"
     },
     {
@@ -54877,17 +54877,6 @@
       "target": "go_services_cmd_web_ssrf_isprivatehost"
     },
     {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "poller/redis_client.py",
-      "source_location": "L18",
-      "weight": 1.0,
-      "source": "poller_redis_client",
-      "target": "web_ssrfblockederror",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "go-services/cmd/web/redis.go",
@@ -67149,6 +67138,17 @@
       "weight": 1.0,
       "source": "poller_redis_client",
       "target": "poller_redis_client_warn_once",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "poller/redis_client.py",
+      "source_location": "L18",
+      "weight": 1.0,
+      "source": "poller_redis_client",
+      "target": "server_redis",
       "confidence_score": 1.0
     },
     {
@@ -110830,5 +110830,5 @@
       "source_file": "monitoring/README.md"
     }
   ],
-  "built_at_commit": "8156f6bc4f1ab2730498b8269edb18dc1015ef45"
+  "built_at_commit": "a33af17254ed5566e99501339816085d68f4617e"
 }

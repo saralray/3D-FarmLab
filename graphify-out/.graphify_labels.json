@@ -126,6 +126,7 @@
   "124": "send_discord_embed",
   "125": "alert.tsx",
   "126": "SSO configuration (`/api/settings/saml`)",
+  "127": "Website access mode (`/api/settings/public-viewer`)",
   "128": "10-prometheus-htpasswd.sh",
   "129": "Google Sheet queue sync (legacy, superseded)",
   "130": "Analytics resource (/api/v1/analytics)",
@@ -192,5 +193,6 @@
   "191": "M-6 SVG Sanitizer Uses Regex — Multiple Bypass Vectors",
   "192": "M-7 Internal Error Details Forwarded to Clients",
   "193": "SECURITY_AUDIT.md — Security Audit Report",
-  "194": "Vulnerability reporting policy"
+  "194": "Vulnerability reporting policy",
+  "195": "grab_mjpeg_frame"
 }
