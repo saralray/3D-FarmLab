@@ -49,9 +49,10 @@ export function PrintRequest() {
   const { backgroundDataUrl } = useBrandingSettings();
   const { user } = useAuth();
   // A logged-in admin/operator's submitted-by identity is forced server-side
-  // from their session — the name inputs below are only shown for anonymous
-  // (student) submitters.
+  // from their session, so the name inputs below are locked to it for staff.
   const isStaff = !!user && (user.role === 'admin' || user.role === 'operator');
+  const staffFirstName = user?.name.split(' ')[0] ?? '';
+  const staffLastName = user?.name.split(' ').slice(1).join(' ') ?? '';
 
   useEffect(() => {
     let active = true;
@@ -125,8 +126,8 @@ export function PrintRequest() {
           submitPrintRequest({
             // Ignored server-side for a logged-in admin/operator — the
             // submitted-by name is forced from their session instead.
-            firstName: isStaff ? (user?.name ?? '') : firstName.trim(),
-            lastName: isStaff ? '' : lastName.trim(),
+            firstName: isStaff ? staffFirstName : firstName.trim(),
+            lastName: isStaff ? staffLastName : lastName.trim(),
             studentId: studentId.trim(),
             course: course.trim(),
             email: email.trim(),
@@ -239,36 +240,36 @@ export function PrintRequest() {
                   <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                     Your info
                   </h2>
-                  {isStaff ? (
-                    <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                      Submitting as{' '}
-                      <span className="font-medium text-foreground">{user?.name}</span>{' '}
-                      <span className="text-xs uppercase tracking-wide">({user?.role})</span>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="firstName">First name <span className="text-red-500">*</span></Label>
-                        <Input
-                          id="firstName"
-                          value={firstName}
-                          onChange={(e) => setFirstName(e.target.value)}
-                          placeholder="ชื่อ"
-                          required
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="lastName">Last name <span className="text-red-500">*</span></Label>
-                        <Input
-                          id="lastName"
-                          value={lastName}
-                          onChange={(e) => setLastName(e.target.value)}
-                          placeholder="นามสกุล"
-                          required
-                        />
-                      </div>
-                    </div>
+                  {isStaff && (
+                    <p className="text-xs text-muted-foreground">
+                      Logged in as <span className="font-medium text-foreground">{user?.name}</span>{' '}
+                      ({user?.role}) — your name below is forced from your account and locked.
+                    </p>
                   )}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="firstName">First name <span className="text-red-500">*</span></Label>
+                      <Input
+                        id="firstName"
+                        value={isStaff ? staffFirstName : firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        placeholder="ชื่อ"
+                        required
+                        disabled={isStaff}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="lastName">Last name <span className="text-red-500">*</span></Label>
+                      <Input
+                        id="lastName"
+                        value={isStaff ? staffLastName : lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        placeholder="นามสกุล"
+                        required
+                        disabled={isStaff}
+                      />
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="studentId">Student ID <span className="text-red-500">*</span></Label>
