@@ -41,12 +41,12 @@ export function QueueItem({
   };
 
   return (
-    <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-lg hover:shadow-sm transition-shadow">
+    <div className="flex flex-col gap-3 p-3 sm:p-4 bg-card border border-border rounded-lg hover:shadow-sm transition-shadow">
       <div className="flex items-start gap-3">
-        <FileText className="size-8 text-muted-foreground flex-shrink-0 mt-1" />
-        
+        <FileText className="size-6 sm:size-8 text-muted-foreground flex-shrink-0 mt-1" />
+
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
             <div className="flex-1 min-w-0">
               <div className="font-medium truncate text-foreground">
                 {job.submitterName || job.filename}
@@ -55,12 +55,12 @@ export function QueueItem({
                 {job.fileCount ?? 1} piece{(job.fileCount ?? 1) === 1 ? '' : 's'}
               </div>
             </div>
-            
-            <div className="flex items-center gap-1">
+
+            <div className="flex items-center gap-1 flex-wrap -ml-2 sm:ml-0">
               {canDownload && job.stlFileUrl && (
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onClick={(e) => {
                     e.stopPropagation();
                     onDownload?.(job);
@@ -73,7 +73,7 @@ export function QueueItem({
               {canDownload && job.stlFileUrl && (
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onClick={(e) => {
                     e.stopPropagation();
                     onOpenInSlicer?.(job);
@@ -86,7 +86,7 @@ export function QueueItem({
               {canManage && mode === 'queue' && (
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onClick={(e) => {
                     e.stopPropagation();
                     onRemove?.(job.id);
@@ -99,7 +99,7 @@ export function QueueItem({
               {canManage && job.submitterEmail && (
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onClick={(e) => {
                     e.stopPropagation();
                     const subject = `Your 3D Print Request — ${job.filename}`;
@@ -131,7 +131,7 @@ export function QueueItem({
                       onClick={(e) => e.stopPropagation()}
                       aria-label="Delete job"
                       title="Delete job"
-                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent dark:hover:bg-accent/50"
+                      className="inline-flex size-9 shrink-0 items-center justify-center rounded-md hover:bg-accent dark:hover:bg-accent/50"
                     >
                       <Trash2 className="size-4 text-red-600" />
                     </button>

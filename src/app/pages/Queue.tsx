@@ -221,16 +221,16 @@ export function Queue() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold mb-2 text-foreground">Print Queue</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2 text-foreground">Print Queue</h1>
           <p className="text-muted-foreground">Only 3D Print submissions are shown</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {user?.role === 'admin' && (
             <QueueAvailabilityDialog>
-              <Button type="button" variant="outline">
+              <Button type="button" variant="outline" className="w-full justify-center sm:w-auto">
                 <Clock className="size-4 mr-2" />
                 Queue Availability
               </Button>
@@ -242,6 +242,7 @@ export function Queue() {
               variant={bypassActive ? 'default' : 'outline'}
               onClick={handleBypassCloseTime}
               disabled={bypassLoading}
+              className="w-full justify-center sm:w-auto"
             >
               <TimerReset className="size-4 mr-2" />
               {bypassActive
@@ -250,13 +251,13 @@ export function Queue() {
             </Button>
           )}
           {canExport && (
-            <Button variant="outline" onClick={handleExportExcel}>
+            <Button variant="outline" onClick={handleExportExcel} className="w-full justify-center sm:w-auto">
               <FileSpreadsheet className="size-4 mr-2" />
               Export Excel
             </Button>
           )}
           <PrintRequestDialog>
-            <Button variant="outline">
+            <Button variant="outline" className="w-full justify-center sm:w-auto">
               <ClipboardList className="size-4 mr-2" />
               New Print Request
             </Button>
@@ -264,22 +265,22 @@ export function Queue() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <Card className="p-3 sm:p-4">
           <div className="text-sm text-muted-foreground">Jobs in Queue</div>
           <div className="text-3xl font-bold mt-1 text-foreground">{queue.length}</div>
         </Card>
-        <Card className="p-4">
+        <Card className="p-3 sm:p-4">
           <div className="text-sm text-muted-foreground">Available Printers</div>
           <div className="text-3xl font-bold mt-1 text-foreground">{availablePrinters}</div>
         </Card>
-        <Card className="p-4">
+        <Card className="p-3 sm:p-4">
           <div className="text-sm text-muted-foreground">Total Pieces</div>
           <div className="text-3xl font-bold mt-1 text-foreground">{totalFiles}</div>
         </Card>
       </div>
 
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-4">
           <List className="size-5 text-foreground" />
           <h2 className="text-xl font-semibold text-foreground">Submission Queue ({queue.length})</h2>
@@ -288,8 +289,8 @@ export function Queue() {
         {queue.length > 0 ? (
           <div className="space-y-3">
             {queue.map((job, index) => (
-              <div key={job.id} className="flex items-start gap-3">
-                <div className="text-sm font-medium text-muted-foreground w-6 text-center mt-4">
+              <div key={job.id} className="flex items-start gap-2 sm:gap-3">
+                <div className="text-sm font-medium text-muted-foreground w-5 sm:w-6 text-center mt-4 shrink-0">
                   {index + 1}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -316,7 +317,7 @@ export function Queue() {
         )}
       </Card>
 
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-4">
           <List className="size-5 text-foreground" />
           <h2 className="text-xl font-semibold text-foreground">History ({history.length})</h2>
@@ -326,8 +327,8 @@ export function Queue() {
           <>
             <div className="space-y-3">
               {historyPageItems.map((job, index) => (
-                <div key={job.id} className="flex items-start gap-3">
-                  <div className="text-sm font-medium text-muted-foreground w-6 text-center mt-4">
+                <div key={job.id} className="flex items-start gap-2 sm:gap-3">
+                  <div className="text-sm font-medium text-muted-foreground w-5 sm:w-6 text-center mt-4 shrink-0">
                     {historyPage * HISTORY_PAGE_SIZE + index + 1}
                   </div>
                   <div className="min-w-0 flex-1">
