@@ -67,9 +67,9 @@ export function Navigation() {
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/queue', label: 'Queue', icon: List },
+    ...(canSeeMaintenance ? [{ path: '/filament-station', label: 'Filament Station', icon: Boxes }] : []),
     { path: '/analytics', label: 'Analytics', icon: BarChart3 },
     ...(canSeeMaintenance ? [{ path: '/maintenance', label: 'Maintenance', icon: Wrench }] : []),
-    ...(canSeeMaintenance ? [{ path: '/filament-station', label: 'Filament Station', icon: Boxes }] : []),
   ];
   const adminNavItems = !PUBLIC_VIEWER_MODE && user?.role === 'admin'
     ? [

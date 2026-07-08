@@ -11,6 +11,7 @@ import {
   ScrollText,
   Wrench,
   Boxes,
+  Wifi,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { NotificationBell } from './NotificationBell';
@@ -65,6 +66,7 @@ export function BottomTabBar() {
     !PUBLIC_VIEWER_MODE && user?.role === 'admin'
       ? [
           { path: '/logs', label: 'Activity Log', icon: ScrollText },
+          { path: '/network', label: 'Network', icon: Wifi },
           { path: '/settings', label: 'Settings', icon: Settings },
         ]
       : [];
