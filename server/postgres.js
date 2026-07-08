@@ -431,6 +431,27 @@ const MIGRATIONS = [
       ALTER TABLE maintenance_events ADD COLUMN IF NOT EXISTS notified_kind TEXT;
     `,
   },
+  {
+    version: 4,
+    name: 'filament-spools-dedupe-tag-uid',
+    // tag_uid had no uniqueness constraint, so re-linking a physical tag to a
+    // new spool (setFilamentSpoolTagUid) never cleared it off the spool that
+    // held it previously — a re-scan could then resolve back to the stale
+    // spool instead of the one most recently written. Now fixed going forward
+    // (setFilamentSpoolTagUid clears the old holder atomically); this backfills
+    // any duplicates already sitting in the table, keeping only the
+    // most-recently-updated spool for each tag_uid.
+    sql: `
+      UPDATE filament_spools SET tag_uid = NULL, updated_at = NOW()
+      WHERE tag_uid IS NOT NULL
+        AND id NOT IN (
+          SELECT DISTINCT ON (tag_uid) id
+          FROM filament_spools
+          WHERE tag_uid IS NOT NULL
+          ORDER BY tag_uid, updated_at DESC
+        );
+    `,
+  },
 ];
 
 // Advisory lock id for the migration run (distinct from the baseline's 90210), so
@@ -2646,11 +2667,21 @@ export async function updateFilamentSpool(id, patch) {
 // callback / filament tag matcher.
 export async function setFilamentSpoolTagUid(id, tagUid) {
   await ensureSchema();
+  const normalizedTagUid = tagUid || null;
+  // A physical tag gets rewritten and re-linked to a different spool over
+  // time (e.g. re-labeling a spool, or reusing one tag in testing). tag_uid
+  // has no uniqueness constraint, so without this, the old spool keeps the
+  // same tag_uid and findFilamentSpoolByTag can resolve a later scan back to
+  // the wrong (stale) spool instead of the one just written. Clear the tag
+  // off any other spool holding it in the same statement that sets it here.
   const result = await query(
-    `UPDATE filament_spools SET tag_uid = $2, updated_at = NOW() WHERE id = $1 RETURNING *;`,
-    [id, tagUid || null],
+    `UPDATE filament_spools
+     SET tag_uid = CASE WHEN id = $1 THEN $2 ELSE NULL END, updated_at = NOW()
+     WHERE id = $1 OR (tag_uid IS NOT NULL AND $2 IS NOT NULL AND tag_uid = $2)
+     RETURNING *;`,
+    [id, normalizedTagUid],
   );
-  return filamentSpoolRowToJs(result.rows[0]);
+  return filamentSpoolRowToJs(result.rows.find((row) => row.id === id));
 }
 
 export async function deleteFilamentSpool(id) {
