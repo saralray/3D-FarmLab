@@ -1,13 +1,19 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PrintJob } from '../types';
 import { QueueItem } from '../components/QueueItem';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { List, ClipboardList, ChevronLeft, ChevronRight, FileSpreadsheet, Clock } from 'lucide-react';
+import { List, ClipboardList, ChevronLeft, ChevronRight, FileSpreadsheet, Clock, TimerReset } from 'lucide-react';
 import { toast } from 'sonner';
 import { PrintRequestDialog } from '../components/PrintRequestDialog';
 import { QueueAvailabilityDialog } from '../components/QueueAvailabilityDialog';
-import { deleteQueueJob, fetchQueueJobs, markQueueJobAsPrinted } from '../lib/queueApi';
+import {
+  bypassQueueAvailability,
+  deleteQueueJob,
+  fetchQueueAvailability,
+  fetchQueueJobs,
+  markQueueJobAsPrinted,
+} from '../lib/queueApi';
 import { useAuth } from '../contexts/AuthContext';
 import { usePrinters } from '../contexts/PrintersContext';
 import { isReadOnlyRole } from '../lib/usersApi';
@@ -17,9 +23,13 @@ import { exportQueueToXlsx } from '../lib/xlsxExport';
 export function Queue() {
   const { user } = useAuth();
   const { printers } = usePrinters();
+  const canManageQueue = user?.role === 'admin' || user?.role === 'operator';
   const [queue, setQueue] = useState<PrintJob[]>([]);
   const [history, setHistory] = useState<PrintJob[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
+  const [bypassUntil, setBypassUntil] = useState<number | null>(null);
+  const [bypassLoading, setBypassLoading] = useState(false);
+  const [bypassNow, setBypassNow] = useState(() => Date.now());
 
   const HISTORY_PAGE_SIZE = 5;
 
@@ -37,6 +47,61 @@ export function Queue() {
   }, []);
 
   useAutoRefresh(loadQueue, 30_000);
+
+  // Polls whether a manual "bypass close time" (triggered by any operator/admin,
+  // possibly from another session) is currently active, so the countdown here
+  // stays accurate even if this tab didn't trigger it.
+  const loadAvailability = useCallback(async () => {
+    if (!canManageQueue) return;
+    try {
+      const status = await fetchQueueAvailability();
+      setBypassUntil(status.bypassUntil ? new Date(status.bypassUntil).getTime() : null);
+    } catch (error) {
+      console.error('Failed to load queue availability', error);
+    }
+  }, [canManageQueue]);
+
+  useAutoRefresh(loadAvailability, 5_000);
+
+  // Ticks once a second only while a bypass is active, to drive the countdown
+  // and clear it once expired.
+  useEffect(() => {
+    if (bypassUntil === null) return;
+    setBypassNow(Date.now());
+    const id = window.setInterval(() => setBypassNow(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, [bypassUntil]);
+
+  const bypassRemainingMs = bypassUntil !== null ? bypassUntil - bypassNow : 0;
+  const bypassActive = bypassUntil !== null && bypassRemainingMs > 0;
+
+  useEffect(() => {
+    if (bypassUntil !== null && bypassRemainingMs <= 0) {
+      setBypassUntil(null);
+    }
+  }, [bypassUntil, bypassRemainingMs]);
+
+  const handleBypassCloseTime = async () => {
+    setBypassLoading(true);
+    try {
+      const status = await bypassQueueAvailability();
+      setBypassUntil(status.bypassUntil ? new Date(status.bypassUntil).getTime() : null);
+      setBypassNow(Date.now());
+      toast.success('Print request form opened to everyone for 3 minutes');
+    } catch (error) {
+      console.error('Failed to bypass queue close time', error);
+      toast.error('Unable to bypass close time');
+    } finally {
+      setBypassLoading(false);
+    }
+  };
+
+  const formatBypassRemaining = (ms: number) => {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   const handleRemove = async (jobId: string) => {
     try {
@@ -145,7 +210,6 @@ export function Queue() {
 
   const availablePrinters = printers.filter((printer) => printer.status === 'idle').length;
   const totalFiles = queue.reduce((acc, job) => acc + (job.fileCount ?? 1), 0);
-  const canManageQueue = user?.role === 'admin' || user?.role === 'operator';
   const canDeleteQueueJobs = user?.role === 'admin';
   const canDownloadQueueFiles = !isReadOnlyRole(user?.role);
   const canExport = !isReadOnlyRole(user?.role);
@@ -171,6 +235,19 @@ export function Queue() {
                 Queue Availability
               </Button>
             </QueueAvailabilityDialog>
+          )}
+          {canManageQueue && (
+            <Button
+              type="button"
+              variant={bypassActive ? 'default' : 'outline'}
+              onClick={handleBypassCloseTime}
+              disabled={bypassLoading}
+            >
+              <TimerReset className="size-4 mr-2" />
+              {bypassActive
+                ? `Open to everyone (${formatBypassRemaining(bypassRemainingMs)})`
+                : 'Bypass Close Time'}
+            </Button>
           )}
           {canExport && (
             <Button variant="outline" onClick={handleExportExcel}>

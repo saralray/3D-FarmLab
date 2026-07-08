@@ -27,6 +27,9 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 export interface QueueAvailabilityStatus {
   open: boolean;
   message?: string;
+  // Present while an operator/admin's manual "bypass close time" is active —
+  // an ISO timestamp for when it expires.
+  bypassUntil?: string;
 }
 
 // Public read-only check of the admin-configured submission window (Settings
@@ -35,6 +38,15 @@ export interface QueueAvailabilityStatus {
 export async function fetchQueueAvailability(): Promise<QueueAvailabilityStatus> {
   const response = await fetch('/api/queue/availability', { cache: 'no-store' });
   return readJsonResponse<QueueAvailabilityStatus>(response);
+}
+
+// Operator/admin-only: temporarily reopens /request to everyone for a fixed
+// 3-minute window regardless of the configured schedule.
+export async function bypassQueueAvailability(): Promise<QueueAvailabilityStatus> {
+  const response = await fetch('/api/queue/availability/bypass', { method: 'POST' });
+  const status = await readJsonResponse<QueueAvailabilityStatus>(response);
+  logAuditEvent('queue.availability_bypass', null, { bypassUntil: status.bypassUntil });
+  return status;
 }
 
 export async function fetchQueueJobs(): Promise<QueueData> {
