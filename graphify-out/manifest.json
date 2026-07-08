@@ -425,8 +425,8 @@
     "semantic_hash": ""
   },
   "src/app/components/BottomTabBar.tsx": {
-    "mtime": 1783279746.6690383,
-    "ast_hash": "7dea6cb01a75e0963e4894e9f8c84d2d",
+    "mtime": 1783537520.9508388,
+    "ast_hash": "3bdd5f15a50688a856e0ae74b9587182",
     "semantic_hash": ""
   },
   "src/app/components/BrandingApplier.tsx": {
@@ -455,8 +455,8 @@
     "semantic_hash": ""
   },
   "src/app/components/Navigation.tsx": {
-    "mtime": 1783279746.670521,
-    "ast_hash": "a1236058d9e18fe0facfedc95f17b934",
+    "mtime": 1783537388.278464,
+    "ast_hash": "caad52544a308c6cc268812b49b48820",
     "semantic_hash": ""
   },
   "src/app/components/NotificationBell.tsx": {
@@ -495,8 +495,8 @@
     "semantic_hash": ""
   },
   "src/app/components/QueueItem.tsx": {
-    "mtime": 1783279746.6738875,
-    "ast_hash": "d562eb0d5f9ee070dd4031a0f4f48993",
+    "mtime": 1783533805.3118541,
+    "ast_hash": "70fb68a03eebac9189d82ece9a5515a6",
     "semantic_hash": ""
   },
   "src/app/components/SamlSsoSettings.tsx": {
@@ -945,13 +945,13 @@
     "semantic_hash": ""
   },
   "src/app/pages/PrinterDetail.tsx": {
-    "mtime": 1783531823.4022377,
-    "ast_hash": "7155e639f7bab7affd932414d2427eb3",
+    "mtime": 1783538009.150052,
+    "ast_hash": "a06e2ff169c286d2b80577b0ef2a5c2b",
     "semantic_hash": ""
   },
   "src/app/pages/Queue.tsx": {
-    "mtime": 1783492907.460986,
-    "ast_hash": "40abe28e235500ea90434820a4f39c8c",
+    "mtime": 1783533805.3120413,
+    "ast_hash": "f0e0604cd5edcf71078515d8277f6eae",
     "semantic_hash": ""
   },
   "src/app/pages/Root.tsx": {
@@ -1265,8 +1265,8 @@
     "semantic_hash": ""
   },
   "src/app/pages/FilamentStation.tsx": {
-    "mtime": 1783533606.868323,
-    "ast_hash": "4d2f6c7c551edba1201564cd70939eb9",
+    "mtime": 1783537991.1502619,
+    "ast_hash": "0d35bd7568be5d415d5347b970811aaa",
     "semantic_hash": ""
   },
   "ios-filament-station/README.md": {

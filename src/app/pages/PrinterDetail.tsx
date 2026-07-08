@@ -138,10 +138,6 @@ interface FilamentSlot {
   weight?: number;
 }
 
-// Sentinel value for the "Unspecified" vendor option. Radix Select forbids an
-// empty-string item value, so this stands in for "no vendor" and maps back to ''.
-const NO_VENDOR = '__none__';
-
 // Derive a Bambu global tray id from a poller spool id (e.g. "ams0-2" → 2,
 // "ams1-0" → 4, "external" → 254).
 function bambuTrayId(spoolId: string): number | undefined {
@@ -2376,11 +2372,11 @@ export function PrinterDetail() {
               <div className="space-y-2">
                 <Label htmlFor="filament-vendor">Vendor</Label>
                 <Select
-                  value={filamentEditDraft.vendor || NO_VENDOR}
+                  value={filamentEditDraft.vendor}
                   onValueChange={(value) =>
                     setFilamentEditDraft((draft) => ({
                       ...draft,
-                      vendor: value === NO_VENDOR ? '' : value,
+                      vendor: value,
                     }))
                   }
                 >
@@ -2388,7 +2384,6 @@ export function PrinterDetail() {
                     <SelectValue placeholder="Select vendor" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NO_VENDOR}>Unspecified</SelectItem>
                     {FILAMENT_VENDORS.map((vendor) => (
                       <SelectItem key={vendor} value={vendor}>
                         {vendor}

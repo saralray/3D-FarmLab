@@ -254,8 +254,6 @@ function useSpoolTagWriter(onLinked: () => void) {
   return { write, writingSpoolId, status };
 }
 
-const NO_VENDOR = '__unspecified__';
-
 function AddSpoolDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (v: boolean) => void; onCreated: () => void }) {
   const [material, setMaterial] = useState<string>(FILAMENT_MATERIALS[0]);
   const [subtype, setSubtype] = useState('');
@@ -315,12 +313,11 @@ function AddSpoolDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
           </div>
           <div className="space-y-2">
             <Label>Vendor</Label>
-            <Select value={brand || NO_VENDOR} onValueChange={(v) => setBrand(v === NO_VENDOR ? '' : v)}>
+            <Select value={brand} onValueChange={setBrand}>
               <SelectTrigger>
                 <SelectValue placeholder="Select vendor" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_VENDOR}>Unspecified</SelectItem>
                 {FILAMENT_VENDORS.map((vendor) => (
                   <SelectItem key={vendor} value={vendor}>
                     {vendor}
@@ -334,7 +331,7 @@ function AddSpoolDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Color name</Label>
+            <Label>Note</Label>
             <Input value={colorName} onChange={(e) => setColorName(e.target.value)} placeholder="Jade White" />
           </div>
           <div className="col-span-2 space-y-2">
