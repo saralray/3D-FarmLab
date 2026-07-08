@@ -1104,7 +1104,10 @@ string (truncated to 300 chars). Any violation returns `400`.
 
 Public, read-only status check — evaluates the stored schedule against the current
 time in the configured timezone, so the frontend doesn't need to duplicate the
-day/time logic.
+day/time logic. If the caller carries an authenticated **admin or operator** session
+cookie (e.g. staff browsing the public `/request` page while logged in), the window
+is bypassed entirely and this always reports open — staff can add jobs outside the
+configured student-submission hours.
 
 **Response `200`:** `{ "open": true }`, or when closed:
 `{ "open": false, "message": "<closedMessage>" }`.
@@ -1113,7 +1116,19 @@ day/time logic.
 
 Now returns **`403`** with `{ "error": "<closedMessage>" }` when called outside the
 configured window, checked before the multipart body is parsed. No change when the
-setting is disabled or the request falls inside the window.
+setting is disabled or the request falls inside the window. Same admin/operator
+session bypass as `GET /api/queue/availability` above — an authenticated staff
+session skips the window check and the submission is accepted regardless of the
+configured hours.
+
+**Submitted-by identity is forced from the session for staff.** If the request
+carries an authenticated admin/operator session cookie, the stored `submitterName`
+is taken from that session's `name` — the `firstName`/`lastName` form fields are
+ignored entirely for such a request. This is enforced server-side regardless of
+client (browser form or a raw `curl -b <session-cookie>` call), so an authenticated
+staff session can never spoof another person's name in the submitted-by field.
+Anonymous/student submitters are unaffected — `submitterName` still derives from
+their `firstName`/`lastName` (falling back to `studentId`) as before.
 
 Also rate-limited per client IP (default 10 requests/hour, tunable via
 `PUBLIC_INTAKE_MAX_PER_WINDOW` / `PUBLIC_INTAKE_WINDOW_SECONDS`); over the limit

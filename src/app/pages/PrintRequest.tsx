@@ -17,6 +17,7 @@ import { Logo } from '../components/Logo';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { fetchQueueAvailability, submitPrintRequest, type QueueAvailabilityStatus } from '../lib/queueApi';
 import { useBrandingSettings } from '../lib/settingsApi';
+import { useAuth } from '../contexts/AuthContext';
 
 const ACCEPTED_FILE_TYPES = '.stl,.3mf,.obj';
 const ACCEPTED_EXTENSIONS = ['.stl', '.3mf', '.obj'];
@@ -46,6 +47,12 @@ export function PrintRequest() {
   const [submitted, setSubmitted] = useState(false);
   const [availability, setAvailability] = useState<QueueAvailabilityStatus | null>(null);
   const { backgroundDataUrl } = useBrandingSettings();
+  const { user } = useAuth();
+  // A logged-in admin/operator's submitted-by identity is forced server-side
+  // from their session, so the name inputs below are locked to it for staff.
+  const isStaff = !!user && (user.role === 'admin' || user.role === 'operator');
+  const staffFirstName = user?.name.split(' ')[0] ?? '';
+  const staffLastName = user?.name.split(' ').slice(1).join(' ') ?? '';
 
   useEffect(() => {
     let active = true;
@@ -64,8 +71,7 @@ export function PrintRequest() {
 
   const hasFile = entries.some((e) => e.file !== null);
   const canSubmit =
-    firstName.trim() !== '' &&
-    lastName.trim() !== '' &&
+    (isStaff || (firstName.trim() !== '' && lastName.trim() !== '')) &&
     studentId.trim() !== '' &&
     course.trim() !== '' &&
     hasFile;
@@ -90,8 +96,12 @@ export function PrintRequest() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!firstName.trim() || !lastName.trim() || !studentId.trim() || !course.trim()) {
-      toast.error('Please fill in your first name, last name, student ID, and course/class.');
+    if (!isStaff && (!firstName.trim() || !lastName.trim())) {
+      toast.error('Please fill in your first name and last name.');
+      return;
+    }
+    if (!studentId.trim() || !course.trim()) {
+      toast.error('Please fill in your student ID and course/class.');
       return;
     }
 
@@ -114,8 +124,10 @@ export function PrintRequest() {
       await Promise.all(
         validEntries.map((entry) =>
           submitPrintRequest({
-            firstName: firstName.trim(),
-            lastName: lastName.trim(),
+            // Ignored server-side for a logged-in admin/operator — the
+            // submitted-by name is forced from their session instead.
+            firstName: isStaff ? staffFirstName : firstName.trim(),
+            lastName: isStaff ? staffLastName : lastName.trim(),
             studentId: studentId.trim(),
             course: course.trim(),
             email: email.trim(),
@@ -228,25 +240,35 @@ export function PrintRequest() {
                   <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                     Your info
                   </h2>
+                  {isStaff && (
+                    <p className="text-xs text-muted-foreground">
+                      Logged in as <span className="font-medium text-foreground">{user?.name}</span>{' '}
+                      ({user?.role}) — your name below is forced from your account and locked.
+                    </p>
+                  )}
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="firstName">First name <span className="text-red-500">*</span></Label>
                       <Input
                         id="firstName"
-                        value={firstName}
+                        value={isStaff ? staffFirstName : firstName}
                         onChange={(e) => setFirstName(e.target.value)}
                         placeholder="ชื่อ"
                         required
+                        readOnly={isStaff}
+                        className={isStaff ? 'bg-muted/60 cursor-not-allowed' : undefined}
                       />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="lastName">Last name <span className="text-red-500">*</span></Label>
                       <Input
                         id="lastName"
-                        value={lastName}
+                        value={isStaff ? staffLastName : lastName}
                         onChange={(e) => setLastName(e.target.value)}
                         placeholder="นามสกุล"
                         required
+                        readOnly={isStaff}
+                        className={isStaff ? 'bg-muted/60 cursor-not-allowed' : undefined}
                       />
                     </div>
                   </div>
