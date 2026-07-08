@@ -255,7 +255,8 @@ export function PrintRequest() {
                         onChange={(e) => setFirstName(e.target.value)}
                         placeholder="ชื่อ"
                         required
-                        disabled={isStaff}
+                        readOnly={isStaff}
+                        className={isStaff ? 'bg-muted/60 cursor-not-allowed' : undefined}
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -266,7 +267,8 @@ export function PrintRequest() {
                         onChange={(e) => setLastName(e.target.value)}
                         placeholder="นามสกุล"
                         required
-                        disabled={isStaff}
+                        readOnly={isStaff}
+                        className={isStaff ? 'bg-muted/60 cursor-not-allowed' : undefined}
                       />
                     </div>
                   </div>
