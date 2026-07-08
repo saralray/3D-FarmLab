@@ -579,7 +579,7 @@ function AssignmentsTab({
                   {list.map((a) => {
                     const spool = spoolById.get(a.spoolId);
                     return (
-                      <div key={a.id} className="flex items-center gap-3 px-4 py-2.5">
+                      <div key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 sm:flex-nowrap">
                         <FilamentSpoolIcon color={spool ? spoolHex(spool.rgba) : '#9ca3af'} scale={0.85} />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium">
@@ -589,20 +589,25 @@ function AssignmentsTab({
                             {spool ? spoolLabel(spool) : a.spoolId}
                           </p>
                         </div>
-                        {a.pendingConfig ? (
-                          <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                            Will apply on load
-                          </Badge>
-                        ) : a.lastTriggerResult === 'ok' ? (
-                          <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">
-                            Applied
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-muted text-muted-foreground">—</Badge>
-                        )}
-                        <Button size="sm" variant="outline" onClick={() => handleUnassign(a)}>
-                          <Trash2 className="size-4" />
-                        </Button>
+                        {/* Kept together so this pair wraps as a unit onto its
+                            own line on a narrow phone instead of the badge and
+                            delete button splitting across two lines. */}
+                        <div className="ml-auto flex items-center gap-2">
+                          {a.pendingConfig ? (
+                            <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                              Will apply on load
+                            </Badge>
+                          ) : a.lastTriggerResult === 'ok' ? (
+                            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                              Applied
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-muted text-muted-foreground">—</Badge>
+                          )}
+                          <Button size="sm" variant="outline" onClick={() => handleUnassign(a)}>
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
@@ -709,13 +714,18 @@ export function FilamentStation() {
 
       {loaded && (
         <Tabs defaultValue="nfc">
-          <TabsList>
-            <TabsTrigger value="nfc">
-              <Nfc className="mr-1.5 size-4" /> NFC scan/write
-            </TabsTrigger>
-            <TabsTrigger value="spools">Spool inventory ({spools.length})</TabsTrigger>
-            <TabsTrigger value="assignments">Assignments ({assignments.length})</TabsTrigger>
-          </TabsList>
+          {/* Three triggers can run wider than a phone screen; scroll instead of
+              clipping off the edge. Fits within its container at every width
+              this app already targets, so the wrapper is a no-op on desktop. */}
+          <div className="overflow-x-auto">
+            <TabsList className="w-max">
+              <TabsTrigger value="nfc">
+                <Nfc className="mr-1.5 size-4" /> NFC scan/write
+              </TabsTrigger>
+              <TabsTrigger value="spools">Spool inventory ({spools.length})</TabsTrigger>
+              <TabsTrigger value="assignments">Assignments ({assignments.length})</TabsTrigger>
+            </TabsList>
+          </div>
           <TabsContent value="nfc" className="mt-4">
             <NfcTab spools={spools} onChange={refresh} />
           </TabsContent>
