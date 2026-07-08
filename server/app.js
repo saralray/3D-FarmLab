@@ -4115,8 +4115,15 @@ async function handleApi(req, res, requestUrl) {
 
   // Public, read-only status check for the queue-availability window — lets
   // /request show a "closed" notice before a student even opens the form,
-  // without duplicating the day/time logic client-side.
+  // without duplicating the day/time logic client-side. An admin/operator
+  // browsing while logged in (session cookie still present on the public
+  // /request page) always sees the queue as open — staff can add jobs
+  // outside the configured student-submission window.
   if (requestUrl.pathname === '/api/queue/availability' && req.method === 'GET') {
+    if (isPrivilegedRole(sessionRole(await resolveSession(req)))) {
+      sendJson(res, 200, { open: true });
+      return true;
+    }
     sendJson(res, 200, evaluateQueueAvailability(await getQueueAvailabilitySetting()));
     return true;
   }
@@ -4128,7 +4135,10 @@ async function handleApi(req, res, requestUrl) {
     if (!(await guardPublicIntake(req, res, 'queue-submit'))) {
       return true;
     }
-    const availability = evaluateQueueAvailability(await getQueueAvailabilitySetting());
+    const staffOverride = isPrivilegedRole(sessionRole(await resolveSession(req)));
+    const availability = staffOverride
+      ? { open: true }
+      : evaluateQueueAvailability(await getQueueAvailabilitySetting());
     if (!availability.open) {
       sendJson(res, 403, { error: availability.message });
       return true;
