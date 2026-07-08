@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -18,6 +18,7 @@ import { ThemeToggle } from '../components/ThemeToggle';
 import { fetchQueueAvailability, submitPrintRequest, type QueueAvailabilityStatus } from '../lib/queueApi';
 import { useBrandingSettings } from '../lib/settingsApi';
 import { useAuth } from '../contexts/AuthContext';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 const ACCEPTED_FILE_TYPES = '.stl,.3mf,.obj';
 const ACCEPTED_EXTENSIONS = ['.stl', '.3mf', '.obj'];
@@ -53,21 +54,35 @@ export function PrintRequest() {
   const isStaff = !!user && (user.role === 'admin' || user.role === 'operator');
   const staffFirstName = user?.name.split(' ')[0] ?? '';
   const staffLastName = user?.name.split(' ').slice(1).join(' ') ?? '';
+  const [bypassNow, setBypassNow] = useState(() => Date.now());
 
-  useEffect(() => {
-    let active = true;
+  // Polls the window status rather than checking once, so a visitor already
+  // sitting on the "closed" screen sees it flip open the moment staff clicks
+  // "Bypass close time" — without needing to reload the page.
+  const loadAvailability = useCallback(() => {
     fetchQueueAvailability()
-      .then((value) => {
-        if (active) setAvailability(value);
-      })
+      .then((value) => setAvailability(value))
       .catch(() => {
-        // Treat a failed check as open rather than blocking submissions.
-        if (active) setAvailability({ open: true });
+        // Treat a failed check as open (only when we have no prior reading)
+        // rather than blocking submissions.
+        setAvailability((prev) => prev ?? { open: true });
       });
-    return () => {
-      active = false;
-    };
   }, []);
+
+  useAutoRefresh(loadAvailability, 15_000);
+
+  const bypassUntilMs = availability?.bypassUntil ? new Date(availability.bypassUntil).getTime() : null;
+
+  // Ticks once a second only while a manual bypass is open, to drive the
+  // "closes in M:SS" countdown below.
+  useEffect(() => {
+    if (bypassUntilMs === null) return;
+    setBypassNow(Date.now());
+    const id = window.setInterval(() => setBypassNow(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, [bypassUntilMs]);
+
+  const bypassRemainingMs = bypassUntilMs !== null ? bypassUntilMs - bypassNow : null;
 
   const hasFile = entries.some((e) => e.file !== null);
   const canSubmit =
@@ -235,6 +250,16 @@ export function PrintRequest() {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-6 p-8">
+                {!isStaff && bypassRemainingMs !== null && bypassRemainingMs > 0 && (
+                  <div className="flex items-center gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                    <Clock className="size-4 shrink-0" />
+                    <span>
+                      Staff has temporarily opened this form — closes in{' '}
+                      {Math.floor(Math.max(0, Math.ceil(bypassRemainingMs / 1000)) / 60)}:
+                      {(Math.max(0, Math.ceil(bypassRemainingMs / 1000)) % 60).toString().padStart(2, '0')}.
+                    </span>
+                  </div>
+                )}
                 {/* Personal info */}
                 <section className="space-y-4">
                   <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">

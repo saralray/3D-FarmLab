@@ -526,6 +526,34 @@ async function getQueueAvailabilitySetting() {
   return { ...QUEUE_AVAILABILITY_DEFAULTS, ...stored };
 }
 
+// A short-lived manual override an operator/admin can trigger from the Queue
+// page to reopen /request to everyone (e.g. students) even though the
+// configured schedule above has it closed — without touching the persisted
+// schedule settings. Stored separately from QUEUE_AVAILABILITY_KEY so it
+// can't be clobbered by (or clobber) an admin editing the schedule.
+const QUEUE_AVAILABILITY_BYPASS_KEY = 'queue_availability_bypass';
+const QUEUE_AVAILABILITY_BYPASS_MS = 3 * 60 * 1000;
+
+// Returns { until, activatedBy } while a manual bypass is active, else null.
+async function getQueueAvailabilityBypass() {
+  const stored = await getAppSetting(QUEUE_AVAILABILITY_BYPASS_KEY);
+  const untilMs = stored?.until ? Date.parse(stored.until) : NaN;
+  if (!Number.isFinite(untilMs) || untilMs <= Date.now()) {
+    return null;
+  }
+  return { until: stored.until, activatedBy: stored.activatedBy || null };
+}
+
+// Combines the manual bypass with the configured schedule — the bypass wins
+// (and reports `open: true`) while it's still within its window.
+async function getQueueAvailabilityStatus() {
+  const bypass = await getQueueAvailabilityBypass();
+  if (bypass) {
+    return { open: true, bypassUntil: bypass.until };
+  }
+  return evaluateQueueAvailability(await getQueueAvailabilitySetting());
+}
+
 // Evaluates whether the queue is currently open, computing "now" in the
 // setting's configured IANA timezone rather than the container's ambient TZ
 // (commonly UTC in Docker) — otherwise "9am-5pm" would silently mean UTC to
@@ -2056,6 +2084,7 @@ function isOperatorMutation(method, pathname) {
   if (pathname.startsWith('/api/printers/') && pathname.endsWith('/command') && method === 'POST') return true;
   if (pathname.startsWith('/api/queue/') && pathname.endsWith('/printed') && method === 'POST') return true;
   if (pathname === '/api/queue' && method === 'POST') return true;
+  if (pathname === '/api/queue/availability/bypass' && method === 'POST') return true;
   if (pathname.startsWith('/api/maintenance/') && pathname.endsWith('/complete') && method === 'POST') return true;
   if (pathname === '/api/maintenance/notifications/read' && method === 'POST') return true;
   // Filament Station: spool/assignment CRUD, tag writes, and calibration/
@@ -4118,13 +4147,33 @@ async function handleApi(req, res, requestUrl) {
   // without duplicating the day/time logic client-side. An admin/operator
   // browsing while logged in (session cookie still present on the public
   // /request page) always sees the queue as open — staff can add jobs
-  // outside the configured student-submission window.
+  // outside the configured student-submission window. `bypassUntil` is
+  // surfaced even for a staff caller (whose own `open` is already forced
+  // true) so the Queue page can show a countdown for an active manual
+  // bypass.
   if (requestUrl.pathname === '/api/queue/availability' && req.method === 'GET') {
+    const status = await getQueueAvailabilityStatus();
     if (isPrivilegedRole(sessionRole(await resolveSession(req)))) {
-      sendJson(res, 200, { open: true });
+      sendJson(res, 200, { ...status, open: true });
       return true;
     }
-    sendJson(res, 200, evaluateQueueAvailability(await getQueueAvailabilitySetting()));
+    sendJson(res, 200, status);
+    return true;
+  }
+
+  // Operator/admin-only: temporarily reopens /request to everyone (students
+  // included) for QUEUE_AVAILABILITY_BYPASS_MS, regardless of the configured
+  // schedule — e.g. a student needs to submit right now but the window is
+  // closed. Access is gated upstream by isOperatorMutation/authorizeFrontendApi.
+  // Calling it again while already active just restarts the window from now.
+  if (requestUrl.pathname === '/api/queue/availability/bypass' && req.method === 'POST') {
+    const session = await resolveSession(req);
+    const until = new Date(Date.now() + QUEUE_AVAILABILITY_BYPASS_MS).toISOString();
+    await setAppSetting(QUEUE_AVAILABILITY_BYPASS_KEY, {
+      until,
+      activatedBy: session?.name || null,
+    });
+    sendJson(res, 200, { open: true, bypassUntil: until });
     return true;
   }
 
@@ -4137,9 +4186,7 @@ async function handleApi(req, res, requestUrl) {
     }
     const submitterSession = await resolveSession(req);
     const isStaffSubmitter = isPrivilegedRole(sessionRole(submitterSession));
-    const availability = isStaffSubmitter
-      ? { open: true }
-      : evaluateQueueAvailability(await getQueueAvailabilitySetting());
+    const availability = isStaffSubmitter ? { open: true } : await getQueueAvailabilityStatus();
     if (!availability.open) {
       sendJson(res, 403, { error: availability.message });
       return true;

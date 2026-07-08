@@ -1107,10 +1107,26 @@ time in the configured timezone, so the frontend doesn't need to duplicate the
 day/time logic. If the caller carries an authenticated **admin or operator** session
 cookie (e.g. staff browsing the public `/request` page while logged in), the window
 is bypassed entirely and this always reports open — staff can add jobs outside the
-configured student-submission hours.
+configured student-submission hours. A manual bypass (see `POST .../bypass` below)
+also reports open for everyone, staff or not, while it's active.
 
 **Response `200`:** `{ "open": true }`, or when closed:
-`{ "open": false, "message": "<closedMessage>" }`.
+`{ "open": false, "message": "<closedMessage>" }`. While a manual bypass is active,
+responses (including to a staff caller) also carry `"bypassUntil": "<ISO timestamp>"`
+so the Queue page can render a countdown.
+
+#### `POST /api/queue/availability/bypass`
+
+Operator-or-admin only. Temporarily reopens `/request` to **everyone, including
+anonymous students** — not just the calling staff session — for a fixed
+**3-minute** window, regardless of the configured schedule. Meant for "a student
+needs to submit right now but the window is closed" — staff hit the "Bypass close
+time" button on the Queue page rather than editing the schedule. Stored separately
+from `queue_availability` (`app_settings` key `queue_availability_bypass`), so it
+never touches the persisted schedule settings. Calling it again while already
+active restarts the 3-minute window from now (does not stack).
+
+**Response `200`:** `{ "open": true, "bypassUntil": "<ISO timestamp>" }`.
 
 #### `POST /api/queue/submit` (amended)
 
@@ -1119,7 +1135,8 @@ configured window, checked before the multipart body is parsed. No change when t
 setting is disabled or the request falls inside the window. Same admin/operator
 session bypass as `GET /api/queue/availability` above — an authenticated staff
 session skips the window check and the submission is accepted regardless of the
-configured hours.
+configured hours. A student submitting while a manual bypass (above) is active is
+likewise accepted regardless of the configured hours.
 
 **Submitted-by identity is forced from the session for staff.** If the request
 carries an authenticated admin/operator session cookie, the stored `submitterName`
