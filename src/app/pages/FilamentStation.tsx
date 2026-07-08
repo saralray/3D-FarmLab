@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Boxes, Nfc, Trash2 } from 'lucide-react';
+import { Nfc, Trash2 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/table';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import {
   Dialog,
@@ -16,6 +15,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { FilamentSpoolIcon } from '../components/FilamentSpoolIcon';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { FILAMENT_MATERIALS, FILAMENT_VENDORS } from '../lib/printerProfiles';
 import { usePrinters } from '../contexts/PrintersContext';
@@ -36,19 +36,39 @@ import {
 
 const REFRESH_INTERVAL_MS = 8000;
 
-function ColorSwatch({ rgba }: { rgba: string }) {
-  const hex = `#${(rgba || 'FFFFFFFF').slice(0, 6)}`;
-  return (
-    <span
-      className="inline-block size-4 rounded-full border border-border align-middle"
-      style={{ backgroundColor: hex }}
-      title={hex}
-    />
-  );
+// Live readouts (weights) share PrinterDetail's instrument-panel numeral
+// treatment — monospaced, tabular figures — so a spool's remaining grams
+// reads like the same gauge family as the printer pages, not a stray label.
+const READOUT = 'font-mono tabular-nums';
+
+function spoolHex(rgba: string): string {
+  return `#${(rgba || 'FFFFFFFF').slice(0, 6)}`;
 }
 
 function spoolLabel(s: FilamentSpool): string {
   return `${s.material}${s.subtype ? ` ${s.subtype}` : ''}${s.colorName ? ` — ${s.colorName}` : ''}`;
+}
+
+// Weight-remaining gauge: unlike PrinterDetail's heater bar (a fixed
+// cold→hot scale), this page's "accent color" comes from the physical
+// inventory itself — the fill is the spool's own filament color, proportional
+// to grams left, so the card's dominant color always matches what's on the
+// shelf.
+function SpoolWeightGauge({ rgba, remaining, total }: { rgba: string; remaining: number; total: number }) {
+  const percent = total > 0 ? Math.max(0, Math.min(100, (remaining / total) * 100)) : 0;
+  return (
+    <div className="space-y-1">
+      <div className="h-1.5 w-full overflow-hidden rounded-full border border-border bg-muted">
+        <div
+          className="h-full rounded-full ring-1 ring-inset ring-black/10 transition-[width] dark:ring-white/10"
+          style={{ width: `${percent}%`, backgroundColor: spoolHex(rgba) }}
+        />
+      </div>
+      <p className={`${READOUT} text-xs text-muted-foreground`}>
+        {Math.max(0, Math.round(remaining))}g / {Math.round(total)}g
+      </p>
+    </div>
+  );
 }
 
 // Web NFC (NDEFReader) isn't in TypeScript's standard DOM lib — it's an
@@ -71,6 +91,27 @@ interface NDEFReaderLike {
 
 function isWebNfcSupported(): boolean {
   return typeof window !== 'undefined' && 'NDEFReader' in window;
+}
+
+// The one orchestrated motion moment on this page: two soft rings expanding
+// out from the NFC glyph while the phone's radio is actively listening,
+// echoing an actual NFC field rather than a generic spinner. Static (no
+// rings) once nothing is in flight, so the page stays quiet the rest of the
+// time.
+function ScanPulse({ active }: { active: boolean }) {
+  return (
+    <div className="relative flex size-16 shrink-0 items-center justify-center">
+      {active && (
+        <>
+          <span className="absolute inline-flex size-16 animate-ping rounded-full bg-primary/15" />
+          <span className="absolute inline-flex size-11 animate-ping rounded-full bg-primary/20 [animation-delay:300ms]" />
+        </>
+      )}
+      <span className="relative flex size-11 items-center justify-center rounded-full border border-border bg-card">
+        <Nfc className={`size-5 ${active ? 'text-primary' : 'text-muted-foreground'}`} />
+      </span>
+    </div>
+  );
 }
 
 function normalizeTagUid(serialNumber: string): string {
@@ -211,14 +252,15 @@ function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () =>
       </div>
 
       {mode === 'scan' ? (
-        <div className="space-y-2">
-          <Button onClick={startScan}>Start scan</Button>
+        <div className="flex flex-col items-center gap-3 py-2 text-center">
+          <ScanPulse active={Boolean(status)} />
+          <Button onClick={startScan}>{status ? 'Scanning…' : 'Start scan'}</Button>
           {status && <p className="text-sm text-muted-foreground">{status}</p>}
           {scanResult && (
             <div className="text-sm">
               {scanResult.matched ? (
                 <div className="flex items-center gap-2">
-                  {scanResult.spool && <ColorSwatch rgba={scanResult.spool.rgba} />}
+                  {scanResult.spool && <FilamentSpoolIcon color={spoolHex(scanResult.spool.rgba)} />}
                   Matched{scanResult.spool ? `: ${spoolLabel(scanResult.spool)}` : ''}
                 </div>
               ) : (
@@ -370,6 +412,46 @@ function AddSpoolDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
   );
 }
 
+function SpoolCard({ spool, onDelete }: { spool: FilamentSpool; onDelete: (id: string) => void }) {
+  const tagged = Boolean(spool.tagUid || spool.trayUuid);
+  return (
+    <Card className="flex-row items-start gap-3 p-4">
+      <FilamentSpoolIcon color={spoolHex(spool.rgba)} scale={1.5} />
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate font-medium">{spoolLabel(spool)}</p>
+            <p className="truncate text-xs text-muted-foreground">{spool.brand ?? 'Unbranded'}</p>
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="-mr-1.5 -mt-1.5 size-7 shrink-0 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(spool.id)}
+            aria-label={`Delete ${spoolLabel(spool)}`}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
+        {spool.labelWeight ? (
+          <SpoolWeightGauge rgba={spool.rgba} remaining={spool.labelWeight - spool.weightUsed} total={spool.labelWeight} />
+        ) : (
+          <p className="text-xs text-muted-foreground">No label weight recorded</p>
+        )}
+        <Badge
+          className={
+            tagged
+              ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+              : 'bg-muted text-muted-foreground'
+          }
+        >
+          {tagged ? 'Tagged' : 'No tag'}
+        </Badge>
+      </div>
+    </Card>
+  );
+}
+
 function SpoolsTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () => void }) {
   const [addOpen, setAddOpen] = useState(false);
 
@@ -389,54 +471,17 @@ function SpoolsTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: ()
           Add spool
         </Button>
       </div>
-      <Card className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Spool</TableHead>
-              <TableHead>Brand</TableHead>
-              <TableHead>Weight</TableHead>
-              <TableHead>Tag</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {spools.map((s) => (
-              <TableRow key={s.id}>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <ColorSwatch rgba={s.rgba} />
-                    <span>{spoolLabel(s)}</span>
-                  </div>
-                </TableCell>
-                <TableCell>{s.brand ?? '—'}</TableCell>
-                <TableCell>
-                  {s.labelWeight ? `${Math.round(s.labelWeight - s.weightUsed)}g / ${s.labelWeight}g` : '—'}
-                </TableCell>
-                <TableCell>
-                  {s.tagUid || s.trayUuid ? (
-                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">Tagged</Badge>
-                  ) : (
-                    <Badge className="bg-muted text-muted-foreground">No tag</Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button size="sm" variant="outline" onClick={() => handleDelete(s.id)}>
-                    <Trash2 className="size-4" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-            {spools.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
-                  No spools yet — add one manually, or load a genuine Bambu-tagged spool into an AMS to auto-catalog it.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+      {spools.length === 0 ? (
+        <Card className="p-8 text-center text-sm text-muted-foreground">
+          No spools yet — add one manually, or load a genuine Bambu-tagged spool into an AMS to auto-catalog it.
+        </Card>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {spools.map((s) => (
+            <SpoolCard key={s.id} spool={s} onDelete={handleDelete} />
+          ))}
+        </div>
+      )}
 
       <AddSpoolDialog open={addOpen} onOpenChange={setAddOpen} onCreated={onChange} />
     </div>
@@ -462,6 +507,21 @@ function AssignmentsTab({
 
   const spoolById = useMemo(() => new Map(spools.map((s) => [s.id, s])), [spools]);
   const printerById = useMemo(() => new Map(printers.map((p) => [p.id, p])), [printers]);
+
+  // Grouped by printer rather than a flat list — which printer a slot lives
+  // on is the thing an operator actually scans for ("what's loaded on the
+  // A1 mini"), not an arbitrary assignment id.
+  const groupedByPrinter = useMemo(() => {
+    const groups = new Map<string, FilamentStationAssignment[]>();
+    for (const a of assignments) {
+      const list = groups.get(a.printerId) ?? [];
+      list.push(a);
+      groups.set(a.printerId, list);
+    }
+    return Array.from(groups.entries()).sort(([aId], [bId]) =>
+      (printerById.get(aId)?.name ?? aId).localeCompare(printerById.get(bId)?.name ?? bId),
+    );
+  }, [assignments, printerById]);
 
   async function submitAssign() {
     if (!spoolId || !printerId) return;
@@ -501,64 +561,57 @@ function AssignmentsTab({
           Assign spool
         </Button>
       </div>
-      <Card className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Printer / slot</TableHead>
-              <TableHead>Spool</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {assignments.map((a) => {
-              const spool = spoolById.get(a.spoolId);
-              const printer = printerById.get(a.printerId);
-              return (
-                <TableRow key={a.id}>
-                  <TableCell>
-                    {printer?.name ?? a.printerId} — AMS{a.amsId}-T{a.trayId}
-                  </TableCell>
-                  <TableCell>
-                    {spool ? (
-                      <div className="flex items-center gap-2">
-                        <ColorSwatch rgba={spool.rgba} />
-                        {spool.material} {spool.subtype ?? ''}
+      {groupedByPrinter.length === 0 ? (
+        <Card className="p-8 text-center text-sm text-muted-foreground">No assignments yet.</Card>
+      ) : (
+        <div className="space-y-3">
+          {groupedByPrinter.map(([printerId, list]) => {
+            const printer = printerById.get(printerId);
+            return (
+              <Card key={printerId} className="gap-0 overflow-hidden p-0">
+                <div className="flex items-center justify-between border-b px-4 py-2.5">
+                  <span className="font-medium">{printer?.name ?? printerId}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {list.length} slot{list.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <div className="divide-y">
+                  {list.map((a) => {
+                    const spool = spoolById.get(a.spoolId);
+                    return (
+                      <div key={a.id} className="flex items-center gap-3 px-4 py-2.5">
+                        <FilamentSpoolIcon color={spool ? spoolHex(spool.rgba) : '#9ca3af'} scale={0.85} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium">
+                            AMS{a.amsId}-T{a.trayId}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {spool ? spoolLabel(spool) : a.spoolId}
+                          </p>
+                        </div>
+                        {a.pendingConfig ? (
+                          <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                            Will apply on load
+                          </Badge>
+                        ) : a.lastTriggerResult === 'ok' ? (
+                          <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                            Applied
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-muted text-muted-foreground">—</Badge>
+                        )}
+                        <Button size="sm" variant="outline" onClick={() => handleUnassign(a)}>
+                          <Trash2 className="size-4" />
+                        </Button>
                       </div>
-                    ) : (
-                      a.spoolId
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {a.pendingConfig ? (
-                      <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                        Will apply on load
-                      </Badge>
-                    ) : a.lastTriggerResult === 'ok' ? (
-                      <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">Applied</Badge>
-                    ) : (
-                      <Badge className="bg-muted text-muted-foreground">—</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button size="sm" variant="outline" onClick={() => handleUnassign(a)}>
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-            {assignments.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
-                  No assignments yet.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+                    );
+                  })}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent>
@@ -648,10 +701,10 @@ export function FilamentStation() {
   useAutoRefresh(refresh, REFRESH_INTERVAL_MS);
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
-      <div className="flex items-center gap-3">
-        <Boxes className="size-6 text-muted-foreground" />
-        <h1 className="text-xl font-semibold">Filament Station</h1>
+    <div className="space-y-6 p-4 lg:p-6">
+      <div>
+        <h1 className="mb-2 text-3xl font-bold text-foreground">Filament Station</h1>
+        <p className="text-muted-foreground">Spool inventory, NFC tags, and AMS assignments across the farm</p>
       </div>
 
       {loaded && (
