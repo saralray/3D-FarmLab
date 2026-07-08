@@ -32,8 +32,9 @@ interface TabConfig {
 const primaryTabs: TabConfig[] = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/queue', label: 'Queue', icon: List },
-  { path: '/analytics', label: 'Analytics', icon: BarChart3 },
 ];
+const analyticsTab: TabConfig = { path: '/analytics', label: 'Analytics', icon: BarChart3 };
+const filamentStationTab: TabConfig = { path: '/filament-station', label: 'Filament Station', icon: Boxes };
 
 // Operator/admin-only tab, appended for staff sessions (see StaffRoute).
 const maintenanceTab: TabConfig = { path: '/maintenance', label: 'Maintenance', icon: Wrench };
@@ -54,13 +55,14 @@ export function BottomTabBar() {
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
 
   const canSeeMaintenance = !PUBLIC_VIEWER_MODE && !!user && !isReadOnlyRole(user.role);
-  const visibleTabs = canSeeMaintenance ? [...primaryTabs, maintenanceTab] : primaryTabs;
+  // Staff sessions swap Analytics out of the primary bar for Filament Station —
+  // its NFC scan/write flow is meant to be used on a phone, so it gets the
+  // prime real estate; Analytics moves into the "More" sheet instead.
+  const visibleTabs = canSeeMaintenance
+    ? [...primaryTabs, filamentStationTab, maintenanceTab]
+    : [...primaryTabs, analyticsTab];
 
-  // Staff-only (operator/admin), same gate as Maintenance — surfaced in the
-  // "More" sheet rather than a primary tab so the bottom bar doesn't get
-  // crowded. This is the only way to reach it from a phone, which matters
-  // here since Filament Station's NFC scan/write is meant to be used on one.
-  const staffNavItems = canSeeMaintenance ? [{ path: '/filament-station', label: 'Filament Station', icon: Boxes }] : [];
+  const staffNavItems = canSeeMaintenance ? [analyticsTab] : [];
 
   const adminNavItems =
     !PUBLIC_VIEWER_MODE && user?.role === 'admin'
