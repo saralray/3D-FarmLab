@@ -144,6 +144,14 @@ services:
       # Substituted into nginx/default.conf.template at startup. Default "_"
       # matches any Host header; set a real domain in .env for name-based vhosts.
       SERVER_NAME: ${SERVER_NAME:-_}
+      # DDoS (L7): per-client-IP request rate, burst allowance, and max
+      # concurrent connections enforced at the nginx edge (see
+      # nginx/default.conf.template). Defaults are generous so a shared-NAT
+      # classroom isn't throttled; a real flood is still capped. Rate must carry
+      # its nginx unit (e.g. 50r/s or 600r/m).
+      RATE_LIMIT_REQ_RATE: ${RATE_LIMIT_REQ_RATE:-50r/s}
+      RATE_LIMIT_REQ_BURST: ${RATE_LIMIT_REQ_BURST:-100}
+      RATE_LIMIT_CONN: ${RATE_LIMIT_CONN:-100}
       # C-4: slicer upload body cap passed through to the nginx template. Must be
       # >= SLICER_UPLOAD_MAX_BYTES on the slicer-proxy service.
       SLICER_MAX_BODY_SIZE: ${SLICER_MAX_BODY_SIZE:-500m}
