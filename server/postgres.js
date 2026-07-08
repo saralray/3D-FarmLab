@@ -2676,8 +2676,8 @@ export async function setFilamentSpoolTagUid(id, tagUid) {
   // off any other spool holding it in the same statement that sets it here.
   const result = await query(
     `UPDATE filament_spools
-     SET tag_uid = CASE WHEN id = $1 THEN $2 ELSE NULL END, updated_at = NOW()
-     WHERE id = $1 OR (tag_uid IS NOT NULL AND $2 IS NOT NULL AND tag_uid = $2)
+     SET tag_uid = CASE WHEN id = $1 THEN $2::text ELSE NULL END, updated_at = NOW()
+     WHERE id = $1 OR (tag_uid IS NOT NULL AND $2::text IS NOT NULL AND tag_uid = $2::text)
      RETURNING *;`,
     [id, normalizedTagUid],
   );
