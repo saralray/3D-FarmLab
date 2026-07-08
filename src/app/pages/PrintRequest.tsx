@@ -17,6 +17,7 @@ import { Logo } from '../components/Logo';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { fetchQueueAvailability, submitPrintRequest, type QueueAvailabilityStatus } from '../lib/queueApi';
 import { useBrandingSettings } from '../lib/settingsApi';
+import { useAuth } from '../contexts/AuthContext';
 
 const ACCEPTED_FILE_TYPES = '.stl,.3mf,.obj';
 const ACCEPTED_EXTENSIONS = ['.stl', '.3mf', '.obj'];
@@ -46,6 +47,11 @@ export function PrintRequest() {
   const [submitted, setSubmitted] = useState(false);
   const [availability, setAvailability] = useState<QueueAvailabilityStatus | null>(null);
   const { backgroundDataUrl } = useBrandingSettings();
+  const { user } = useAuth();
+  // A logged-in admin/operator's submitted-by identity is forced server-side
+  // from their session — the name inputs below are only shown for anonymous
+  // (student) submitters.
+  const isStaff = !!user && (user.role === 'admin' || user.role === 'operator');
 
   useEffect(() => {
     let active = true;
@@ -64,8 +70,7 @@ export function PrintRequest() {
 
   const hasFile = entries.some((e) => e.file !== null);
   const canSubmit =
-    firstName.trim() !== '' &&
-    lastName.trim() !== '' &&
+    (isStaff || (firstName.trim() !== '' && lastName.trim() !== '')) &&
     studentId.trim() !== '' &&
     course.trim() !== '' &&
     hasFile;
@@ -90,8 +95,12 @@ export function PrintRequest() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!firstName.trim() || !lastName.trim() || !studentId.trim() || !course.trim()) {
-      toast.error('Please fill in your first name, last name, student ID, and course/class.');
+    if (!isStaff && (!firstName.trim() || !lastName.trim())) {
+      toast.error('Please fill in your first name and last name.');
+      return;
+    }
+    if (!studentId.trim() || !course.trim()) {
+      toast.error('Please fill in your student ID and course/class.');
       return;
     }
 
@@ -114,8 +123,10 @@ export function PrintRequest() {
       await Promise.all(
         validEntries.map((entry) =>
           submitPrintRequest({
-            firstName: firstName.trim(),
-            lastName: lastName.trim(),
+            // Ignored server-side for a logged-in admin/operator — the
+            // submitted-by name is forced from their session instead.
+            firstName: isStaff ? (user?.name ?? '') : firstName.trim(),
+            lastName: isStaff ? '' : lastName.trim(),
             studentId: studentId.trim(),
             course: course.trim(),
             email: email.trim(),
@@ -228,28 +239,36 @@ export function PrintRequest() {
                   <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                     Your info
                   </h2>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="firstName">First name <span className="text-red-500">*</span></Label>
-                      <Input
-                        id="firstName"
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
-                        placeholder="ชื่อ"
-                        required
-                      />
+                  {isStaff ? (
+                    <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                      Submitting as{' '}
+                      <span className="font-medium text-foreground">{user?.name}</span>{' '}
+                      <span className="text-xs uppercase tracking-wide">({user?.role})</span>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="lastName">Last name <span className="text-red-500">*</span></Label>
-                      <Input
-                        id="lastName"
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                        placeholder="นามสกุล"
-                        required
-                      />
+                  ) : (
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="firstName">First name <span className="text-red-500">*</span></Label>
+                        <Input
+                          id="firstName"
+                          value={firstName}
+                          onChange={(e) => setFirstName(e.target.value)}
+                          placeholder="ชื่อ"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="lastName">Last name <span className="text-red-500">*</span></Label>
+                        <Input
+                          id="lastName"
+                          value={lastName}
+                          onChange={(e) => setLastName(e.target.value)}
+                          placeholder="นามสกุล"
+                          required
+                        />
+                      </div>
                     </div>
-                  </div>
+                  )}
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="studentId">Student ID <span className="text-red-500">*</span></Label>

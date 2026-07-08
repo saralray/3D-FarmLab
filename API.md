@@ -1121,6 +1121,15 @@ session bypass as `GET /api/queue/availability` above — an authenticated staff
 session skips the window check and the submission is accepted regardless of the
 configured hours.
 
+**Submitted-by identity is forced from the session for staff.** If the request
+carries an authenticated admin/operator session cookie, the stored `submitterName`
+is taken from that session's `name` — the `firstName`/`lastName` form fields are
+ignored entirely for such a request. This is enforced server-side regardless of
+client (browser form or a raw `curl -b <session-cookie>` call), so an authenticated
+staff session can never spoof another person's name in the submitted-by field.
+Anonymous/student submitters are unaffected — `submitterName` still derives from
+their `firstName`/`lastName` (falling back to `studentId`) as before.
+
 Also rate-limited per client IP (default 10 requests/hour, tunable via
 `PUBLIC_INTAKE_MAX_PER_WINDOW` / `PUBLIC_INTAKE_WINDOW_SECONDS`); over the limit
 returns **`429`** with a `Retry-After` header, checked before the window check.
