@@ -4,6 +4,16 @@
 // reads natively off a physical spool — no MQTT/gcode needed once a tagged
 // spool is loaded.
 //
+// Kept minimal on purpose: protocol/version/type/color_hex are all the
+// firmware needs to identify and auto-switch the loaded filament. Every
+// other spool detail (brand, temps, subtype, weight, diameter) already lives
+// server-side in filament_spools, keyed by the tag's own hardware UID (see
+// findFilamentSpoolByTag / handleNfc in filamentStation.js) — it never needs
+// to round-trip through the tag itself. The fuller payload used to be
+// written here too, but that easily exceeds an NTAG213's ~144-byte usable
+// capacity (fine on NTAG215/216) and produced write "io error"s once a spool
+// had more than a couple of optional fields set.
+//
 // Only the JSON-shaping logic lives here now. Raw NDEF byte-packing (CC/TLV/
 // record-header wrapping for writing directly to tag memory pages over SPI)
 // isn't needed: Web NFC's NDEFReader.write() and iOS's Core NFC both take
@@ -12,20 +22,10 @@
 
 export function buildOpenSpoolPayload(spool) {
   const rgba = (spool.rgba || 'FFFFFFFF').toUpperCase();
-  const payload = {
+  return {
     protocol: 'openspool',
     version: '1.0',
     type: spool.material,
     color_hex: `#${rgba.slice(0, 6)}`,
   };
-  if (spool.brand) payload.brand = spool.brand;
-  if (spool.nozzleTempMin != null) payload.min_temp = spool.nozzleTempMin;
-  if (spool.nozzleTempMax != null) payload.max_temp = spool.nozzleTempMax;
-  if (spool.bedTempMin != null) payload.bed_min_temp = spool.bedTempMin;
-  if (spool.bedTempMax != null) payload.bed_max_temp = spool.bedTempMax;
-  if (spool.subtype) payload.subtype = spool.subtype;
-  if (rgba.length >= 8) payload.alpha = rgba.slice(6, 8);
-  if (spool.labelWeight) payload.weight = spool.labelWeight;
-  if (spool.diameter) payload.diameter = spool.diameter;
-  return payload;
 }

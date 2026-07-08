@@ -53,6 +53,8 @@ iPhone. Someone with a Mac needs to:
   handling on real hardware — the code follows Apple's documented pattern
   but Core NFC's behavior around session invalidation and multi-tag
   detection varies across iPhone models/iOS versions.
-- Tag compatibility: same NTAG215/216 tags the Android path targets should
-  work, but capacity/write-lock behavior should be spot-checked.
+- Tag compatibility: the OpenSpool payload is now trimmed to
+  `protocol`/`version`/`type`/`color_hex` only (~70-90 bytes), so NTAG213's
+  ~144-byte usable capacity is fine, not just NTAG215/216 — but write-lock
+  behavior should still be spot-checked on real hardware.
 - Entitlement/provisioning profile setup end-to-end (needs a paid account).
