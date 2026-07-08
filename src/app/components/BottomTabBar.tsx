@@ -34,7 +34,7 @@ const primaryTabs: TabConfig[] = [
   { path: '/queue', label: 'Queue', icon: List },
 ];
 const analyticsTab: TabConfig = { path: '/analytics', label: 'Analytics', icon: BarChart3 };
-const filamentStationTab: TabConfig = { path: '/filament-station', label: 'Filament Station', icon: Boxes };
+const filamentStationTab: TabConfig = { path: '/filament-station', label: 'Filament', icon: Boxes };
 
 // Operator/admin-only tab, appended for staff sessions (see StaffRoute).
 const maintenanceTab: TabConfig = { path: '/maintenance', label: 'Maintenance', icon: Wrench };
