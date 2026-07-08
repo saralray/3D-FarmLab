@@ -19,6 +19,7 @@ import { FilamentSpoolIcon } from '../components/FilamentSpoolIcon';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { FILAMENT_MATERIALS, FILAMENT_VENDORS } from '../lib/printerProfiles';
 import { usePrinters } from '../contexts/PrintersContext';
+import type { Printer } from '../types';
 import { toast } from 'sonner';
 import {
   type FilamentSpool,
@@ -118,31 +119,19 @@ function normalizeTagUid(serialNumber: string): string {
   return serialNumber.replace(/:/g, '').toUpperCase();
 }
 
-// ── NFC scan/write (Android Web NFC) ────────────────────────────────────────
+// ── NFC scan (Android Web NFC) ──────────────────────────────────────────────
 //
-// No station device to talk to — the phone's own NFC radio does the read/
-// write directly in-browser; the server only resolves a scanned tag to a
-// spool (tag-scanned) or records which tag now holds a spool after a
-// successful write (link-tag). Writing is two separate taps: write() does
-// its own tap-detection and write in one call (never run a scan() on the
-// same NDEFReader concurrently — Chrome surfaces that conflict as "failed
-// to write due to an io error"), then a second, fresh scan() confirms the
-// tag's serialNumber to link it to the spool.
-function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () => void }) {
+// No station device to talk to — the phone's own NFC radio does the read
+// directly in-browser; the server resolves a scanned tag to a spool
+// (tag-scanned). Writing a tag to a spool now happens inline on each spool's
+// card in the inventory tab, not here.
+function NfcTab({ spools }: { spools: FilamentSpool[] }) {
   const supported = useMemo(() => isWebNfcSupported(), []);
-  const [mode, setMode] = useState<'scan' | 'write'>('scan');
-  const [spoolId, setSpoolId] = useState('');
   const [status, setStatus] = useState('');
   const [scanResult, setScanResult] = useState<{ matched: boolean; spool: FilamentSpool | null } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => abortRef.current?.abort(), []);
-
-  function stop() {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setStatus('');
-  }
 
   async function startScan() {
     setScanResult(null);
@@ -176,8 +165,51 @@ function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () =>
     }
   }
 
-  async function startWrite() {
-    if (!spoolId) return;
+  if (!supported) {
+    return (
+      <Card className="p-8 text-center text-sm text-muted-foreground">
+        NFC scan needs Chrome, Edge, or Samsung Internet on an Android phone with NFC turned on — open this page
+        there. Safari/iOS has no Web NFC support; use the separate iOS app for iPhone.
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="flex flex-col items-center gap-3 p-8 text-center">
+      <ScanPulse active={Boolean(status)} />
+      <Button onClick={startScan}>{status ? 'Scanning…' : 'Start scan'}</Button>
+      {status && <p className="text-sm text-muted-foreground">{status}</p>}
+      {scanResult && (
+        <div className="text-sm">
+          {scanResult.matched ? (
+            <div className="flex items-center gap-2">
+              {scanResult.spool && <FilamentSpoolIcon color={spoolHex(scanResult.spool.rgba)} />}
+              Matched{scanResult.spool ? `: ${spoolLabel(scanResult.spool)}` : ''}
+            </div>
+          ) : (
+            <span className="text-amber-600 dark:text-amber-400">No spool matched this tag.</span>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// Single in-flight write shared across all spool cards in the inventory tab —
+// Chrome's NDEFReader write()/scan() calls conflict if run concurrently (see
+// the note above on the old combined tab), so only one spool can be mid-write
+// at a time regardless of which card triggered it. Writing is two separate
+// taps: write() does its own tap-detection and write in one call, then a
+// second, fresh scan() confirms the tag's serialNumber to link it to the spool.
+function useSpoolTagWriter(onLinked: () => void) {
+  const [writingSpoolId, setWritingSpoolId] = useState<string | null>(null);
+  const [status, setStatus] = useState('');
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  async function write(spoolId: string) {
+    setWritingSpoolId(spoolId);
     setStatus('Fetching tag payload…');
     try {
       const payload = await fetchOpenSpoolPayload(spoolId);
@@ -209,89 +241,17 @@ function NfcTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () =>
       const tagUid = normalizeTagUid(serialNumber);
       await linkFilamentTag(spoolId, tagUid);
       toast.success('Tag written and linked to spool');
-      stop();
-      onChange();
+      onLinked();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
       setStatus('');
+      setWritingSpoolId(null);
+      abortRef.current = null;
     }
   }
 
-  if (!supported) {
-    return (
-      <Card className="p-8 text-center text-sm text-muted-foreground">
-        NFC scan/write needs Chrome, Edge, or Samsung Internet on an Android phone with NFC turned on — open this
-        page there. Safari/iOS has no Web NFC support; use the separate iOS app for iPhone.
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="space-y-3 p-4">
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          variant={mode === 'scan' ? 'default' : 'outline'}
-          onClick={() => {
-            stop();
-            setMode('scan');
-          }}
-        >
-          Scan to identify
-        </Button>
-        <Button
-          size="sm"
-          variant={mode === 'write' ? 'default' : 'outline'}
-          onClick={() => {
-            stop();
-            setMode('write');
-          }}
-        >
-          Write a tag
-        </Button>
-      </div>
-
-      {mode === 'scan' ? (
-        <div className="flex flex-col items-center gap-3 py-2 text-center">
-          <ScanPulse active={Boolean(status)} />
-          <Button onClick={startScan}>{status ? 'Scanning…' : 'Start scan'}</Button>
-          {status && <p className="text-sm text-muted-foreground">{status}</p>}
-          {scanResult && (
-            <div className="text-sm">
-              {scanResult.matched ? (
-                <div className="flex items-center gap-2">
-                  {scanResult.spool && <FilamentSpoolIcon color={spoolHex(scanResult.spool.rgba)} />}
-                  Matched{scanResult.spool ? `: ${spoolLabel(scanResult.spool)}` : ''}
-                </div>
-              ) : (
-                <span className="text-amber-600 dark:text-amber-400">No spool matched this tag.</span>
-              )}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="max-w-sm space-y-2">
-          <Label>Spool</Label>
-          <Select value={spoolId} onValueChange={setSpoolId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select a spool" />
-            </SelectTrigger>
-            <SelectContent>
-              {spools.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {spoolLabel(s)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button onClick={startWrite} disabled={!spoolId}>
-            Write tag
-          </Button>
-          {status && <p className="text-sm text-muted-foreground">{status}</p>}
-        </div>
-      )}
-    </Card>
-  );
+  return { write, writingSpoolId, status };
 }
 
 const NO_VENDOR = '__unspecified__';
@@ -412,7 +372,27 @@ function AddSpoolDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
   );
 }
 
-function SpoolCard({ spool, onDelete }: { spool: FilamentSpool; onDelete: (id: string) => void }) {
+function SpoolCard({
+  spool,
+  assignments,
+  printerById,
+  nfcSupported,
+  writing,
+  writeStatus,
+  onWriteTag,
+  onUnassign,
+  onDelete,
+}: {
+  spool: FilamentSpool;
+  assignments: FilamentStationAssignment[];
+  printerById: Map<string, Printer>;
+  nfcSupported: boolean;
+  writing: boolean;
+  writeStatus: string;
+  onWriteTag: (spoolId: string) => void;
+  onUnassign: (a: FilamentStationAssignment) => void;
+  onDelete: (id: string) => void;
+}) {
   const tagged = Boolean(spool.tagUid || spool.trayUuid);
   return (
     <Card className="flex-row items-start gap-3 p-4">
@@ -438,26 +418,103 @@ function SpoolCard({ spool, onDelete }: { spool: FilamentSpool; onDelete: (id: s
         ) : (
           <p className="text-xs text-muted-foreground">No label weight recorded</p>
         )}
-        <Badge
-          className={
-            tagged
-              ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
-              : 'bg-muted text-muted-foreground'
-          }
-        >
-          {tagged ? 'Tagged' : 'No tag'}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge
+            className={
+              tagged
+                ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                : 'bg-muted text-muted-foreground'
+            }
+          >
+            {tagged ? 'Tagged' : 'No tag'}
+          </Badge>
+          {nfcSupported && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 gap-1 px-2 text-xs"
+              disabled={writing}
+              onClick={() => onWriteTag(spool.id)}
+            >
+              <Nfc className="size-3" />
+              {writing ? 'Writing…' : tagged ? 'Rewrite tag' : 'Write tag'}
+            </Button>
+          )}
+        </div>
+        {writing && writeStatus && <p className="text-xs text-muted-foreground">{writeStatus}</p>}
+        {assignments.length > 0 && (
+          <div className="space-y-1 border-t border-border pt-2">
+            {assignments.map((a) => (
+              <div key={a.id} className="flex items-center justify-between gap-2 text-xs">
+                <span className="truncate text-muted-foreground">
+                  {printerById.get(a.printerId)?.name ?? a.printerId} · AMS{a.amsId}-T{a.trayId}
+                </span>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {a.pendingConfig ? (
+                    <Badge className="bg-amber-100 px-1.5 py-0 text-[10px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                      Pending
+                    </Badge>
+                  ) : a.lastTriggerResult === 'ok' ? (
+                    <Badge className="bg-green-100 px-1.5 py-0 text-[10px] text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                      Applied
+                    </Badge>
+                  ) : null}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-5 text-muted-foreground hover:text-destructive"
+                    onClick={() => onUnassign(a)}
+                    aria-label="Unassign"
+                  >
+                    <Trash2 className="size-3" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </Card>
   );
 }
 
-function SpoolsTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: () => void }) {
+function SpoolsTab({
+  spools,
+  assignments,
+  onChange,
+}: {
+  spools: FilamentSpool[];
+  assignments: FilamentStationAssignment[];
+  onChange: () => void;
+}) {
+  const { printers } = usePrinters();
   const [addOpen, setAddOpen] = useState(false);
+  const { write, writingSpoolId, status } = useSpoolTagWriter(onChange);
+  const nfcSupported = useMemo(() => isWebNfcSupported(), []);
+
+  const printerById = useMemo(() => new Map(printers.map((p) => [p.id, p])), [printers]);
+  const assignmentsBySpool = useMemo(() => {
+    const map = new Map<string, FilamentStationAssignment[]>();
+    for (const a of assignments) {
+      const list = map.get(a.spoolId) ?? [];
+      list.push(a);
+      map.set(a.spoolId, list);
+    }
+    return map;
+  }, [assignments]);
 
   async function handleDelete(id: string) {
     try {
       await deleteFilamentSpool(id);
+      onChange();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function handleUnassign(a: FilamentStationAssignment) {
+    try {
+      await unassignFilamentSpool(a.printerId, a.amsId, a.trayId);
       onChange();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -478,7 +535,18 @@ function SpoolsTab({ spools, onChange }: { spools: FilamentSpool[]; onChange: ()
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {spools.map((s) => (
-            <SpoolCard key={s.id} spool={s} onDelete={handleDelete} />
+            <SpoolCard
+              key={s.id}
+              spool={s}
+              assignments={assignmentsBySpool.get(s.id) ?? []}
+              printerById={printerById}
+              nfcSupported={nfcSupported}
+              writing={writingSpoolId === s.id}
+              writeStatus={status}
+              onWriteTag={write}
+              onUnassign={handleUnassign}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
       )}
@@ -713,24 +781,24 @@ export function FilamentStation() {
       </div>
 
       {loaded && (
-        <Tabs defaultValue="nfc">
+        <Tabs defaultValue="spools">
           {/* Three triggers can run wider than a phone screen; scroll instead of
               clipping off the edge. Fits within its container at every width
               this app already targets, so the wrapper is a no-op on desktop. */}
           <div className="overflow-x-auto">
             <TabsList className="w-max">
-              <TabsTrigger value="nfc">
-                <Nfc className="mr-1.5 size-4" /> NFC scan/write
-              </TabsTrigger>
               <TabsTrigger value="spools">Spool inventory ({spools.length})</TabsTrigger>
+              <TabsTrigger value="nfc">
+                <Nfc className="mr-1.5 size-4" /> NFC scan
+              </TabsTrigger>
               <TabsTrigger value="assignments">Assignments ({assignments.length})</TabsTrigger>
             </TabsList>
           </div>
-          <TabsContent value="nfc" className="mt-4">
-            <NfcTab spools={spools} onChange={refresh} />
-          </TabsContent>
           <TabsContent value="spools" className="mt-4">
-            <SpoolsTab spools={spools} onChange={refresh} />
+            <SpoolsTab spools={spools} assignments={assignments} onChange={refresh} />
+          </TabsContent>
+          <TabsContent value="nfc" className="mt-4">
+            <NfcTab spools={spools} />
           </TabsContent>
           <TabsContent value="assignments" className="mt-4">
             <AssignmentsTab assignments={assignments} spools={spools} onChange={refresh} />
