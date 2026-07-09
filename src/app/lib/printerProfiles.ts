@@ -4,6 +4,15 @@ import { logAuditEvent } from './auditApi';
 
 export const PRINTER_STORAGE_KEY = 'printfarm_printers';
 
+// All Bambu Lab profiles need the same on-printer setup (Settings -> Network
+// / General on the printer's touchscreen) before the poller's MQTT connection
+// and the port-6000/RTSP camera can reach it.
+const BAMBU_SETUP_STEPS = [
+  'Turn on LAN Mode (Settings → Network).',
+  'Turn on LAN Mode Liveview (Settings → Network) so the webcam stream is reachable.',
+  'Turn on Developer Mode (Settings → General) to expose the LAN access code and MQTT/FTP access.',
+];
+
 export const PRINTER_PROFILES: Record<
   PrinterProfile,
   {
@@ -22,6 +31,10 @@ export const PRINTER_PROFILES: Record<
     credentialPlaceholder: string;
     /** How the poller obtains live status, shown in the add-printer form. */
     pollingDescription: string;
+    /** Setup steps to perform on the printer before adding it, shown in the add-printer form. */
+    setupSteps: string[];
+    /** Optional reference link shown alongside the setup steps (e.g. a firmware download). */
+    setupLink?: { label: string; url: string };
   }
 > = {
   generic: {
@@ -35,6 +48,7 @@ export const PRINTER_PROFILES: Record<
     credentialLabel: 'API Key Header',
     credentialPlaceholder: 'X-API-Key: printer-secret',
     pollingDescription: 'Reachability check only (online / offline)',
+    setupSteps: [],
   },
   snapmaker_u1: {
     label: 'Snapmaker U1',
@@ -48,6 +62,15 @@ export const PRINTER_PROFILES: Record<
     credentialLabel: 'API Key Header',
     credentialPlaceholder: 'X-API-Key: printer-secret',
     pollingDescription: 'Live status via Moonraker HTTP API',
+    setupSteps: [
+      'Install the modded Snapmaker U1 firmware (adds the Moonraker HTTP API this dashboard polls).',
+      'Turn on AFC (Automated Filament Changer) so filament lanes and swaps are reported.',
+      'If using the Filament Station system: change the RFID reader mode to OpenSpool, so the printer reads the tags this dashboard writes.',
+    ],
+    setupLink: {
+      label: 'SnapmakerU1-Extended-Firmware releases',
+      url: 'https://github.com/paxx12-snapmaker-u1/SnapmakerU1-Extended-Firmware/releases',
+    },
   },
   bambulab_a1_mini: {
     label: 'Bambu Lab A1 Mini',
@@ -61,6 +84,7 @@ export const PRINTER_PROFILES: Record<
     credentialLabel: 'LAN Access Code',
     credentialPlaceholder: '8-digit access code from the printer screen',
     pollingDescription: 'Live status via MQTT over TLS (LAN mode)',
+    setupSteps: BAMBU_SETUP_STEPS,
   },
   bambulab_h2s: {
     label: 'Bambu Lab H2S',
@@ -74,6 +98,7 @@ export const PRINTER_PROFILES: Record<
     credentialLabel: 'LAN Access Code',
     credentialPlaceholder: '8-digit access code from the printer screen',
     pollingDescription: 'Live status via MQTT over TLS (LAN mode)',
+    setupSteps: BAMBU_SETUP_STEPS,
   },
   bambulab_h2d: {
     label: 'Bambu Lab H2D',
@@ -88,6 +113,7 @@ export const PRINTER_PROFILES: Record<
     credentialLabel: 'LAN Access Code',
     credentialPlaceholder: '8-digit access code from the printer screen',
     pollingDescription: 'Live status via MQTT over TLS (LAN mode)',
+    setupSteps: BAMBU_SETUP_STEPS,
   },
   bambulab_h2c: {
     label: 'Bambu Lab H2C',
@@ -104,6 +130,7 @@ export const PRINTER_PROFILES: Record<
     credentialLabel: 'LAN Access Code',
     credentialPlaceholder: '8-digit access code from the printer screen',
     pollingDescription: 'Live status via MQTT over TLS (LAN mode)',
+    setupSteps: BAMBU_SETUP_STEPS,
   },
 };
 
