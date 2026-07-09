@@ -293,12 +293,12 @@ the cookie-session frontend.
 | Method & path | Description |
 |---------------|-------------|
 | `GET /filament-station` | `{ resources: ['nfc', 'spools', 'assignments'] }` |
-| `GET /filament-station/spools` | List spools (excludes archived). |
-| `POST /filament-station/spools` | Create a spool. Body: `{ material, subtype?, color_name?, rgba?, brand?, label_weight?, core_weight?, nozzle_temp_min?, nozzle_temp_max? }`. |
+| `GET /filament-station/spools` | List spools (excludes archived). Each includes a server-generated `serial` (`FL-0001`, ...), unique per spool regardless of material/color. |
+| `POST /filament-station/spools` | Create a spool. Body: `{ material, subtype?, color_name?, rgba?, brand?, label_weight?, core_weight?, nozzle_temp_min?, nozzle_temp_max? }`. `serial` is always server-generated, not accepted in the body. |
 | `GET /filament-station/spools/:id` | Get one spool. |
 | `PUT /filament-station/spools/:id` | Update a spool (same fields as create, plus `archived?`, `weight_used?`). |
 | `DELETE /filament-station/spools/:id` | Delete a spool. |
-| `GET /filament-station/spools/:id/openspool-payload` | The OpenSpool-format JSON to write onto an NFC tag as an `application/json` NDEF record, read natively by the Snapmaker U1 Extended Firmware's OpenRFID mode: `{ protocol: "openspool", version: "1.0", type, color_hex, brand?, subtype?, min_temp?, max_temp?, bed_min_temp?, bed_max_temp?, diameter?, weight? }`. Optional fields are included only when set on the spool record; `brand`/`subtype` matter beyond labeling since Snapmaker Orca requires the `<brand> <type> <subtype>` naming convention to recognize the filament. |
+| `GET /filament-station/spools/:id/openspool-payload` | The OpenSpool-format JSON to write onto an NFC tag as an `application/json` NDEF record, read natively by the Snapmaker U1 Extended Firmware's OpenRFID mode: `{ protocol: "openspool", version: "1.0", type, color_hex, brand?, subtype?, min_temp?, max_temp?, bed_min_temp?, bed_max_temp?, diameter?, weight? }`. Optional fields are included only when set on the spool record; `brand`/`subtype` matter beyond labeling since Snapmaker Orca requires the `<brand> <type> <subtype>` naming convention to recognize the filament. `brand` here is always the spool's `serial`, not its manufacturer brand — OpenSpool has no dedicated unique-ID field, so `serial` is written into `brand` to tell apart spools that otherwise share identical material/color/brand. Because the written brand won't match a recognized vendor, set the printer's OpenRFID mode to "force generic vendor" so Orca doesn't hide the spool. |
 | `POST /filament-station/nfc/tag-scanned` | Body `{ tag_uid, tray_uuid? }`. Resolves a scanned tag to a spool (a genuine Bambu tag's `tray_uuid` takes precedence over `tag_uid` if both are known). `{ status: 'ok', matched, spool_id }`. |
 | `POST /filament-station/nfc/link-tag` | Body `{ spool_id, tag_uid }`. Links a freshly-written tag's UID to a spool. |
 | `GET /filament-station/assignments` | List AMS/tray → spool assignments. |

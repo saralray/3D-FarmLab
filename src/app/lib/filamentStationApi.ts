@@ -16,6 +16,7 @@ export interface FilamentSpool {
   colorName: string | null;
   rgba: string;
   brand: string | null;
+  serial: string;
   labelWeight: number;
   coreWeight: number;
   weightUsed: number;
