@@ -131,6 +131,10 @@ func run() {
 			if err != nil {
 				return err
 			}
+			slotEstimates, err := listSlicerSlotEstimates(ctx, conn)
+			if err != nil {
+				return err
+			}
 
 			results := refreshAll(printers)
 			now := nowSeconds()
@@ -139,7 +143,7 @@ func run() {
 				if failed {
 					refreshFailures++
 				}
-				maybeRecordBambu3mfEstimate(ctx, conn, printer, nextPrinter, estimates)
+				maybeRecordBambu3mfEstimate(ctx, conn, printer, nextPrinter, estimates, slotEstimates)
 				applySlicerFilamentEstimate(nextPrinter, estimates)
 				nextPrinter["totalPrintTime"] = accumulateTotalPrintTime(nextPrinter)
 				if err := collectAnalyticsForTransition(ctx, conn, printer, nextPrinter); err != nil {
@@ -162,6 +166,29 @@ func run() {
 					// needs_trigger_at is set here.
 					if err := detectBambuAssignmentTriggers(ctx, conn, mStr(printer, "id"), rawBambuTrays(printer)); err != nil {
 						log.Printf("assignment trigger detection error for printer %s: %v", mStr(printer, "id"), err)
+					}
+
+					// Filament usage tracking: on a job transition, resolve the
+					// print that just ended to the inventory spools that fed it
+					// and decrement their weight_used (filament_consumption.go).
+					// Transition-detection condition mirrors
+					// collectAnalyticsForTransition's own (transitions.go) —
+					// kept as a separate check rather than folded into that
+					// function, to avoid touching working Discord-notification
+					// logic for an unrelated feature.
+					if previousJob := mMap(printer, "currentJob"); previousJob != nil && mStr(nextPrinter, "status") != "offline" {
+						nextJob := mMap(nextPrinter, "currentJob")
+						if nextJob == nil || mStr(nextJob, "filename") != mStr(previousJob, "filename") {
+							outcome := "completed"
+							rawState := mStr(nextPrinter, "rawPrintState")
+							if rawState == "cancelled" || rawState == "failed" || mStr(nextPrinter, "status") == "error" {
+								outcome = "failed"
+							}
+							pid := mStr(nextPrinter, "id")
+							if err := applyFilamentConsumption(ctx, conn, pid, previousJob, outcome, nextPrinter["spools"], slotEstimates); err != nil {
+								log.Printf("filament consumption error for printer %s: %v", pid, err)
+							}
+						}
 					}
 				}
 

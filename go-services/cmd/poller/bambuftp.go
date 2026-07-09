@@ -154,7 +154,7 @@ var bambu3mfAttempts = map[estimateKey]time.Time{}
 
 const bambu3mfRetry = 300 * time.Second
 
-func ensureBambuSlicerEstimate(ctx context.Context, conn *pgx.Conn, printer, printData, job pmap, estimates map[estimateKey]float64) {
+func ensureBambuSlicerEstimate(ctx context.Context, conn *pgx.Conn, printer, printData, job pmap, estimates map[estimateKey]float64, slotEstimates map[estimateKey][]filamentSlot) {
 	printerID := mStr(printer, "id")
 	if printerID == "" || job == nil {
 		return
@@ -188,14 +188,18 @@ func ensureBambuSlicerEstimate(ctx context.Context, conn *pgx.Conn, printer, pri
 	if !ok || grams <= 0 {
 		return
 	}
-	if err := recordSlicerEstimate(ctx, conn, printerID, jobName, grams); err != nil {
+	slots, _ := parse3mfFilamentSlots(data) // best-effort; nil is fine, fallback path covers it
+	if err := recordSlicerEstimate(ctx, conn, printerID, jobName, grams, slots); err != nil {
 		log.Printf("bambu 3mf estimate store failed (%s/%s): %v", printerID, jobName, err)
 		return
 	}
 	estimates[key] = grams
+	if len(slots) > 0 {
+		slotEstimates[key] = slots
+	}
 }
 
-func maybeRecordBambu3mfEstimate(ctx context.Context, conn *pgx.Conn, printer, nextPrinter pmap, estimates map[estimateKey]float64) {
+func maybeRecordBambu3mfEstimate(ctx context.Context, conn *pgx.Conn, printer, nextPrinter pmap, estimates map[estimateKey]float64, slotEstimates map[estimateKey][]filamentSlot) {
 	profile := mStr(printer, "profile")
 	if !bambuProfiles[profile] || bambuFtpBlockedProfiles[profile] {
 		return
@@ -215,7 +219,7 @@ func maybeRecordBambu3mfEstimate(ctx context.Context, conn *pgx.Conn, printer, n
 	if printData == nil {
 		printData = pmap{}
 	}
-	ensureBambuSlicerEstimate(ctx, conn, printer, printData, job, estimates)
+	ensureBambuSlicerEstimate(ctx, conn, printer, printData, job, estimates, slotEstimates)
 }
 
 // applySlicerFilamentEstimate overrides a job's filament usage with the slicer's
