@@ -32,6 +32,11 @@
 // firmware can *read* those natively too (a `bambu_lab_tag_processor` key
 // configured in openrfid_user.cfg), but writing one isn't something this
 // payload (or Web NFC / Core NFC, which are NDEF-only) can produce.
+//
+// `alpha` comes free from the spool's own rgba (its last byte) rather than
+// a separate field. `additional_color_hexes` (multicolor spools) is the one
+// documented optional field left out — filament_spools only stores a single
+// rgba, so there's no source data for it without a schema change.
 
 export function buildOpenSpoolPayload(spool) {
   const rgba = (spool.rgba || 'FFFFFFFF').toUpperCase();
@@ -49,5 +54,6 @@ export function buildOpenSpoolPayload(spool) {
   if (spool.bedTempMax != null) payload.bed_max_temp = spool.bedTempMax;
   if (spool.diameter != null) payload.diameter = spool.diameter;
   if (spool.labelWeight) payload.weight = spool.labelWeight;
+  if (rgba.length >= 8) payload.alpha = rgba.slice(6, 8);
   return payload;
 }
