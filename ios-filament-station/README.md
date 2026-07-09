@@ -53,10 +53,10 @@ iPhone. Someone with a Mac needs to:
   handling on real hardware — the code follows Apple's documented pattern
   but Core NFC's behavior around session invalidation and multi-tag
   detection varies across iPhone models/iOS versions.
-- Tag compatibility: the OpenSpool payload includes brand/subtype/weight when
-  the spool record has them (temps/diameter are intentionally omitted to keep
-  the payload minimal), matching the Snapmaker U1 Extended Firmware's
-  documented schema (needed for Snapmaker Orca's
+- Tag compatibility: the OpenSpool payload includes brand/subtype when the
+  spool record has them (temps/diameter/weight/alpha are intentionally
+  omitted to keep the payload minimal), matching the Snapmaker U1 Extended
+  Firmware's documented schema (needed for Snapmaker Orca's
   `<brand> <type> <subtype>` naming and for OpenRFID mode to not hide the
   spool as an unrecognized vendor). That firmware's own docs recommend
   NTAG215 (540 bytes usable) as the target tag for the U1, not NTAG213
