@@ -261,6 +261,8 @@ function AddSpoolDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
   const [rgba, setRgba] = useState('FFFFFFFF');
   const [brand, setBrand] = useState('');
   const [labelWeight, setLabelWeight] = useState('1000');
+  const [nozzleTempMin, setNozzleTempMin] = useState('');
+  const [nozzleTempMax, setNozzleTempMax] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function submit() {
@@ -273,6 +275,8 @@ function AddSpoolDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
         rgba: rgba || undefined,
         brand: brand || undefined,
         label_weight: labelWeight ? Number(labelWeight) : undefined,
+        nozzle_temp_min: nozzleTempMin ? Number(nozzleTempMin) : undefined,
+        nozzle_temp_max: nozzleTempMax ? Number(nozzleTempMax) : undefined,
       });
       toast.success('Spool added');
       onOpenChange(false);
@@ -354,6 +358,24 @@ function AddSpoolDialog({ open, onOpenChange, onCreated }: { open: boolean; onOp
           <div className="space-y-2">
             <Label>Label weight (g)</Label>
             <Input type="number" value={labelWeight} onChange={(e) => setLabelWeight(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>Nozzle temp min (°C)</Label>
+            <Input
+              type="number"
+              value={nozzleTempMin}
+              onChange={(e) => setNozzleTempMin(e.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Nozzle temp max (°C)</Label>
+            <Input
+              type="number"
+              value={nozzleTempMax}
+              onChange={(e) => setNozzleTempMax(e.target.value)}
+              placeholder="Optional"
+            />
           </div>
         </div>
         <DialogFooter>
