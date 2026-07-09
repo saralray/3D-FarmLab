@@ -112,6 +112,11 @@ CREATE TABLE IF NOT EXISTS slicer_print_estimates (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (printer_id, job_name)
 );
+-- Per-filament-slot 3MF breakdown ([{slotId,usedG,type,color}, ...]), alongside
+-- the coarse filament_grams total above. Nullable/additive: existing readers of
+-- filament_grams are unaffected; filament_consumption.go's applyFilamentConsumption
+-- is the only consumer of this column.
+ALTER TABLE slicer_print_estimates ADD COLUMN IF NOT EXISTS filament_slots JSONB;
 CREATE TABLE IF NOT EXISTS poller_health (
   shard_index INTEGER PRIMARY KEY,
   shard_count INTEGER NOT NULL DEFAULT 1,
@@ -159,6 +164,31 @@ CREATE TABLE IF NOT EXISTS filament_spools (
 );
 CREATE INDEX IF NOT EXISTS filament_spools_tag_uid_idx ON filament_spools (tag_uid) WHERE tag_uid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS filament_spools_tray_uuid_idx ON filament_spools (tray_uuid) WHERE tray_uuid IS NOT NULL;
+-- Spool-to-printer/AMS-slot bindings, duplicated from server/postgres.js's
+-- SCHEMA_SQL for the same reason as filament_spools above: filament_matcher.go's
+-- ensureAutoAssignment and filament_consumption.go's findAssignedSpoolID query
+-- this table directly and must not depend on the Node web service having
+-- bootstrapped the DB first.
+CREATE TABLE IF NOT EXISTS filament_station_assignments (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  spool_id TEXT NOT NULL REFERENCES filament_spools(id) ON DELETE CASCADE,
+  printer_id TEXT NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+  ams_id INTEGER NOT NULL DEFAULT 0,
+  tray_id INTEGER NOT NULL,
+  fingerprint_color TEXT,
+  fingerprint_type TEXT,
+  fingerprint_present BOOLEAN,
+  pending_config BOOLEAN NOT NULL DEFAULT FALSE,
+  needs_trigger_at TIMESTAMPTZ,
+  last_trigger_result TEXT,
+  last_triggered_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (printer_id, ams_id, tray_id)
+);
+CREATE INDEX IF NOT EXISTS filament_station_assignments_trigger_idx
+  ON filament_station_assignments (needs_trigger_at) WHERE needs_trigger_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS filament_station_assignments_spool_idx
+  ON filament_station_assignments (spool_id);
 SELECT pg_advisory_unlock(90210);
 `
 
@@ -369,13 +399,73 @@ func listSlicerEstimates(ctx context.Context, conn *pgx.Conn) (map[estimateKey]f
 	return out, rows.Err()
 }
 
-func recordSlicerEstimate(ctx context.Context, conn *pgx.Conn, printerID, jobName string, grams float64) error {
+// listSlicerSlotEstimates hydrates the per-filament-slot 3MF breakdown, the
+// sibling of listSlicerEstimates's coarse total — same reload-every-cycle
+// pattern (run.go calls both once per poll cycle, not just at startup).
+func listSlicerSlotEstimates(ctx context.Context, conn *pgx.Conn) (map[estimateKey][]filamentSlot, error) {
+	rows, err := conn.Query(ctx, `
+		SELECT printer_id, job_name, filament_slots FROM slicer_print_estimates
+		WHERE filament_slots IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[estimateKey][]filamentSlot{}
+	for rows.Next() {
+		var pid, job string
+		var raw []byte
+		if err := rows.Scan(&pid, &job, &raw); err != nil {
+			return nil, err
+		}
+		var slots []filamentSlot
+		if err := json.Unmarshal(raw, &slots); err != nil {
+			continue // corrupt/foreign-shaped row — skip rather than fail the whole cycle
+		}
+		if len(slots) > 0 {
+			out[estimateKey{pid, job}] = slots
+		}
+	}
+	return out, rows.Err()
+}
+
+func recordSlicerEstimate(ctx context.Context, conn *pgx.Conn, printerID, jobName string, grams float64, slots []filamentSlot) error {
 	_, err := conn.Exec(ctx, `
-		INSERT INTO slicer_print_estimates (printer_id, job_name, filament_grams)
-		VALUES ($1, $2, $3)
+		INSERT INTO slicer_print_estimates (printer_id, job_name, filament_grams, filament_slots)
+		VALUES ($1, $2, $3, $4::jsonb)
 		ON CONFLICT (printer_id, job_name) DO UPDATE
-		  SET filament_grams = EXCLUDED.filament_grams, updated_at = NOW()`,
-		printerID, jobName, grams)
+		  SET filament_grams = EXCLUDED.filament_grams, filament_slots = EXCLUDED.filament_slots, updated_at = NOW()`,
+		printerID, jobName, grams, jsonbParam(slots))
+	return err
+}
+
+// findAssignedSpoolID resolves a physical AMS/external slot to the inventory
+// spool bound to it, or "" if unassigned. Used by filament_consumption.go to
+// turn a resolved filament slot/tray into a filament_spools row to decrement.
+func findAssignedSpoolID(ctx context.Context, conn *pgx.Conn, printerID string, amsID, trayID int) (string, error) {
+	var spoolID string
+	err := conn.QueryRow(ctx, `
+		SELECT spool_id FROM filament_station_assignments
+		WHERE printer_id = $1 AND ams_id = $2 AND tray_id = $3`,
+		printerID, amsID, trayID,
+	).Scan(&spoolID)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	return spoolID, err
+}
+
+// decrementSpoolWeight increments filament_spools.weight_used by grams —
+// "decrement" names the effect on remaining filament (label_weight -
+// weight_used), matching Bambuddy's spool.weight_used += weight_grams.
+func decrementSpoolWeight(ctx context.Context, conn *pgx.Conn, spoolID string, grams float64) error {
+	if grams <= 0 {
+		return nil
+	}
+	_, err := conn.Exec(ctx, `
+		UPDATE filament_spools SET weight_used = weight_used + $1, updated_at = NOW()
+		WHERE id = $2`,
+		grams, spoolID)
 	return err
 }
 

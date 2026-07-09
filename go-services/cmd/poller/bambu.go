@@ -398,9 +398,20 @@ func rawBambuTrays(printer pmap) map[string]pmap {
 
 // ── filament-used AMS delta baseline ────────────────────────────────────────
 
+// baselineState is a print-start snapshot: AMS-delta baseline grams (for the
+// remain%-delta fallback) plus everything filament_consumption.go's
+// resolveSlotToTray needs to map 3MF filament slots back to physical trays
+// after the print ends — mirrors Bambuddy's usage_tracker.PrintSession,
+// captured once at print start rather than re-derived from (possibly stale
+// or already-overwritten-by-the-next-job) MQTT state at completion time.
 type baselineState struct {
-	filename string
-	grams    map[string]float64
+	filename      string
+	grams         map[string]float64 // slot key -> grams remaining, at print start
+	mqttMapping   []any              // raw printData["mapping"], at print start
+	trayColor     map[string]string  // slot key -> "#rrggbb", at print start
+	trayType      map[string]string  // slot key -> tray_type, at print start (empty = unloaded)
+	activeTrayKey string             // bambuActiveSpoolID(printData) at print start
+	startedAt     time.Time
 }
 
 var (
@@ -424,7 +435,45 @@ func spoolGrams(spools any) map[string]float64 {
 	return out
 }
 
-func updateBambuFilamentUsed(printerID string, job pmap, spools any) {
+// spoolColorsAndTypes mirrors spoolGrams but pulls the color/material fields
+// buildBambuSpools also puts on each entry, needed for matchSlotsByColor and
+// the position-based (loaded-slot) mapping fallback.
+func spoolColorsAndTypes(spools any) (color, material map[string]string) {
+	color = map[string]string{}
+	material = map[string]string{}
+	for _, s := range asSlice(spools) {
+		sp := asMap(s)
+		if sp == nil {
+			continue
+		}
+		id := mStr(sp, "id")
+		if id == "" {
+			continue
+		}
+		if c := mStr(sp, "color"); c != "" {
+			color[id] = c
+		}
+		if m := mStr(sp, "material"); m != "" {
+			material[id] = m
+		}
+	}
+	return color, material
+}
+
+// takeBambuPrintBaseline pops and returns the baseline for printerID, or nil
+// if none is tracked. Ownership of clearing the baseline lives here (not in
+// updateBambuFilamentUsed) so filament_consumption.go's finalize step can
+// still read it after the job has already gone nil this same poll cycle —
+// see run.go/filament_consumption.go for why that ordering matters.
+func takeBambuPrintBaseline(printerID string) *baselineState {
+	bambuPrintBaselineMu.Lock()
+	defer bambuPrintBaselineMu.Unlock()
+	state := bambuPrintBaseline[printerID]
+	delete(bambuPrintBaseline, printerID)
+	return state
+}
+
+func updateBambuFilamentUsed(printerID string, job pmap, spools any, mqttMapping []any, activeTrayKey string) {
 	if printerID == "" {
 		return
 	}
@@ -432,7 +481,10 @@ func updateBambuFilamentUsed(printerID string, job pmap, spools any) {
 	defer bambuPrintBaselineMu.Unlock()
 
 	if job == nil {
-		delete(bambuPrintBaseline, printerID)
+		// Leave any existing baseline in place — filament_consumption.go's
+		// applyFilamentConsumption (run.go, after collectAnalyticsForTransition)
+		// still needs it to resolve the print that just ended, and is
+		// responsible for clearing it via takeBambuPrintBaseline once done.
 		return
 	}
 	current := spoolGrams(spools)
@@ -443,7 +495,16 @@ func updateBambuFilamentUsed(printerID string, job pmap, spools any) {
 		for k, v := range current {
 			grams[k] = v
 		}
-		state = &baselineState{filename: filename, grams: grams}
+		trayColor, trayType := spoolColorsAndTypes(spools)
+		state = &baselineState{
+			filename:      filename,
+			grams:         grams,
+			mqttMapping:   mqttMapping,
+			trayColor:     trayColor,
+			trayType:      trayType,
+			activeTrayKey: activeTrayKey,
+			startedAt:     time.Now(),
+		}
 		bambuPrintBaseline[printerID] = state
 	} else {
 		for id, g := range current {
@@ -768,7 +829,9 @@ func fetchBambuStatus(printer pmap) (pmap, error) {
 		spools = printer["spools"]
 	}
 	currentJob := buildBambuCurrentJob(printData, mMap(printer, "currentJob"), progress, status, remainingMinutes)
-	updateBambuFilamentUsed(mStr(printer, "id"), currentJob, spools)
+	activeSpoolID := bambuActiveSpoolID(printData)
+	activeTrayKey, _ := activeSpoolID.(string)
+	updateBambuFilamentUsed(mStr(printer, "id"), currentJob, spools, mSlice(printData, "mapping"), activeTrayKey)
 
 	fanSpeeds := buildBambuFanSpeeds(printData, mStr(printer, "profile"))
 	if fanSpeeds == nil {
@@ -800,6 +863,6 @@ func fetchBambuStatus(printer pmap) (pmap, error) {
 		"airFilterOn":        airFilterOn,
 		"errorMessage":       buildBambuErrorMessage(printData, mStr(printer, "profile"), mStr(printer, "id")),
 		"filamentRunout":     bambuFilamentRunout(printData),
-		"activeSpoolId":      bambuActiveSpoolID(printData),
+		"activeSpoolId":      activeSpoolID,
 	}, nil
 }
