@@ -86,7 +86,7 @@ Lists the available resources.
 ```json
 {
   "version": "v1",
-  "resources": ["printers", "queue", "analytics", "notifications", "slicer-keys", "audit-logs", "settings", "users", "admin-credential", "manager-requests", "maintenance"]
+  "resources": ["printers", "queue", "analytics", "notifications", "slicer-keys", "audit-logs", "settings", "users", "admin-credential", "manager-requests", "maintenance", "filament-station"]
 }
 ```
 
@@ -279,6 +279,31 @@ when an interval is crossed (never duplicated while one is open), and a rolling
 The admin-configurable global default intervals live in **app_settings** under the
 key `maintenance_default_intervals` (array of `{ type, intervalHours, description }`),
 reachable via the generic `settings` resource (`GET/PUT /api/v1/settings/maintenance_default_intervals`).
+
+---
+
+### Filament Station — `/api/v1/filament-station` (also `/api/filament-station`, cookie-session)
+
+Local spool inventory identified via a phone-written NFC tag (Android Web NFC
+/ iOS Core NFC) or a genuine Bambu RFID tag the AMS already read. See
+`server/filamentStation.js`. The `/api/v1` path is API-key-gated
+(`printfarm_manage`); `/api/filament-station` is the same handler reached via
+the cookie-session frontend.
+
+| Method & path | Description |
+|---------------|-------------|
+| `GET /filament-station` | `{ resources: ['nfc', 'spools', 'assignments'] }` |
+| `GET /filament-station/spools` | List spools (excludes archived). |
+| `POST /filament-station/spools` | Create a spool. Body: `{ material, subtype?, color_name?, rgba?, brand?, label_weight?, core_weight?, nozzle_temp_min?, nozzle_temp_max? }`. |
+| `GET /filament-station/spools/:id` | Get one spool. |
+| `PUT /filament-station/spools/:id` | Update a spool (same fields as create, plus `archived?`, `weight_used?`). |
+| `DELETE /filament-station/spools/:id` | Delete a spool. |
+| `GET /filament-station/spools/:id/openspool-payload` | The OpenSpool-format JSON to write onto an NFC tag as an `application/json` NDEF record, read natively by the Snapmaker U1 Extended Firmware's OpenRFID mode: `{ protocol: "openspool", version: "1.0", type, color_hex, brand?, subtype?, min_temp?, max_temp?, bed_min_temp?, bed_max_temp?, diameter?, weight? }`. Optional fields are included only when set on the spool record; `brand`/`subtype` matter beyond labeling since Snapmaker Orca requires the `<brand> <type> <subtype>` naming convention to recognize the filament. |
+| `POST /filament-station/nfc/tag-scanned` | Body `{ tag_uid, tray_uuid? }`. Resolves a scanned tag to a spool (a genuine Bambu tag's `tray_uuid` takes precedence over `tag_uid` if both are known). `{ status: 'ok', matched, spool_id }`. |
+| `POST /filament-station/nfc/link-tag` | Body `{ spool_id, tag_uid }`. Links a freshly-written tag's UID to a spool. |
+| `GET /filament-station/assignments` | List AMS/tray → spool assignments. |
+| `POST /filament-station/assignments` | Body `{ spool_id, printer_id, ams_id?, tray_id, pending_config? }`. Creates/updates an assignment; if not pending and the printer is Bambu, immediately pushes an `ams_filament_setting` override over MQTT (failure reported as `mqtt_warning` in the response, not an error status). |
+| `DELETE /filament-station/assignments/:printerId/:amsId/:trayId` | Remove an assignment. |
 
 ---
 
