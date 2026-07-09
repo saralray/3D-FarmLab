@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Bell, Check, Copy, House, Image as ImageIcon, KeyRound, MonitorCheck, Settings as SettingsIcon, Shield, Trash2, Users, Wrench, X } from 'lucide-react';
+import { Bell, Check, Copy, House, Image as ImageIcon, Info, KeyRound, MonitorCheck, Settings as SettingsIcon, Shield, Trash2, Users, Wrench, X } from 'lucide-react';
 import { Card } from '../components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Slider } from '../components/ui/slider';
@@ -1130,6 +1131,30 @@ export function Settings() {
                   />
                 </div>
               </div>
+
+              {PRINTER_PROFILES[printerProfile].setupSteps.length > 0 && (
+                <Alert>
+                  <Info />
+                  <AlertTitle>Before adding this printer</AlertTitle>
+                  <AlertDescription>
+                    <ul className="list-disc pl-4">
+                      {PRINTER_PROFILES[printerProfile].setupSteps.map((step) => (
+                        <li key={step}>{step}</li>
+                      ))}
+                    </ul>
+                    {PRINTER_PROFILES[printerProfile].setupLink && (
+                      <a
+                        href={PRINTER_PROFILES[printerProfile].setupLink!.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline underline-offset-2"
+                      >
+                        {PRINTER_PROFILES[printerProfile].setupLink!.label}
+                      </a>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
