@@ -323,8 +323,10 @@ ALTER TABLE network_usage_daily ADD COLUMN IF NOT EXISTS bytes_in BIGINT NOT NUL
 -- writing it into the OpenSpool tag's brand field (see openspoolTag.js) --
 -- brand is a real, documented OpenSpool field the Snapmaker OpenRFID firmware
 -- reads and can surface on-device/in Orca, unlike tag_uid/tray_uuid which
--- only FarmLab's own NFC scan flow resolves.
-CREATE SEQUENCE IF NOT EXISTS filament_spools_serial_seq;
+-- only FarmLab's own NFC scan flow resolves. Deliberately not a sequence:
+-- deleteFilamentSpool is a hard DELETE, and a spool's serial should become
+-- reusable once it's gone rather than only ever counting up (see the
+-- lowest-unused-number query in createFilamentSpool).
 CREATE TABLE IF NOT EXISTS filament_spools (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   material TEXT NOT NULL,
@@ -352,9 +354,17 @@ CREATE TABLE IF NOT EXISTS filament_spools (
 );
 ALTER TABLE filament_spools ADD COLUMN IF NOT EXISTS serial TEXT;
 -- Backfill any spool created before this column existed; a no-op scan once
--- every existing row has a serial.
-UPDATE filament_spools SET serial = 'FL-' || lpad(nextval('filament_spools_serial_seq')::text, 4, '0')
-  WHERE serial IS NULL;
+-- every existing row has a serial. Ordered by created_at so earlier spools
+-- keep lower numbers, matching what createFilamentSpool would have assigned.
+UPDATE filament_spools fs
+SET serial = 'FL-' || lpad(sub.rn::text, 4, '0')
+FROM (
+  SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn
+  FROM filament_spools
+  WHERE serial IS NULL
+) sub
+WHERE fs.id = sub.id;
+DROP SEQUENCE IF EXISTS filament_spools_serial_seq;
 CREATE INDEX IF NOT EXISTS filament_spools_tag_uid_idx ON filament_spools (tag_uid) WHERE tag_uid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS filament_spools_tray_uuid_idx ON filament_spools (tray_uuid) WHERE tray_uuid IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS filament_spools_serial_idx ON filament_spools (serial) WHERE serial IS NOT NULL;
@@ -2612,8 +2622,22 @@ export async function getFilamentSpool(id) {
 
 export async function createFilamentSpool(spool) {
   await ensureSchema();
+  // Lowest unused positive integer, not an ever-incrementing sequence, so a
+  // deleted spool's serial (e.g. FL-0002) is handed to the next new spool
+  // instead of being burned forever.
   const serialResult = await query(
-    `SELECT 'FL-' || lpad(nextval('filament_spools_serial_seq')::text, 4, '0') AS serial;`,
+    `WITH used AS (
+       SELECT CAST(SUBSTRING(serial FROM 4) AS INT) AS n
+       FROM filament_spools
+       WHERE serial ~ '^FL-[0-9]+$'
+     ),
+     candidates AS (
+       SELECT generate_series(1, COALESCE((SELECT MAX(n) FROM used), 0) + 1) AS n
+     )
+     SELECT 'FL-' || lpad(MIN(c.n)::text, 4, '0') AS serial
+     FROM candidates c
+     LEFT JOIN used u ON u.n = c.n
+     WHERE u.n IS NULL;`,
   );
   const serial = serialResult.rows[0].serial;
   const result = await query(
