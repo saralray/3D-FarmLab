@@ -37,6 +37,16 @@
 // a separate field. `additional_color_hexes` (multicolor spools) is the one
 // documented optional field left out — filament_spools only stores a single
 // rgba, so there's no source data for it without a schema change.
+//
+// `brand` carries the spool's FarmLab-generated `serial` (FL-0001, ...), not
+// its real manufacturer brand: OpenSpool has no dedicated "unique ID" field,
+// and three identical yellow-PLA spools would otherwise write byte-identical
+// tags. `brand` is the one documented field free-form enough to abuse this
+// way, at the cost of the manufacturer name no longer reaching the tag (it's
+// still tracked in FarmLab's own `filament_spools.brand` column). Because the
+// tag's brand text won't match a recognized vendor, the printer's OpenRFID
+// mode should be set to "force generic vendor" so Orca doesn't hide the
+// spool — plain OpenRFID mode hides spools it can't match to a known brand.
 
 export function buildOpenSpoolPayload(spool) {
   const rgba = (spool.rgba || 'FFFFFFFF').toUpperCase();
@@ -46,7 +56,8 @@ export function buildOpenSpoolPayload(spool) {
     type: spool.material,
     color_hex: `#${rgba.slice(0, 6)}`,
   };
-  if (spool.brand) payload.brand = spool.brand;
+  if (spool.serial) payload.brand = spool.serial;
+  else if (spool.brand) payload.brand = spool.brand;
   if (spool.subtype) payload.subtype = spool.subtype;
   if (spool.nozzleTempMin != null) payload.min_temp = spool.nozzleTempMin;
   if (spool.nozzleTempMax != null) payload.max_temp = spool.nozzleTempMax;

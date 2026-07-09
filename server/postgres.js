@@ -317,6 +317,14 @@ ALTER TABLE network_usage_daily ADD COLUMN IF NOT EXISTS bytes_in BIGINT NOT NUL
 -- telemetry and is never written from here. tag_uid/tray_uuid identify a
 -- spool either by the phone-written OpenSpool tag or by a genuine Bambu tag
 -- (auto-cataloged by the poller's filament tag matcher, filament_matcher.go).
+-- serial is a FarmLab-generated human-readable identifier (FL-0001, FL-0002,
+-- ...), distinct from the physical tag_uid/tray_uuid above: it exists so a
+-- spool can be told apart from other spools of the same material/color by
+-- writing it into the OpenSpool tag's brand field (see openspoolTag.js) --
+-- brand is a real, documented OpenSpool field the Snapmaker OpenRFID firmware
+-- reads and can surface on-device/in Orca, unlike tag_uid/tray_uuid which
+-- only FarmLab's own NFC scan flow resolves.
+CREATE SEQUENCE IF NOT EXISTS filament_spools_serial_seq;
 CREATE TABLE IF NOT EXISTS filament_spools (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   material TEXT NOT NULL,
@@ -324,6 +332,7 @@ CREATE TABLE IF NOT EXISTS filament_spools (
   color_name TEXT,
   rgba TEXT NOT NULL DEFAULT 'FFFFFFFF',
   brand TEXT,
+  serial TEXT,
   label_weight DOUBLE PRECISION NOT NULL DEFAULT 0,
   core_weight DOUBLE PRECISION NOT NULL DEFAULT 0,
   weight_used DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -341,8 +350,14 @@ CREATE TABLE IF NOT EXISTS filament_spools (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE filament_spools ADD COLUMN IF NOT EXISTS serial TEXT;
+-- Backfill any spool created before this column existed; a no-op scan once
+-- every existing row has a serial.
+UPDATE filament_spools SET serial = 'FL-' || lpad(nextval('filament_spools_serial_seq')::text, 4, '0')
+  WHERE serial IS NULL;
 CREATE INDEX IF NOT EXISTS filament_spools_tag_uid_idx ON filament_spools (tag_uid) WHERE tag_uid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS filament_spools_tray_uuid_idx ON filament_spools (tray_uuid) WHERE tray_uuid IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS filament_spools_serial_idx ON filament_spools (serial) WHERE serial IS NOT NULL;
 
 -- Per-printer-lane assignment: the deferred/pending-config replay source of
 -- truth for both Bambu (real ams_id/tray_id) and Snapmaker U1 (ams_id=0,
@@ -2558,6 +2573,7 @@ function filamentSpoolRowToJs(row) {
     colorName: row.color_name,
     rgba: row.rgba,
     brand: row.brand,
+    serial: row.serial,
     labelWeight: row.label_weight,
     coreWeight: row.core_weight,
     weightUsed: row.weight_used,
@@ -2596,12 +2612,16 @@ export async function getFilamentSpool(id) {
 
 export async function createFilamentSpool(spool) {
   await ensureSchema();
+  const serialResult = await query(
+    `SELECT 'FL-' || lpad(nextval('filament_spools_serial_seq')::text, 4, '0') AS serial;`,
+  );
+  const serial = serialResult.rows[0].serial;
   const result = await query(
     `INSERT INTO filament_spools (
-       material, subtype, color_name, rgba, brand, label_weight, core_weight,
+       material, subtype, color_name, rgba, brand, serial, label_weight, core_weight,
        weight_used, nozzle_temp_min, nozzle_temp_max, bed_temp_min, bed_temp_max,
        diameter, tag_uid, tray_uuid, data_origin
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      RETURNING *;`,
     [
       spool.material,
@@ -2609,6 +2629,7 @@ export async function createFilamentSpool(spool) {
       spool.colorName ?? null,
       spool.rgba ?? 'FFFFFFFF',
       spool.brand ?? null,
+      serial,
       spool.labelWeight ?? 0,
       spool.coreWeight ?? 0,
       spool.weightUsed ?? 0,

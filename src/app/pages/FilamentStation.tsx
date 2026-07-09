@@ -420,7 +420,9 @@ function SpoolCard({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate font-medium">{spoolLabel(spool)}</p>
-            <p className="truncate text-xs text-muted-foreground">{spool.brand ?? 'Unbranded'}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {spool.brand ?? 'Unbranded'} · <span className="font-mono">{spool.serial}</span>
+            </p>
           </div>
           <Button
             size="icon"
