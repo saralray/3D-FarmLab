@@ -16,11 +16,11 @@
 //
 // The firmware's own docs recommend NTAG215 (540 bytes usable) as "the sweet
 // spot" for the U1, with NTAG216 (888 bytes) also supported. Temperature
-// (min/max nozzle, min/max bed) and diameter are intentionally left off this
-// payload to keep it minimal — Orca/Bambu Studio already source those from
-// the material profile the operator picks, so writing them to the tag is
-// redundant; brand/subtype/weight/alpha stay since Orca's filament-matching
-// depends on them.
+// (min/max nozzle, min/max bed), diameter, weight, and alpha are
+// intentionally left off this payload to keep it minimal — Orca/Bambu Studio
+// already source temps/diameter from the material profile the operator
+// picks, and weight/alpha aren't needed for filament matching; brand/subtype
+// stay since Orca's `<brand> <type> <subtype>` matching depends on them.
 //
 // Only the JSON-shaping logic lives here now. Raw NDEF byte-packing (CC/TLV/
 // record-header wrapping for writing directly to tag memory pages over SPI)
@@ -33,11 +33,6 @@
 // firmware can *read* those natively too (a `bambu_lab_tag_processor` key
 // configured in openrfid_user.cfg), but writing one isn't something this
 // payload (or Web NFC / Core NFC, which are NDEF-only) can produce.
-//
-// `alpha` comes free from the spool's own rgba (its last byte) rather than
-// a separate field. `additional_color_hexes` (multicolor spools) is the one
-// documented optional field left out — filament_spools only stores a single
-// rgba, so there's no source data for it without a schema change.
 //
 // `brand` carries the spool's FarmLab-generated `serial` (FL-0001, ...), not
 // its real manufacturer brand: OpenSpool has no dedicated "unique ID" field,
@@ -60,7 +55,5 @@ export function buildOpenSpoolPayload(spool) {
   if (spool.serial) payload.brand = spool.serial;
   else if (spool.brand) payload.brand = spool.brand;
   if (spool.subtype) payload.subtype = spool.subtype;
-  if (spool.labelWeight) payload.weight = spool.labelWeight;
-  if (rgba.length >= 8) payload.alpha = rgba.slice(6, 8);
   return payload;
 }
