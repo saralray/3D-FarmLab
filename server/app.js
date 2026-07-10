@@ -2232,10 +2232,12 @@ async function authorizeFrontendApi(req, res, requestUrl) {
 // Content-Security-Policy. The built SPA loads only same-origin external module
 // scripts (no inline <script>), so script-src 'self' is safe; styles need
 // 'unsafe-inline' (React/Radix inject style attributes) and images need data:
-// (branding background + inline SVG fallback) and blob: (object URLs). No
-// external CDN/font hosts are used. Tunable at runtime: CONTENT_SECURITY_POLICY
-// overrides the whole string ("off" disables it), and CSP_REPORT_ONLY=true emits
-// it as report-only so an operator can validate a policy before enforcing.
+// (branding background + inline SVG fallback) and blob: (object URLs). media-src
+// needs blob: too, for the in-app AV1 live view's MediaSource Extensions
+// <video> element. No external CDN/font hosts are used. Tunable at runtime:
+// CONTENT_SECURITY_POLICY overrides the whole string ("off" disables it), and
+// CSP_REPORT_ONLY=true emits it as report-only so an operator can validate a
+// policy before enforcing.
 const DEFAULT_CSP = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -2248,6 +2250,12 @@ const DEFAULT_CSP = [
   "script-src 'self'",
   "connect-src 'self'",
   "frame-src 'self'",
+  // The in-app AV1 live view (Av1CameraPlayer) plays a MediaSource Extensions
+  // stream via `video.src = URL.createObjectURL(mediaSource)` — a blob: URL.
+  // media-src falls back to default-src 'self' when unspecified, which
+  // doesn't cover blob:, so without this the browser silently blocks the
+  // video source and the feed never appears (no console-visible app error).
+  "media-src 'self' blob:",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
 ].join('; ');

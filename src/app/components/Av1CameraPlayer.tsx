@@ -18,6 +18,11 @@ const BUFFER_TRIM_BEHIND_SECONDS = 10;
 // the legacy iframe/MJPEG view) after several attempts in a row fail.
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_MS = 2000;
+// If the MediaSource never reaches 'sourceopen' within this window (e.g. the
+// browser silently blocked the blob: video source, or the codec was rejected
+// some other way), treat the attempt as failed rather than hanging forever
+// with a blank box and no fallback ever triggered.
+const SOURCE_OPEN_TIMEOUT_MS = 8000;
 
 export function isAv1PlaybackSupported(): boolean {
   return (
@@ -55,12 +60,15 @@ export function Av1CameraPlayer({ streamUrl, className, onError }: Av1CameraPlay
     let cancelled = false;
     let attempt = 0;
     let retryTimer: number | undefined;
+    let sourceOpenTimer: number | undefined;
     let currentAbort: AbortController | null = null;
     let currentObjectUrl: string | null = null;
 
     const teardownAttempt = () => {
       currentAbort?.abort();
       currentAbort = null;
+      window.clearTimeout(sourceOpenTimer);
+      sourceOpenTimer = undefined;
       if (currentObjectUrl) {
         URL.revokeObjectURL(currentObjectUrl);
         currentObjectUrl = null;
@@ -85,6 +93,16 @@ export function Av1CameraPlayer({ streamUrl, className, onError }: Av1CameraPlay
       retryTimer = window.setTimeout(connect, RECONNECT_DELAY_MS);
     };
 
+    // The video element persists across reconnect attempts (same ref), so
+    // this is attached once — a decode/network error on whatever src is
+    // currently attached retries just like a failed fetch would, instead of
+    // leaving the feed silently stuck.
+    const onVideoError = () => {
+      if (cancelled) return;
+      scheduleRetry();
+    };
+    video.addEventListener('error', onVideoError);
+
     function connect() {
       if (cancelled) return;
       const abortController = new AbortController();
@@ -93,6 +111,13 @@ export function Av1CameraPlayer({ streamUrl, className, onError }: Av1CameraPlay
       const objectUrl = URL.createObjectURL(mediaSource);
       currentObjectUrl = objectUrl;
       if (video) video.src = objectUrl;
+
+      // Guard against 'sourceopen' never firing (e.g. the blob: src silently
+      // blocked by CSP) — without this, a stuck attempt never calls onError,
+      // so the parent never falls back to the working iframe/MJPEG view.
+      sourceOpenTimer = window.setTimeout(() => {
+        if (currentAbort === abortController) scheduleRetry();
+      }, SOURCE_OPEN_TIMEOUT_MS);
 
       let sourceBuffer: SourceBuffer | null = null;
       const pending: Uint8Array[] = [];
@@ -124,6 +149,8 @@ export function Av1CameraPlayer({ streamUrl, className, onError }: Av1CameraPlay
 
       const onSourceOpen = async () => {
         if (cancelled || currentAbort !== abortController) return;
+        window.clearTimeout(sourceOpenTimer);
+        sourceOpenTimer = undefined;
         try {
           sourceBuffer = mediaSource.addSourceBuffer(AV1_MIME_CODEC);
         } catch {
@@ -171,6 +198,7 @@ export function Av1CameraPlayer({ streamUrl, className, onError }: Av1CameraPlay
     return () => {
       cancelled = true;
       window.clearTimeout(retryTimer);
+      video.removeEventListener('error', onVideoError);
       teardownAttempt();
       video.removeAttribute('src');
       video.load();
