@@ -14,7 +14,9 @@ AUTH_CONF=/etc/nginx/prometheus_auth.conf
 
 if [ -n "${PROMETHEUS_BASIC_AUTH_PASSWORD:-}" ]; then
   user="${PROMETHEUS_BASIC_AUTH_USER:-admin}"
-  hash="$(openssl passwd -apr1 "$PROMETHEUS_BASIC_AUTH_PASSWORD")"
+  # Feed the password on stdin, not as an argv element, so it isn't briefly
+  # visible in the container's process list while the hash is generated.
+  hash="$(printf '%s' "$PROMETHEUS_BASIC_AUTH_PASSWORD" | openssl passwd -apr1 -stdin)"
   printf '%s:%s\n' "$user" "$hash" > "$HTPASSWD_FILE"
   printf 'auth_basic "Prometheus";\nauth_basic_user_file %s;\n' "$HTPASSWD_FILE" > "$AUTH_CONF"
   echo "10-prometheus-htpasswd.sh: /prometheus exposed with Basic Auth (user: $user)"

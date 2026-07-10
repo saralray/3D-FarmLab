@@ -3,6 +3,20 @@ map $http_upgrade $connection_upgrade {
   '' close;
 }
 
+# Effective client protocol. When a TLS terminator sits in front of nginx (this
+# server only listens on :80), honor the X-Forwarded-Proto it sets so the app
+# sees the real scheme — otherwise HSTS (emitted only on https) and the Secure
+# session-cookie auto-enable would never fire behind upstream TLS. When the
+# header is absent (nginx is the edge) fall back to nginx's own $scheme. Match
+# the leftmost value so a "https, http" chain still resolves to https. Honoring
+# a client-spoofed https here is harmless: browsers ignore HSTS received over
+# plain http, and a Secure cookie set over http simply isn't stored — no
+# cross-user impact.
+map $http_x_forwarded_proto $forwarded_proto {
+  default $scheme;
+  "~*^https" https;
+}
+
 # ── DDoS / abuse mitigation (L7) ─────────────────────────────────────────────
 # Per-client-IP request-rate and concurrent-connection limits. nginx is the
 # internet-facing edge here, so $binary_remote_addr is the real client IP (the
@@ -87,7 +101,7 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
     proxy_buffering off;
     proxy_read_timeout 3600s;
     # DDoS: a live dashboard holds one MJPEG connection per visible camera, and
@@ -117,7 +131,7 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
     proxy_buffering off;
     proxy_read_timeout 3600s;
     limit_conn conn_per_ip 300; # DDoS: long-lived MJPEG — see /__printer_webcam/
@@ -137,7 +151,7 @@ server {
     proxy_pass http://slicer-proxy:8091;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
     # Use $http_host (the raw Host header, *including* the port) rather than
     # $host (which strips it), so the slicer "Device" tab's redirect to the
     # dashboard keeps the :8080 port — otherwise it lands on port 80 and the
@@ -167,7 +181,7 @@ server {
     proxy_pass http://prometheus:9090;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
     proxy_read_timeout 3600s;
   }
 
@@ -178,7 +192,7 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
     client_max_body_size 60m;
     proxy_request_buffering off;
     proxy_read_timeout 3600s;
@@ -192,7 +206,7 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
     client_max_body_size 60m;
     proxy_request_buffering off;
     proxy_read_timeout 3600s;
@@ -206,7 +220,7 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
     client_max_body_size ${BACKUP_MAX_BODY_SIZE};
     proxy_request_buffering off;
     proxy_read_timeout 3600s;
@@ -220,7 +234,7 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
     client_max_body_size 8m;
     proxy_read_timeout 3600s;
   }
@@ -241,7 +255,7 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
     proxy_buffering off;
     proxy_read_timeout 3600s;
     limit_conn conn_per_ip 300; # DDoS: long-lived SSE — see /__printer_webcam/
@@ -251,7 +265,15 @@ server {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    # Overwrite any client-supplied X-Forwarded-Host with the nginx-seen host so
+    # a request can't inject it. This is the route that carries /api/auth/*, and
+    # the app derives the OAuth redirect_uri / SAML ACS URL from X-Forwarded-Host
+    # (resolvePublicOrigin) whenever APP_BASE_URL / the admin SSO-public-URL
+    # setting is unset — without this a spoofed header could poison those URLs.
+    # (Pin a real SERVER_NAME rather than the default "_" to also constrain the
+    # underlying Host header.)
+    proxy_set_header X-Forwarded-Host $host;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
     proxy_read_timeout 3600s;
