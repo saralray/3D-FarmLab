@@ -6069,6 +6069,31 @@ async function handleApi(req, res, requestUrl) {
   return false;
 }
 
+// Request headers that must NOT be relayed to printer hardware. The proxy is
+// served same-origin, so the browser attaches the `pf_session` cookie (and any
+// Authorization/X-Api-Key) to every /__printer_proxy/ or /__printer_webcam/
+// request; forwarding those verbatim would disclose a replayable session token
+// to the device — typically a plain-HTTP endpoint on the LAN — and to anything
+// sniffing
+// that segment. The printer's own credential is injected separately from
+// `printer.apiKeyHeader`. `host`/`connection`/`content-length` are hop-by-hop
+// headers that must be recomputed by the outbound fetch. Client identity headers
+// (cookie/authorization/x-api-key) and forwarding metadata (x-real-ip,
+// x-forwarded-*) are dropped so nothing about the browser session reaches the
+// hardware.
+const PROXY_STRIPPED_REQUEST_HEADERS = new Set([
+  'host',
+  'connection',
+  'content-length',
+  'cookie',
+  'authorization',
+  'x-api-key',
+  'x-real-ip',
+  'x-forwarded-for',
+  'x-forwarded-host',
+  'x-forwarded-proto',
+]);
+
 async function handlePrinterProxy(req, res, requestUrl, prefix, makeTargetUrl, extraHeaders = {}) {
   if (!requestUrl.pathname.startsWith(prefix)) {
     return false;
@@ -6142,7 +6167,7 @@ async function handlePrinterProxy(req, res, requestUrl, prefix, makeTargetUrl, e
         ...parseHeaderString(printer.apiKeyHeader),
         ...extraHeaders,
         ...Object.fromEntries(
-          Object.entries(req.headers).filter(([key]) => !['host', 'connection', 'content-length'].includes(key)),
+          Object.entries(req.headers).filter(([key]) => !PROXY_STRIPPED_REQUEST_HEADERS.has(key.toLowerCase())),
         ),
       },
       body: body && body.length > 0 ? body : undefined,
