@@ -145,6 +145,7 @@ import {
   getAllCameraHealth,
   getCameraHealth,
   getCameraSnapshot,
+  streamLegacyMjpeg,
 } from './bambuCamera.js';
 
 // Bambu Lab printers share one LAN integration (MQTT status/commands, port-6000
@@ -156,6 +157,17 @@ const BAMBU_PROFILES = new Set(['bambulab_a1_mini', 'bambulab_h2s', 'bambulab_h2
 // port-6000 length-prefixed JPEG socket — so its snapshots are grabbed via
 // ffmpeg instead of captureBambuSnapshot.
 const BAMBU_RTSP_PROFILES = new Set(['bambulab_h2s', 'bambulab_h2d', 'bambulab_h2c']);
+
+// Profiles the in-app player attempts an AV1 live view for (server/bambuCamera.js).
+// The H2 series is a known-good RTSP transcode; the Snapmaker U1 is a
+// best-effort probe against an assumed native webcam endpoint, with an
+// automatic fallback to its existing native-proxy player if that assumption
+// doesn't hold for a given printer (see bambuCamera.js's `mode` state). This
+// is deliberately separate from the documented, unauthenticated
+// camera/snapshot/stream MJPEG surface (LIVE_MJPEG_PROFILES below), which
+// keeps serving MJPEG/JPEG exactly as before — AV1-in-fMP4 isn't
+// <img>-embeddable, so it gets new routes instead of repurposing that contract.
+const AV1_STREAM_PROFILES = new Set(['bambulab_h2s', 'bambulab_h2d', 'bambulab_h2c', 'snapmaker_u1']);
 
 const PRINTER_CARD_LAYOUT_KEY = 'printer_card_layout';
 const PRINTER_CARD_LAYOUT_PROFILES = new Set([
@@ -2714,11 +2726,22 @@ function captureBambuSnapshot(host, accessCode, timeoutMs = 10000) {
 // viewers and reused for snapshots, with a health-check supervisor. The A1/P1
 // port-6000 JPEG socket stays on captureBambuSnapshot below.
 
-async function handleBambuWebcam(req, res, printer, pathParts) {
-  // H2/X1-class printers (RTSP) can stream live MJPEG; the A1/P1 port-6000
-  // camera is snapshot-only.
-  if (pathParts[0] === 'stream.mjpg' && BAMBU_RTSP_PROFILES.has(printer.profile)) {
+// Handles both the new in-app AV1 live view (Bambu H2 + Snapmaker U1, best
+// effort for the latter — see bambuCamera.js) and the documented legacy
+// MJPEG/JPEG camera surface for Bambu printers (camera/stream, camera/snapshot,
+// /webcam/:id). The legacy MJPEG/JPEG contract is intentionally left as-is —
+// AV1-in-fMP4 isn't <img>-embeddable, so it gets new routes instead of
+// repurposing that one.
+async function handleCameraHubWebcam(req, res, printer, pathParts) {
+  if (pathParts[0] === 'stream.mp4' && AV1_STREAM_PROFILES.has(printer.profile)) {
     addCameraViewer(printer, req, res);
+    return;
+  }
+  // H2/X1-class printers (RTSP) can stream live MJPEG; the A1/P1 port-6000
+  // camera is snapshot-only. (Snapmaker U1 never reaches this branch — its
+  // legacy stream.mjpg/snapshot.jpg stay on the plain reverse-proxy path.)
+  if (pathParts[0] === 'stream.mjpg' && BAMBU_RTSP_PROFILES.has(printer.profile)) {
+    streamLegacyMjpeg(printer, req, res);
     return;
   }
   if (pathParts[0] !== 'snapshot.jpg') {
@@ -3040,12 +3063,16 @@ async function handleDataApiPrinters(req, res, { apiKey, method, id, sub, action
     );
   }
 
-  // GET /printers/:id/camera/{snapshot,stream,health} — webcam access. Snapshot
-  // and stream delegate to the same /__printer_webcam proxy the friendly
-  // /webcam/<id> route uses, so every profile (Bambu port-6000 JPEG, H2 RTSP
-  // hub, Snapmaker live MJPEG) is handled identically. `stream` serves live
-  // multipart MJPEG where the profile supports it and otherwise falls back to a
-  // single snapshot.
+  // GET /printers/:id/camera/{snapshot,stream,health,av1-stream} — webcam
+  // access. Snapshot and stream delegate to the same /__printer_webcam proxy
+  // the friendly /webcam/<id> route uses, so every profile (Bambu port-6000
+  // JPEG, H2 RTSP hub, Snapmaker live MJPEG) is handled identically. `stream`
+  // serves live multipart MJPEG where the profile supports it and otherwise
+  // falls back to a single snapshot. `av1-stream` is the newer, separate
+  // AV1-in-fragmented-MP4 live view (not <img>-embeddable — needs a
+  // MediaSource/WebCodecs-based player); it 404s where AV1 isn't attempted
+  // for this profile or the best-effort Snapmaker U1 probe has fallen back to
+  // its native player (check camera/health's `codec` field).
   if (sub === 'camera') {
     if (method !== 'GET') {
       return dataApiMethodNotAllowed(res);
@@ -3054,8 +3081,10 @@ async function handleDataApiPrinters(req, res, { apiKey, method, id, sub, action
       sendJson(res, 200, getCameraHealth(id), 'no-store');
       return true;
     }
-    if (action !== 'snapshot' && action !== 'stream') {
-      sendJson(res, 404, { error: "Use /camera/snapshot, /camera/stream, or /camera/health." });
+    if (action !== 'snapshot' && action !== 'stream' && action !== 'av1-stream') {
+      sendJson(res, 404, {
+        error: 'Use /camera/snapshot, /camera/stream, /camera/av1-stream, or /camera/health.',
+      });
       return true;
     }
     const printer = await getPrinterById(id);
@@ -3063,8 +3092,16 @@ async function handleDataApiPrinters(req, res, { apiKey, method, id, sub, action
       sendJson(res, 404, { error: 'Printer not found' });
       return true;
     }
+    if (action === 'av1-stream' && !AV1_STREAM_PROFILES.has(printer.profile)) {
+      sendJson(res, 404, { error: 'AV1 live view is not available for this printer profile.' });
+      return true;
+    }
     const camPath =
-      action === 'stream' && LIVE_MJPEG_PROFILES.has(printer.profile) ? 'stream.mjpg' : 'snapshot.jpg';
+      action === 'av1-stream'
+        ? 'stream.mp4'
+        : action === 'stream' && LIVE_MJPEG_PROFILES.has(printer.profile)
+          ? 'stream.mjpg'
+          : 'snapshot.jpg';
     const proxyUrl = new URL(
       `/__printer_webcam/${encodeURIComponent(printer.id)}/${camPath}`,
       requestUrl,
@@ -6114,9 +6151,17 @@ async function handlePrinterProxy(req, res, requestUrl, prefix, makeTargetUrl, e
     return true;
   }
 
-  // Bambu's chamber camera isn't an HTTP endpoint — capture it over its TLS socket.
-  if (prefix === '/__printer_webcam/' && BAMBU_PROFILES.has(printer.profile)) {
-    await handleBambuWebcam(req, res, printer, pathParts);
+  // Bambu's chamber camera isn't an HTTP endpoint — capture it over its TLS
+  // socket/RTSP hub. The Snapmaker U1 only needs this handler for its new
+  // AV1 stream.mp4 path (best effort); every other U1 webcam path (player,
+  // snapshot.jpg, legacy stream.mjpg) stays on the generic reverse-proxy
+  // fall-through below, untouched.
+  if (
+    prefix === '/__printer_webcam/' &&
+    (BAMBU_PROFILES.has(printer.profile) ||
+      (printer.profile === 'snapmaker_u1' && pathParts[0] === 'stream.mp4'))
+  ) {
+    await handleCameraHubWebcam(req, res, printer, pathParts);
     return true;
   }
 

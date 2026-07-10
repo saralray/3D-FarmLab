@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import {
   MOTION_STEP_OPTIONS,
+  buildPrinterWebcamAv1Url,
   buildPrinterWebcamPlayerUrl,
   buildPrinterWebcamMjpegUrl,
   buildPrinterWebcamSnapshotUrl,
@@ -60,6 +61,7 @@ import {
   setPrinterFilament,
   FILAMENT_MATERIALS,
   FILAMENT_VENDORS,
+  printerSupportsAv1Stream,
   printerSupportsLight,
   printerSupportsLiveMjpeg,
   printerSupportsMotionControl,
@@ -75,6 +77,7 @@ import {
   type MotionAxis,
 } from '../lib/printerProfiles';
 import { fetchCameraHealth, type CameraHealth } from '../lib/cameraApi';
+import { Av1CameraPlayer } from '../components/Av1CameraPlayer';
 import { Slider } from '../components/ui/slider';
 import { Switch } from '../components/ui/switch';
 import { Input } from '../components/ui/input';
@@ -403,8 +406,12 @@ export function PrinterDetail() {
     () => typeof document === 'undefined' || document.visibilityState === 'visible',
   );
   // Live-view camera health from the server hub (supervisor status, restarts,
-  // frame freshness), polled while an H2/X1 live MJPEG feed is shown.
+  // frame freshness), polled while an AV1/MJPEG live feed is shown.
   const [cameraHealth, setCameraHealth] = useState<CameraHealth | null>(null);
+  // True once the AV1 player has exhausted its own retry budget (or AV1
+  // playback isn't supported in this browser) — falls through to the legacy
+  // iframe/MJPEG view, which never regresses regardless of AV1's outcome.
+  const [av1Failed, setAv1Failed] = useState(false);
   const [taskConfig, setTaskConfig] = useState<PrinterTaskConfig | null>(null);
   const [taskConfigError, setTaskConfigError] = useState<string | null>(null);
   // Shared card layout for every printer detail page; admins reorder it by drag.
@@ -579,6 +586,7 @@ export function PrinterDetail() {
         // Reconnect with a fresh src rather than resuming a stale/broken one.
         setSnapshotNonce(Date.now());
         setSnapshotErrored(false);
+        setAv1Failed(false);
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -588,6 +596,7 @@ export function PrinterDetail() {
   useEffect(() => {
     setSnapshotNonce(Date.now());
     setSnapshotErrored(false);
+    setAv1Failed(false);
     setAirFilterOn(false);
 
     // Snapmaker shows a live MJPEG/H264 stream (iframe), so it doesn't poll
@@ -601,11 +610,12 @@ export function PrinterDetail() {
     };
   }, [isOnline, printer?.id]);
 
-  // Poll the live-view camera health while an H2/X1 MJPEG feed is on screen so
-  // the badge reflects the hub's supervisor state (running / reconnecting).
+  // Poll the live-view camera health while an AV1 or H2/X1 MJPEG feed is on
+  // screen so the badge reflects the hub's supervisor state (running /
+  // reconnecting / fallen back to native).
   useEffect(() => {
     setCameraHealth(null);
-    if (!printer || !isOnline || !printerSupportsLiveMjpeg(printer)) {
+    if (!printer || !isOnline || (!printerSupportsAv1Stream(printer) && !printerSupportsLiveMjpeg(printer))) {
       return;
     }
 
@@ -911,10 +921,17 @@ export function PrinterDetail() {
   const canViewIpAddress = user?.role === 'admin';
   const supportsWebcamStream = printerSupportsWebcamStream(printer);
   const supportsLiveMjpeg = printerSupportsLiveMjpeg(printer);
+  // Attempted first, ahead of the iframe/MJPEG branches below, for any
+  // profile that hasn't already fallen back (client-side failure, or the
+  // server reporting the Snapmaker U1's best-effort probe gave up as
+  // 'native'). Those existing branches are the permanent, never-regressing
+  // fallback if AV1 doesn't pan out.
+  const supportsAv1Stream = printerSupportsAv1Stream(printer) && cameraHealth?.codec !== 'native';
   const webcamSnapshotUrl = `${buildPrinterWebcamSnapshotUrl(printer)}?t=${snapshotNonce}`;
   // The nonce lets onError force a fresh connection by changing the src.
   const webcamMjpegUrl = `${buildPrinterWebcamMjpegUrl(printer)}?t=${snapshotNonce}`;
   const webcamPlayerUrl = buildPrinterWebcamPlayerUrl(printer);
+  const webcamAv1Url = buildPrinterWebcamAv1Url(printer);
   const taskConfigSlots: FilamentSlot[] =
     taskConfig?.filament_type?.map((type, index) => ({
       slot: index + 1,
@@ -1391,7 +1408,22 @@ export function PrinterDetail() {
                   Live view paused (tab inactive)
                 </div>
               ) : isOnline ? (
-                supportsWebcamStream ? (
+                !av1Failed && supportsAv1Stream ? (
+                  // AV1 live view (MediaSource Extensions), tried ahead of the
+                  // iframe/MJPEG branches below. On failure (unsupported
+                  // browser, or the encode/probe not panning out) this falls
+                  // through to exactly those existing branches, so nothing
+                  // regresses for a profile that already had a working feed.
+                  <div className="absolute inset-0">
+                    <Av1CameraPlayer
+                      key={`webcam-av1-${printer.id}`}
+                      streamUrl={webcamAv1Url}
+                      className="h-full w-full object-cover"
+                      onError={() => setAv1Failed(true)}
+                    />
+                    <CameraHealthBadge health={cameraHealth} imageErrored={false} />
+                  </div>
+                ) : supportsWebcamStream ? (
                   // Snapmaker's own real-time H264 player (jmuxer → <video>), which
                   // also falls back to snapshots on its own if H264 can't play.
                   <iframe

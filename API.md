@@ -106,7 +106,8 @@ Lists the available resources.
 | `ANY /printers/:id/proxy/<path…>` | Raw HTTP passthrough to the printer's hardware API (e.g. Moonraker on a Snapmaker U1) — for **non-Bambu** control parity. |
 | `GET /printers/:id/camera/snapshot` | A single JPEG frame from the printer's webcam. |
 | `GET /printers/:id/camera/stream` | Live MJPEG stream where supported, else a single JPEG. |
-| `GET /printers/:id/camera/health` | Live-view supervisor status (frame freshness, viewers, restarts). |
+| `GET /printers/:id/camera/av1-stream` | Live AV1-in-fragmented-MP4 stream (Bambu H2 series; Snapmaker U1 best-effort), for a MediaSource/WebCodecs-based player — **not** `<img>`-embeddable. `404` where AV1 isn't attempted for the profile or a U1's probe has fallen back to native. |
+| `GET /printers/:id/camera/health` | Live-view supervisor status (frame freshness, viewers, restarts, `codec`, `fallbackReason`). |
 
 Printer records include an `errorMessage` field: a human-readable description of
 the printer's current fault (Bambu HMS faults, a Moonraker print error, or an
@@ -172,14 +173,25 @@ curl -H "X-Api-Key: $KEY" \
 
 #### Webcam
 
-The camera endpoints return image data, **not** JSON:
+The camera endpoints return image/video data, **not** JSON (except `health`):
 
 - `GET /printers/:id/camera/snapshot` → `image/jpeg` (one frame).
 - `GET /printers/:id/camera/stream` → `multipart/x-mixed-replace` MJPEG for
   live-capable profiles (Snapmaker U1, Bambu H2 series); other profiles
-  (e.g. Bambu A1 Mini, which is snapshot-only) return a single JPEG.
-- `GET /printers/:id/camera/health` → JSON supervisor status
-  (`status`, `online`, `viewers`, `lastFrameAgeMs`, `restarts`, `lastError`).
+  (e.g. Bambu A1 Mini, which is snapshot-only) return a single JPEG. This is
+  the original, `<img>`-embeddable contract and is unaffected by the AV1
+  live view below.
+- `GET /printers/:id/camera/av1-stream` → `video/mp4`, a live AV1-encoded
+  fragmented-MP4 byte stream (Bambu H2 series; Snapmaker U1 best-effort — see
+  `health`'s `codec` field). This is what the in-app dashboard actually uses
+  for its live view; unlike `camera/stream` it is **not** `<img>`-embeddable —
+  a consumer needs a MediaSource Extensions (or WebCodecs) player. `404`s if
+  AV1 isn't attempted for the profile, or a Snapmaker U1's best-effort probe
+  has given up and fallen back to its native player.
+- `GET /printers/:id/camera/health` → JSON supervisor status (`status`,
+  `online`, `viewers`, `lastFrameAgeMs`, `restarts`, `lastError`, and
+  `codec`: `'av1' | 'native' | 'unknown'` — `'native'` means a Snapmaker U1's
+  AV1 probe gave up; see `fallbackReason` for why).
 
 They route through the same internal webcam proxy as the dashboard, so the
 printer must have its camera reachable (and for Bambu, **LAN Mode Liveview**
@@ -192,7 +204,9 @@ enabled). Drop a snapshot straight into an `<img>`:
 > Note: an `<img>`/`<video>` tag cannot send an `X-Api-Key` header. For
 > browser-embedded streams, either use the unauthenticated friendly route
 > `/webcam/<id>` (no key), or proxy the `/api/v1` request server-side and
-> forward the key.
+> forward the key. This applies to `camera/av1-stream` too — and since it's
+> AV1, the consumer also needs a MediaSource/WebCodecs player, not a plain
+> `<img>`/`<video src>`.
 
 ---
 

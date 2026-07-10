@@ -28,11 +28,21 @@ ENV APP_VERSION=$APP_VERSION
 
 WORKDIR /app
 
-# ffmpeg grabs JPEG snapshots from the Bambu H2/X1-class RTSP-over-TLS camera
-# (port 322); the A1/P1 port-6000 camera path needs no external binary.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg \
-  && rm -rf /var/lib/apt/lists/*
+# ffmpeg transcodes the Bambu H2/X1-class RTSP-over-TLS camera (port 322) to
+# AV1 for the live-view hub (server/bambuCamera.js) and still grabs JPEG
+# snapshots from it; the A1/P1 port-6000 camera path needs no external binary.
+# Bookworm's ffmpeg (7:5.1.x) is built with --enable-libsvtav1, but a mirror
+# swap or base-image bump could silently drop it, so assert it's actually
+# present at build time rather than discovering a missing encoder at runtime
+# against a live printer.
+RUN set -e; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends ffmpeg; \
+  rm -rf /var/lib/apt/lists/*; \
+  if ! ffmpeg -hide_banner -encoders 2>&1 | grep -q libsvtav1; then \
+    echo "FATAL: ffmpeg image is missing the libsvtav1 AV1 encoder" >&2; \
+    exit 1; \
+  fi
 
 RUN groupadd --system printfarm \
   && useradd --system --gid printfarm --home-dir /app printfarm

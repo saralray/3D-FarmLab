@@ -1101,6 +1101,26 @@ export function buildPrinterWebcamMjpegUrl(printer: Printer) {
   return `/__printer_webcam/${printer.id}/stream.mjpg`;
 }
 
+// The in-app live player attempts AV1 (fragmented MP4, played back via
+// MediaSource Extensions) for these profiles instead of the legacy MJPEG/
+// native-player paths above, which stay in place purely as fallback targets.
+// The H2 series is a known-good transcode; the Snapmaker U1 is a best-effort
+// probe against an assumed native webcam endpoint — check the printer's
+// camera health `codec` field (or an Av1CameraPlayer onError) to know whether
+// it actually came up as AV1 or fell back to `native`.
+export function printerSupportsAv1Stream(printer: Printer) {
+  return (
+    printer.profile === 'bambulab_h2s' ||
+    printer.profile === 'bambulab_h2d' ||
+    printer.profile === 'bambulab_h2c' ||
+    printer.profile === 'snapmaker_u1'
+  );
+}
+
+export function buildPrinterWebcamAv1Url(printer: Printer) {
+  return `/__printer_webcam/${printer.id}/stream.mp4`;
+}
+
 // Snapmaker U1 serves a real-time webcam player at /webcam/player — an H264
 // stream muxed into a <video> via jmuxer, with its own snapshot fallback. It's
 // far lighter and lower-latency than MJPEG, so we embed it directly. Bambu has
