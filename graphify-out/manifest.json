@@ -345,8 +345,8 @@
     "semantic_hash": "27cf1e3591e961fcb8ee9033cd85bab4"
   },
   "server/app.js": {
-    "mtime": 1783695744.3588154,
-    "ast_hash": "f12ed3d6c2e5f34805dea9dfadfa2af0",
+    "mtime": 1783701382.3258424,
+    "ast_hash": "0e6f8dd5f4a896d9c13845af40980fd5",
     "semantic_hash": ""
   },
   "server/bambuCamera.js": {
@@ -990,12 +990,12 @@
     "semantic_hash": "48d00c382e6de860465311d2332875af"
   },
   "API.md": {
-    "mtime": 1783695263.058186,
-    "ast_hash": "058c48db128a3b8b77dba90c8c11cb2b",
+    "mtime": 1783701447.115806,
+    "ast_hash": "4be216e0cf362d233fb72f1630558111",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1783695263.0101063,
+    "mtime": 1783696988.302643,
     "ast_hash": "10d9cc4138482cc35371644a98e5c86e",
     "semantic_hash": ""
   },
@@ -1025,7 +1025,7 @@
     "semantic_hash": ""
   },
   "docker-compose.yml": {
-    "mtime": 1783695263.0658572,
+    "mtime": 1783696988.3035116,
     "ast_hash": "6c36de52755e9aa78adc52d3e61f488e",
     "semantic_hash": ""
   },
