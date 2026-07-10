@@ -572,10 +572,18 @@ classified below requires an admin session.
 > only to an operator/admin session. Anonymous, viewer, and student callers get a
 > whitelisted operational view (`id`, `filename`, `fileCount`, `printedStatus`,
 > `status`, `progress`, `estimatedTime`, `timeRemaining`, `filamentUsed`,
-> `priority`, `stlFileUrl`, `hasFile`, `submittedAt`) with those PII fields
-> omitted, regardless of `VITE_PUBLIC_VIEWER_MODE`. The key-gated
-> `GET /api/v1/queue` is unaffected — it returns the full record (the API key is
-> the guard).
+> `priority`, `submittedAt`) with those PII fields omitted, regardless of
+> `VITE_PUBLIC_VIEWER_MODE`. The `stlFileUrl`/`hasFile` fields are also omitted
+> from this public view because the model file itself is now staff-only (see
+> below). The key-gated `GET /api/v1/queue` is unaffected — it returns the full
+> record (the API key is the guard).
+
+> **Model-file download is staff-only:** `GET /api/queue/:id/file` (streams the
+> stored model bytes) requires an **operator/admin** session — it is a student's
+> uploaded design and is no longer world-downloadable. Anonymous → `401`, a
+> non-privileged session → `403`. The staff queue view and the Discord file link
+> reach it with a session; the key-gated `GET /api/v1/queue/:id/file` is separate
+> and unaffected.
 
 > **Conditional GET:** `GET /api/printers` sets an `ETag` (a sha1 of the
 > serialized body). Send it back as `If-None-Match` and an unchanged response

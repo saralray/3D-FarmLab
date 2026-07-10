@@ -1768,8 +1768,9 @@ const PUBLIC_QUEUE_FIELDS = [
   'timeRemaining',
   'filamentUsed',
   'priority',
-  'stlFileUrl',
-  'hasFile',
+  // stlFileUrl / hasFile deliberately omitted: the file download is staff-only
+  // (see QUEUE_FILE_READ_RE in classifyApiRequest), so the public view neither
+  // advertises the link nor signals which jobs have a downloadable model.
   'submittedAt',
 ];
 
@@ -2139,6 +2140,13 @@ function classifyApiRequest(method, pathname) {
     }
     if (isViewerGatedRead(pathname) && !publicViewerModeEnabled()) {
       return 'authed';
+    }
+    // The stored model file (GET /api/queue/:id/file) is a student's uploaded
+    // design. The rest of the queue read is public (and already redacts submitter
+    // PII), but the file bytes are staff-only — otherwise anyone could download
+    // every uploaded model straight from the DB.
+    if (QUEUE_FILE_READ_RE.test(pathname)) {
+      return 'operator';
     }
     return 'public';
   }
