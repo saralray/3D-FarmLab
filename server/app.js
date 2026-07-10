@@ -127,7 +127,6 @@ import {
   snapshotRequestsByRoute,
 } from './metrics.js';
 import {
-  mintAuthGrant,
   signState,
   verifyAuthGrant,
   verifyState,
@@ -814,6 +813,37 @@ async function oauthRedirectUri(req, providerName, config = null) {
   return `${await resolvePublicOrigin(req)}${path}`;
 }
 
+// Establish a real server session for an SSO-authenticated identity and bounce
+// the browser to the dashboard. Both the OAuth callback and the SAML ACS call
+// this once the provider's assertion is verified and the final role resolved.
+// Setting the HttpOnly session cookie server-side here — instead of handing the
+// browser a signed grant as `?oauth_grant=<token>` for it to exchange — keeps the
+// auth token out of the URL, and therefore out of the DevTools network log,
+// browser history, access logs, and Referer headers. That closes a replay window:
+// the grant was signature+expiry-only (no single-use), so a copy captured from
+// any of those places within its TTL could be exchanged for a session as that
+// user. The frontend restores the session from the cookie on load, so no grant
+// hand-off is needed.
+async function establishSsoSession(req, res, { provider, sub, email, name, role }) {
+  const user = {
+    id: `${provider}:${sub}`,
+    name: name || email,
+    username: email,
+    role,
+  };
+  await issueSession(req, res, user, { remember: true });
+  await recordAuditLog({
+    actorName: user.name,
+    actorUsername: user.username,
+    actorRole: user.role,
+    action: 'auth.login',
+    details: { method: provider },
+    source: 'web',
+    ip: getClientIp(req),
+  }).catch(() => {});
+  sendRedirect(res, '/');
+}
+
 // Shared Authorization Code exchange + identity extraction. Used by both the
 // standard /api/auth/:provider/callback routes and the fixed
 // /api/auth/oauth2_redirect path registered for ADFS.
@@ -868,14 +898,13 @@ async function oauthExchangeCallback(req, res, requestUrl, providerName) {
         return;
       }
     }
-    const grant = mintAuthGrant(secret, {
+    await establishSsoSession(req, res, {
       provider: providerName,
       sub: typeof claims.sub === 'string' ? claims.sub : email,
       email,
       name: typeof claims.name === 'string' && claims.name.trim() ? claims.name.trim() : email,
       role: OAUTH_DEFAULT_ROLE,
     });
-    sendRedirect(res, `/login?oauth_grant=${encodeURIComponent(grant)}`);
   } catch {
     sendRedirect(res, '/login?oauth_error=exchange_failed');
   }
@@ -883,9 +912,9 @@ async function oauthExchangeCallback(req, res, requestUrl, providerName) {
 
 // SAML 2.0 SSO (the dashboard is the Service Provider). Like OAuth, config lives
 // in app_settings and is read fresh on every request, so an admin can change it
-// in Settings → SSO Configuration with no restart. The flow reuses the cookieless
-// grant-token hand-off: the ACS verifies the signed assertion, mints the same
-// HMAC auth grant OAuth uses, and redirects the browser to /login?oauth_grant=.
+// in Settings → SSO Configuration with no restart. On a valid assertion the ACS
+// establishes the server session directly (establishSsoSession) and redirects to
+// the dashboard — no auth token is placed in the URL.
 const SAML_SETTINGS_KEY = 'saml_sso';
 // Roles an asserted `role` attribute may map onto; anything else falls back to
 // the read-only `student` role (matching the OAuth default).
@@ -4395,16 +4424,15 @@ async function handleApi(req, res, requestUrl) {
     return true;
   }
 
-  // OAuth (SSO) sign-in — Google and Microsoft Entra ID. The dashboard auth is
-  // cookieless, so the Authorization Code flow is bridged to the client with an
-  // HMAC-signed grant token carried in a URL param — the same hand-off shape as
-  // the slicer grant above. The provider rides in the path on start/callback and
-  // inside the grant on verify.
+  // OAuth (SSO) sign-in — Google and Microsoft Entra ID. On a successful
+  // Authorization Code exchange the callback establishes the HttpOnly session
+  // cookie server-side (establishSsoSession) and 302s to the dashboard — the auth
+  // token is never placed in the URL. The provider rides in the path on
+  // start/callback.
   //   GET  /api/auth/providers          → { google, microsoft } : which buttons
   //   GET  /api/auth/:provider/config   → { enabled }           : single provider
   //   GET  /api/auth/:provider/start    → 302 to the provider's consent screen
-  //   GET  /api/auth/:provider/callback → exchange code, 302 back with ?oauth_grant
-  //   POST /api/auth/verify             → { token } → { user }  : provider-agnostic
+  //   GET  /api/auth/:provider/callback → exchange code, set session cookie, 302 to /
   if (requestUrl.pathname === '/api/auth/providers' && req.method === 'GET') {
     const [google, microsoft, adfs, saml] = await Promise.all([
       getOAuthConfig('google'),
@@ -4534,14 +4562,13 @@ async function handleApi(req, res, requestUrl) {
       ? existing.role
       : normalizeSamlRole(identity.role);
 
-    const grant = mintAuthGrant(secret, {
+    await establishSsoSession(req, res, {
       provider: 'saml',
       sub: identity.email,
       email: identity.email,
       name: identity.name || identity.email,
       role,
     });
-    sendRedirect(res, `/login?oauth_grant=${encodeURIComponent(grant)}`);
     return true;
   }
 

@@ -902,13 +902,14 @@ curl -H "X-Api-Key: abc123..." http://printfarm.local/api/v1/printers
 A **public** endpoint group (no API key) that runs the OAuth 2.0 Authorization
 Code flow for two providers — **`google`** and **`microsoft`** (Microsoft Entra
 ID / Azure AD) — plus **SAML 2.0** SSO against an external identity provider (the
-dashboard is the Service Provider). The dashboard auth is cookieless, so instead
-of a server session the flow mints a short-lived, **HMAC-signed grant token** and
-hands it back to the browser as a `?oauth_grant=<token>` URL param — the same
-hand-off shape as the slicer grant. The client verifies the token server-side
-before establishing a session. OAuth sign-ins are granted the read-only
-**`student`** role; SAML sign-ins take their role from the assertion (or keep the
-stored role of an existing staff account) — see the SAML section below.
+dashboard is the Service Provider). On a successful sign-in the callback / ACS
+establishes the **HttpOnly session cookie server-side** and `302`-redirects to the
+dashboard — **no auth token is placed in the URL** (an earlier design handed the
+browser a `?oauth_grant=<token>` param; that was removed because a token in the URL
+leaks into the browser network log, history, access logs, and `Referer` headers,
+where a captured copy could be replayed for a session). OAuth sign-ins are granted
+the read-only **`student`** role; SAML sign-ins take their role from the assertion
+(or keep the stored role of an existing staff account) — see the SAML section below.
 
 Configure each provider's client id/secret, optional allowed email domains, and
 (Microsoft only) either the cloud directory **Tenant ID** or an on-prem **AD FS
@@ -961,8 +962,10 @@ The provider redirects here with `?code=&state=`. **Public.** Verifies `state`
 (including that it was minted for this provider), exchanges the code at the
 provider's token endpoint (server-to-server with the client secret), requires an
 email (Google `email`; Microsoft falls back to `preferred_username`/`upn`) that
-is not explicitly unverified and (if configured) an allowed domain, then mints
-the grant token and `302`-redirects to `/login?oauth_grant=<token>`.
+is not explicitly unverified and (if configured) an allowed domain, then
+**establishes the session cookie** (`Set-Cookie: pf_session`, HttpOnly) and
+`302`-redirects to `/`. The user id is namespaced by provider (`google:<sub>` /
+`microsoft:<sub>`) and the role is `student`.
 
 On any failure it `302`-redirects to `/login?oauth_error=<code>` where `<code>`
 is one of `not_configured`, `denied`, `exchange_failed`, `unverified_email`, or
@@ -972,32 +975,10 @@ is one of `not_configured`, `denied`, `exchange_failed`, `unverified_email`, or
 
 #### `POST /api/auth/verify`
 
-Verifies a grant token from any provider's callback (the grant carries its own
-provider). **Public.**
-
-**Request body:**
-
-```json
-{ "token": "<oauth_grant value>" }
-```
-
-**Response `200`** — `id` is namespaced by provider (`google:` / `microsoft:`):
-
-```json
-{
-  "user": {
-    "id": "microsoft:1234567890",
-    "name": "Jane Student",
-    "username": "jane@school.edu",
-    "role": "student"
-  }
-}
-```
-
-**Response `401`** if the token is missing, forged, or expired.
-
-For SAML sign-ins the ACS (below) mints the **same** grant token, so this one
-`verify` endpoint serves all providers; the returned `id` is `saml:<email>`.
+**Deprecated / inert.** This endpoint verified the old `?oauth_grant=` hand-off
+token. The callback and SAML ACS now establish the session cookie directly and no
+longer mint a grant, so nothing produces a token for this endpoint to verify. It
+is retained only for backward compatibility and returns `401` in normal operation.
 
 ---
 
@@ -1053,9 +1034,10 @@ Intended as the `href` for a "Print Farm" button on the IdP portal page
 - **Unknown user + Auto Provision Users off:** rejected with
   `/login?oauth_error=saml_not_provisioned`.
 
-On success mints the grant token and `302`-redirects to
-`/login?oauth_grant=<token>`. On a verification failure redirects to
-`/login?oauth_error=saml_invalid` (or `not_configured`/`denied`).
+On success **establishes the session cookie** (`Set-Cookie: pf_session`, HttpOnly;
+user id `saml:<email>`) and `302`-redirects to `/` — no token in the URL. On a
+verification failure redirects to `/login?oauth_error=saml_invalid` (or
+`not_configured`/`denied`).
 
 ## Website access mode (`/api/settings/public-viewer`)
 
