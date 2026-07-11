@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, CheckCircle, Copy, Loader2, Usb, Wrench } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Progress } from './ui/progress';
+import { ScrollArea } from './ui/scroll-area';
 import {
   Select,
   SelectContent,
@@ -27,6 +28,7 @@ import {
   type MqttTransport,
   type StatusLightProvisioningInfo,
 } from '../lib/statusLightApi';
+import { STATUS_LIGHT_FIRMWARE_SOURCE } from '../lib/statusLightFirmwareSource';
 import {
   flashFirmware,
   provisionDevice,
@@ -72,6 +74,10 @@ function defaultPortFor(transport: MqttTransport, provisioning: StatusLightProvi
 // firmware/status-light/README.md).
 export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }: StatusLightFlashDialogProps) {
   const [step, setStep] = useState<Step>('intro');
+  // Only meaningful when mode === 'flash': null until the user picks how
+  // they want to get firmware onto the device. 'provision' mode never
+  // flashes, so it's pinned to 'web' (the shared serial-port/settings flow).
+  const [flashMethod, setFlashMethod] = useState<'web' | 'manual' | null>(mode === 'flash' ? null : 'web');
   const [error, setError] = useState<string | null>(null);
   const [provisioning, setProvisioning] = useState<StatusLightProvisioningInfo | null>(null);
   const [provisioningError, setProvisioningError] = useState<string | null>(null);
@@ -86,6 +92,8 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
   const [mqttHost, setMqttHost] = useState(() => window.location.hostname);
   const [mqttPort, setMqttPort] = useState(() => String(defaultPortFor(defaultTransport(), null)));
   const [ledPolarity, setLedPolarity] = useState<LedPolarity>('common_cathode');
+  const [sourceFileIndex, setSourceFileIndex] = useState(0);
+  const [sourceCopied, setSourceCopied] = useState(false);
 
   const portRef = useRef<SerialPortLike | null>(null);
 
@@ -106,8 +114,11 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
   }, [mode]);
 
   const brokerDisabled = provisioning !== null && provisioning.enabled === false;
-  const introBlocked =
-    brokerDisabled || provisioningError !== null || (mode === 'flash' && firmwareAvailable === false);
+  // Gates the serial-port picker for flows that don't flash over the browser
+  // (manual esptool flash, or re-provisioning an already-flashed device) —
+  // those only need the broker credential, not the hosted firmware image.
+  const provisioningBlocked = brokerDisabled || provisioningError !== null;
+  const introBlocked = provisioningBlocked || (mode === 'flash' && firmwareAvailable === false);
 
   const introNotice = useMemo(() => {
     if (provisioningError) {
@@ -125,6 +136,16 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
   const handleTransportChange = (next: MqttTransport) => {
     setTransport(next);
     setMqttPort(String(defaultPortFor(next, provisioning)));
+  };
+
+  const handleCopySource = async () => {
+    try {
+      await navigator.clipboard.writeText(STATUS_LIGHT_FIRMWARE_SOURCE[sourceFileIndex].content);
+      setSourceCopied(true);
+      setTimeout(() => setSourceCopied(false), 1500);
+    } catch {
+      // Clipboard permission denied/unavailable — the code is still selectable by hand.
+    }
   };
 
   const handleStart = async () => {
@@ -153,7 +174,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
     }
     setError(null);
 
-    if (mode === 'flash') {
+    if (mode === 'flash' && flashMethod === 'web') {
       setStep('flashing');
       setFlashProgress(0);
       try {
@@ -216,15 +237,21 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className={
+          mode === 'flash' && flashMethod === 'manual' && step === 'intro' ? 'sm:max-w-xl' : 'sm:max-w-md'
+        }
+      >
         <DialogHeader>
           <DialogTitle>
             {mode === 'flash' ? 'Flash status light' : 'Re-provision status light'} — {printerName}
           </DialogTitle>
           <DialogDescription>
-            {mode === 'flash'
-              ? 'Flashes the ESP32-C3 firmware over USB, then writes the WiFi and broker settings.'
-              : 'Writes new WiFi and broker settings to an already-flashed device over USB.'}
+            {mode === 'provision'
+              ? 'Writes new WiFi and broker settings to an already-flashed device over USB.'
+              : flashMethod === 'manual'
+                ? "Writes WiFi and broker settings to a device you've flashed yourself."
+                : 'Flashes the ESP32-C3 firmware over USB, then writes the WiFi and broker settings.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -235,7 +262,108 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
           </div>
         )}
 
-        {step === 'intro' && (
+        {step === 'intro' && mode === 'flash' && flashMethod === null && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Choose how to get the firmware onto the device.</p>
+            <button
+              type="button"
+              onClick={() => setFlashMethod('web')}
+              className="w-full flex items-start gap-3 rounded-md border p-3 text-left hover:bg-accent"
+            >
+              <Usb className="size-4 shrink-0 mt-0.5" />
+              <span>
+                <span className="block text-sm font-medium">Use the web flasher</span>
+                <span className="block text-xs text-muted-foreground">
+                  Flashes over USB right from this browser (Chrome/Edge), then sends WiFi and broker
+                  settings.
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFlashMethod('manual')}
+              className="w-full flex items-start gap-3 rounded-md border p-3 text-left hover:bg-accent"
+            >
+              <Wrench className="size-4 shrink-0 mt-0.5" />
+              <span>
+                <span className="block text-sm font-medium">I'll flash it myself</span>
+                <span className="block text-xs text-muted-foreground">
+                  View the firmware source, build it yourself (PlatformIO), and flash it with esptool,
+                  then come back here to send WiFi and broker settings.
+                </span>
+              </span>
+            </button>
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {step === 'intro' && mode === 'flash' && flashMethod === 'manual' && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Copy these files into a PlatformIO project (matching <code>firmware/status-light/</code> —
+              see its README), run <code>pio run</code>, then flash the build output at offset{' '}
+              <code>0x0</code>:
+            </p>
+            <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">
+              esptool.py --chip esp32c3 write_flash 0x0 .pio/build/esp32c3/firmware.bin
+            </pre>
+            <div className="space-y-2">
+              <Select
+                value={String(sourceFileIndex)}
+                onValueChange={(value) => {
+                  setSourceFileIndex(Number(value));
+                  setSourceCopied(false);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_LIGHT_FIRMWARE_SOURCE.map((file, index) => (
+                    <SelectItem key={file.path} value={String(index)}>
+                      {file.path}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="relative">
+                <ScrollArea className="h-64 rounded-md border bg-muted">
+                  <pre className="p-3 text-xs">
+                    <code>{STATUS_LIGHT_FIRMWARE_SOURCE[sourceFileIndex].content}</code>
+                  </pre>
+                </ScrollArea>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="absolute top-2 right-4"
+                  onClick={handleCopySource}
+                >
+                  {sourceCopied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                  {sourceCopied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Once it's flashed, plug the device back in and pick its serial port to send WiFi and
+              broker settings.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFlashMethod(null)}>
+                Back
+              </Button>
+              <Button onClick={handleStart} disabled={provisioningBlocked}>
+                Select device
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {step === 'intro' && (mode === 'provision' || flashMethod === 'web') && (
           <div className="space-y-4">
             {introNotice ? (
               <p className="text-sm text-muted-foreground">{introNotice}</p>
@@ -246,8 +374,8 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
               </p>
             )}
             <DialogFooter>
-              <Button variant="outline" onClick={onClose}>
-                Cancel
+              <Button variant="outline" onClick={() => (mode === 'flash' ? setFlashMethod(null) : onClose())}>
+                {mode === 'flash' ? 'Back' : 'Cancel'}
               </Button>
               <Button onClick={handleStart} disabled={introBlocked || (mode === 'flash' && firmwareAvailable === null)}>
                 Select device
@@ -327,7 +455,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
               The device must be able to reach this address from its WiFi network. Use MQTT (LAN) when
               the server is on the same network; use WebSocket when only the website is reachable.
             </p>
-            {mode === 'flash' && (
+            {mode === 'flash' && flashMethod === 'web' && (
               <p className="text-xs text-muted-foreground">
                 Hold the ESP32's BOOT button now, then click Flash — release it once the progress bar
                 starts moving.
@@ -337,7 +465,9 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
               <Button variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button onClick={handleSubmit}>{mode === 'flash' ? 'Flash & connect' : 'Send settings & connect'}</Button>
+              <Button onClick={handleSubmit}>
+                {mode === 'flash' && flashMethod === 'web' ? 'Flash & connect' : 'Send settings & connect'}
+              </Button>
             </DialogFooter>
           </div>
         )}
