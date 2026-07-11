@@ -48,7 +48,7 @@ export async function flashFirmware(
   firmware: ArrayBuffer,
   onProgress: (progress: FlashProgress) => void,
 ): Promise<void> {
-  const { ESPLoader, Transport } = await import('esptool-js');
+  const { ESPLoader, Transport, UsbJtagSerialReset } = await import('esptool-js');
   // esptool-js's own types come from w3c-web-serial; our minimal port shape is
   // structurally the same object the browser returned.
   const transport = new Transport(port as unknown as ConstructorParameters<typeof Transport>[0]);
@@ -72,8 +72,20 @@ export async function flashFirmware(
       compress: true,
       reportProgress: (_fileIndex, written, total) => onProgress({ written, total }),
     });
-    // Reboot out of the bootloader into the freshly flashed app.
-    await loader.after('hard_reset');
+    // Reboot out of the bootloader into the freshly flashed app. The C3
+    // Super Mini has no external UART bridge — it uses the SoC's native
+    // USB-Serial/JTAG controller — so esptool-js's default 'hard_reset' (an
+    // RTS-pin toggle meant for boards with a CP2102/CH340 auto-reset
+    // circuit) has no effect: the chip stays parked in the ROM bootloader,
+    // never boots the just-flashed app, and provisioning then times out
+    // forever waiting for a device that's still sitting in the bootloader.
+    // Detect that PID (same check esptool-js's own connect logic uses) and
+    // send its matching reset sequence instead.
+    if (transport.getPid() === loader.USB_JTAG_SERIAL_PID) {
+      await new UsbJtagSerialReset(transport).reset();
+    } else {
+      await loader.after('hard_reset');
+    }
   } finally {
     // Close streams + port no matter what, so a retry or the provisioning
     // step doesn't hit "port already open".
