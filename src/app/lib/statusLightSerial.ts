@@ -130,18 +130,30 @@ export interface ProvisionOptions {
   // Fired with each status poll's net state (including intermediate ones)
   // while the health check runs.
   onStatus?: (net: NetConnectionState) => void;
+  // Fired with every raw text chunk received over serial during provisioning
+  // (boot banner, debug lines, JSON replies). Diagnostic hook — lets the UI
+  // or console surface exactly what the device emitted when something fails.
+  onRaw?: (text: string) => void;
 }
 
-// Sends one provisioning JSON line, waits for the firmware's ack line, then
-// polls {"cmd":"status"} until the device reports it's connected or the
-// health-check window runs out. The firmware accepts `provision` at any time
-// (fresh flash or re-provision).
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Sends the provisioning JSON line, waits for the firmware's ack, then polls
+// {"cmd":"status"} until the device reports it's connected or the health-check
+// window runs out. The firmware accepts `provision` at any time (fresh flash
+// or re-provision).
+//
+// A single background read pump feeds a shared line queue — never two
+// concurrent reader.read() calls (that throws), and it captures every byte for
+// diagnostics. The provision command is re-sent on an interval rather than
+// once: right after a flash the C3's USB CDC is still settling and its app may
+// boot a beat late, so the first write can land before anything is listening.
 export async function provisionDevice(
   port: SerialPortLike,
   config: ProvisioningConfig,
   options: ProvisionOptions = {},
 ): Promise<ProvisionResult> {
-  const { timeoutMs = 20000, healthCheckMs = 15000, onStatus } = options;
+  const { timeoutMs = 20000, healthCheckMs = 15000, onStatus, onRaw } = options;
   await port.open({ baudRate: 115200 });
   const writer = port.writable?.getWriter();
   const reader = port.readable?.getReader();
@@ -150,55 +162,88 @@ export async function provisionDevice(
     throw new Error('Serial port is not readable/writable.');
   }
 
+  const encoder = new TextEncoder();
   const decoder = new TextDecoder();
-  let buffered = '';
+  const write = (obj: unknown) => writer.write(encoder.encode(`${JSON.stringify(obj)}\n`));
 
-  // Reads lines until one parses as a JSON object with a boolean `ok` field
-  // (any of provision/status/clear acks), or `deadline` passes.
-  const readReply = async (deadline: number): Promise<Record<string, unknown> | null> => {
-    while (Date.now() < deadline) {
-      const remaining = deadline - Date.now();
-      const chunk = await Promise.race([
-        reader.read(),
-        new Promise<{ value?: Uint8Array; done: boolean }>((resolve) =>
-          setTimeout(() => resolve({ done: true }), remaining),
-        ),
-      ]);
-      if (chunk.done && !chunk.value) {
-        return null;
-      }
-      buffered += decoder.decode(chunk.value, { stream: true });
-      let newline = buffered.indexOf('\n');
-      while (newline >= 0) {
-        const line = buffered.slice(0, newline).trim();
-        buffered = buffered.slice(newline + 1);
-        newline = buffered.indexOf('\n');
-        if (!line.startsWith('{')) {
-          continue; // boot logs / debug output
+  // Background reader: pumps the serial stream into a line queue and records
+  // everything seen, so nothing else ever touches reader.read() directly.
+  const lineQueue: string[] = [];
+  let rawBuffer = '';
+  let rawCharCount = 0;
+  let pumpDone = false;
+  const pump = (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (!value || value.length === 0) continue;
+        const text = decoder.decode(value, { stream: true });
+        rawCharCount += text.length;
+        onRaw?.(text);
+        rawBuffer += text;
+        let newline = rawBuffer.indexOf('\n');
+        while (newline >= 0) {
+          const line = rawBuffer.slice(0, newline).trim();
+          rawBuffer = rawBuffer.slice(newline + 1);
+          newline = rawBuffer.indexOf('\n');
+          if (line) lineQueue.push(line);
         }
+      }
+    } catch {
+      // reader.cancel() during teardown, or the device dropped — either way the
+      // pump is done and the outer logic already has (or will hit) its deadline.
+    } finally {
+      pumpDone = true;
+    }
+  })();
+
+  // Drains queued lines for the next JSON ack (an object with a boolean `ok`),
+  // waiting up to `deadline`. Non-JSON boot/debug lines are ignored.
+  const nextAck = async (deadline: number): Promise<Record<string, unknown> | null> => {
+    for (;;) {
+      while (lineQueue.length > 0) {
+        const line = lineQueue.shift() as string;
+        if (!line.startsWith('{')) continue;
         try {
           const parsed = JSON.parse(line) as Record<string, unknown>;
-          if (typeof parsed.ok === 'boolean') {
-            return parsed;
-          }
+          if (typeof parsed.ok === 'boolean') return parsed;
         } catch {
-          // Partial or non-ack JSON — keep reading.
+          // Partial/non-ack JSON — keep draining.
         }
       }
+      if (Date.now() >= deadline || pumpDone) return null;
+      await sleep(50);
     }
-    return null;
   };
 
   try {
     // Give the C3's native USB CDC a moment after (re)open — writes issued in
     // the same tick as open() are dropped by some adapters, and right after a
     // flash the CDC interface is still finishing its re-enumeration.
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    await writer.write(new TextEncoder().encode(`${JSON.stringify({ cmd: 'provision', ...config })}\n`));
+    await sleep(1000);
 
-    const ack = await readReply(Date.now() + timeoutMs);
+    // Re-send provision until the device acks or the overall timeout passes.
+    let ack: Record<string, unknown> | null = null;
+    const ackDeadline = Date.now() + timeoutMs;
+    while (Date.now() < ackDeadline && !ack) {
+      await write({ cmd: 'provision', ...config });
+      ack = await nextAck(Math.min(Date.now() + 3000, ackDeadline));
+    }
+
     if (!ack) {
-      return { ok: false, error: 'Timed out waiting for the device to confirm. Check the wiring and retry.' };
+      // Distinguish a silent device (nothing at all came back — usually still
+      // in the bootloader because the post-flash reboot didn't take, or the
+      // wrong USB port) from one that's talking but never acked (likely
+      // different firmware on the chip).
+      const error =
+        rawCharCount === 0
+          ? 'No response from the device over USB. If you just flashed it, the board may still be in the ' +
+            'bootloader — unplug and replug the ESP32, then use "Re-provision only". Otherwise check the ' +
+            'USB cable and that you picked the right serial port.'
+          : "The device is sending data but never confirmed the settings — it may be running different " +
+            'firmware than the status light. Reflash it, then try again.';
+      return { ok: false, error };
     }
     if (ack.ok !== true) {
       return {
@@ -211,23 +256,21 @@ export async function provisionDevice(
     let net: NetConnectionState = 'idle';
     const healthDeadline = Date.now() + healthCheckMs;
     while (Date.now() < healthDeadline) {
-      await writer.write(new TextEncoder().encode(`${JSON.stringify({ cmd: 'status' })}\n`));
-      const status = await readReply(Math.min(Date.now() + 2000, healthDeadline));
+      await write({ cmd: 'status' });
+      const status = await nextAck(Math.min(Date.now() + 2000, healthDeadline));
       if (status && typeof status.net === 'string') {
         net = status.net as NetConnectionState;
         onStatus?.(net);
-        if (net === 'connected') {
-          break;
-        }
+        if (net === 'connected') break;
       }
-      if (Date.now() >= healthDeadline) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      if (Date.now() >= healthDeadline) break;
+      await sleep(1500);
     }
 
     return { ok: true, printerId, net };
   } finally {
+    await reader.cancel().catch(() => {});
+    await pump;
     reader.releaseLock();
     writer.releaseLock();
     await port.close().catch(() => {});

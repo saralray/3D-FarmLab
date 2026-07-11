@@ -215,7 +215,12 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
           printerId,
           ledPolarity,
         },
-        { onStatus: setNetStatus },
+        {
+          onStatus: setNetStatus,
+          // Surface exactly what the device emits during provisioning so a
+          // failed flash/provision is diagnosable from the browser console.
+          onRaw: (text) => console.debug('[status-light serial]', JSON.stringify(text)),
+        },
       );
       setResult(
         outcome.ok
