@@ -94,19 +94,42 @@ export interface ProvisioningConfig {
   ledPolarity: LedPolarity;
 }
 
+// Mirrors the firmware's `net` field in its `{"cmd":"status"}` reply
+// (firmware/status-light/src/provisioning.cpp).
+export type NetConnectionState = 'idle' | 'wifi-connecting' | 'mqtt-connecting' | 'connected';
+
 export interface ProvisionResult {
   ok: boolean;
   error?: string;
   printerId?: string;
+  // Last-known connection state from the post-provision health check; absent
+  // if provisioning itself failed.
+  net?: NetConnectionState;
 }
 
-// Sends one provisioning JSON line and waits for the firmware's ack line.
-// The firmware accepts this at any time (fresh flash or re-provision).
+export interface ProvisionOptions {
+  // How long to wait for the provisioning ack itself.
+  timeoutMs?: number;
+  // How long, after a successful ack, to keep polling {"cmd":"status"} for
+  // the device to actually reach the broker — a saved config only proves the
+  // firmware accepted the JSON, not that the WiFi password or broker
+  // credentials are correct.
+  healthCheckMs?: number;
+  // Fired with each status poll's net state (including intermediate ones)
+  // while the health check runs.
+  onStatus?: (net: NetConnectionState) => void;
+}
+
+// Sends one provisioning JSON line, waits for the firmware's ack line, then
+// polls {"cmd":"status"} until the device reports it's connected or the
+// health-check window runs out. The firmware accepts `provision` at any time
+// (fresh flash or re-provision).
 export async function provisionDevice(
   port: SerialPortLike,
   config: ProvisioningConfig,
-  timeoutMs = 20000,
+  options: ProvisionOptions = {},
 ): Promise<ProvisionResult> {
+  const { timeoutMs = 20000, healthCheckMs = 15000, onStatus } = options;
   await port.open({ baudRate: 115200 });
   const writer = port.writable?.getWriter();
   const reader = port.readable?.getReader();
@@ -115,16 +138,12 @@ export async function provisionDevice(
     throw new Error('Serial port is not readable/writable.');
   }
 
-  try {
-    // Give the C3's native USB CDC a moment after (re)open — writes issued in
-    // the same tick as open() are dropped by some adapters, and right after a
-    // flash the CDC interface is still finishing its re-enumeration.
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    await writer.write(new TextEncoder().encode(`${JSON.stringify({ cmd: 'provision', ...config })}\n`));
+  const decoder = new TextDecoder();
+  let buffered = '';
 
-    const decoder = new TextDecoder();
-    let buffered = '';
-    const deadline = Date.now() + timeoutMs;
+  // Reads lines until one parses as a JSON object with a boolean `ok` field
+  // (any of provision/status/clear acks), or `deadline` passes.
+  const readReply = async (deadline: number): Promise<Record<string, unknown> | null> => {
     while (Date.now() < deadline) {
       const remaining = deadline - Date.now();
       const chunk = await Promise.race([
@@ -134,7 +153,7 @@ export async function provisionDevice(
         ),
       ]);
       if (chunk.done && !chunk.value) {
-        break;
+        return null;
       }
       buffered += decoder.decode(chunk.value, { stream: true });
       let newline = buffered.indexOf('\n');
@@ -146,7 +165,7 @@ export async function provisionDevice(
           continue; // boot logs / debug output
         }
         try {
-          const parsed = JSON.parse(line) as ProvisionResult;
+          const parsed = JSON.parse(line) as Record<string, unknown>;
           if (typeof parsed.ok === 'boolean') {
             return parsed;
           }
@@ -155,7 +174,47 @@ export async function provisionDevice(
         }
       }
     }
-    return { ok: false, error: 'Timed out waiting for the device to confirm. Check the wiring and retry.' };
+    return null;
+  };
+
+  try {
+    // Give the C3's native USB CDC a moment after (re)open — writes issued in
+    // the same tick as open() are dropped by some adapters, and right after a
+    // flash the CDC interface is still finishing its re-enumeration.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await writer.write(new TextEncoder().encode(`${JSON.stringify({ cmd: 'provision', ...config })}\n`));
+
+    const ack = await readReply(Date.now() + timeoutMs);
+    if (!ack) {
+      return { ok: false, error: 'Timed out waiting for the device to confirm. Check the wiring and retry.' };
+    }
+    if (ack.ok !== true) {
+      return {
+        ok: false,
+        error: typeof ack.error === 'string' ? ack.error : 'The device rejected the configuration.',
+      };
+    }
+    const printerId = typeof ack.printerId === 'string' ? ack.printerId : undefined;
+
+    let net: NetConnectionState = 'idle';
+    const healthDeadline = Date.now() + healthCheckMs;
+    while (Date.now() < healthDeadline) {
+      await writer.write(new TextEncoder().encode(`${JSON.stringify({ cmd: 'status' })}\n`));
+      const status = await readReply(Math.min(Date.now() + 2000, healthDeadline));
+      if (status && typeof status.net === 'string') {
+        net = status.net as NetConnectionState;
+        onStatus?.(net);
+        if (net === 'connected') {
+          break;
+        }
+      }
+      if (Date.now() >= healthDeadline) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+
+    return { ok: true, printerId, net };
   } finally {
     reader.releaseLock();
     writer.releaseLock();
