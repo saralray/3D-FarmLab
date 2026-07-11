@@ -105,7 +105,7 @@ export interface ProvisionResult {
 export async function provisionDevice(
   port: SerialPortLike,
   config: ProvisioningConfig,
-  timeoutMs = 10000,
+  timeoutMs = 20000,
 ): Promise<ProvisionResult> {
   await port.open({ baudRate: 115200 });
   const writer = port.writable?.getWriter();
@@ -116,9 +116,10 @@ export async function provisionDevice(
   }
 
   try {
-    // Give the C3's USB CDC a moment after (re)open — writes issued in the
-    // same tick as open() are dropped by some adapters.
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Give the C3's native USB CDC a moment after (re)open — writes issued in
+    // the same tick as open() are dropped by some adapters, and right after a
+    // flash the CDC interface is still finishing its re-enumeration.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     await writer.write(new TextEncoder().encode(`${JSON.stringify({ cmd: 'provision', ...config })}\n`));
 
     const decoder = new TextDecoder();

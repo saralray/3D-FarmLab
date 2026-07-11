@@ -134,8 +134,10 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
           setFlashProgress(total > 0 ? Math.round((written / total) * 100) : 0);
         });
         // Give the freshly flashed firmware a moment to boot its USB CDC
-        // before we reopen the port for provisioning.
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        // before we reopen the port for provisioning — the C3's native USB
+        // fully drops and re-enumerates after the post-flash reset, which
+        // can take a few seconds.
+        await new Promise((resolve) => setTimeout(resolve, 4000));
         setStep('form');
       } catch (err) {
         setError(
