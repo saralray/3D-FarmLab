@@ -86,7 +86,7 @@ Lists the available resources.
 ```json
 {
   "version": "v1",
-  "resources": ["printers", "queue", "analytics", "notifications", "slicer-keys", "audit-logs", "settings", "users", "admin-credential", "manager-requests", "maintenance", "filament-station"]
+  "resources": ["printers", "queue", "analytics", "notifications", "slicer-keys", "audit-logs", "settings", "users", "admin-credential", "manager-requests", "maintenance", "filament-station", "status-light"]
 }
 ```
 
@@ -304,6 +304,39 @@ the cookie-session frontend.
 | `GET /filament-station/assignments` | List AMS/tray → spool assignments. |
 | `POST /filament-station/assignments` | Body `{ spool_id, printer_id, ams_id?, tray_id, pending_config? }`. Creates/updates an assignment; if not pending and the printer is Bambu, immediately pushes an `ams_filament_setting` override over MQTT (failure reported as `mqtt_warning` in the response, not an error status). |
 | `DELETE /filament-station/assignments/:printerId/:amsId/:trayId` | Remove an assignment. |
+
+---
+
+### Status Lights — `/api/v1/status-light` (also `/api/status-light/*`, cookie-session)
+
+Per-printer ESP32-C3 RGB status lights (see `server/statusLightBroker.js` and
+`firmware/status-light/`). The web service embeds an MQTT broker (aedes):
+**raw MQTT/TCP** published on host port `MQTT_PORT` (default 1883) and
+**MQTT-over-WebSockets** at `/mqtt` on the normal HTTP(S) port through nginx.
+`STATUS_LIGHT_MQTT_ENABLED=false` disables the whole feature.
+
+| Method & path | Description |
+|---------------|-------------|
+| `GET /status-light/provisioning` | The shared device credential + connection parameters: `{ enabled, mqttPort, wsPath, username, password, statusTopic }`. When the broker is disabled: `{ enabled: false }`. |
+| `GET /status-light/devices` | Connected lights: `{ devices: [{ printerId, connected, lastSeen }] }`. Fed by broker connection events and the retained availability topic (covers LWT). |
+
+Frontend mirror: `GET /api/status-light/provisioning` is **admin-only**
+(carries the broker password; used by the flash dialog on the printer detail
+page); `GET /api/status-light/devices` is a public read (no secrets).
+
+**MQTT contract** (device client id `statuslight-<printerId>`, keepalive 15 s,
+one shared credential auto-generated into app_settings key
+`status_light_broker_credential`):
+
+| Topic | Direction | Retained | Payload |
+|---|---|---|---|
+| `printfarm/printers/<printerId>/status` | server → device | yes | plain string `printing\|idle\|paused\|error\|offline` (empty payload clears a deleted printer) |
+| `printfarm/lights/<printerId>/availability` | device → server (also the LWT) | yes | `online` / `offline` |
+
+Devices may only subscribe to printer-status topics and only publish their own
+availability topic (ACL by client id). The shared password makes client ids
+spoofable — accepted for the LAN/classroom trust boundary; status strings carry
+no secrets.
 
 ---
 
@@ -543,9 +576,9 @@ classified below requires an admin session.
 
 | Class | Who | Examples |
 | --- | --- | --- |
-| **public read** | anyone | `GET /api/printers`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, `GET /api/settings/favicon`, `GET /api/events`, branding/layout reads |
+| **public read** | anyone | `GET /api/printers`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, `GET /api/settings/favicon`, `GET /api/events`, `GET /api/status-light/devices`, branding/layout reads |
 | **viewer-gated read** | anyone when `VITE_PUBLIC_VIEWER_MODE=true`, else any session | `GET /api/queue`, `GET /api/maintenance/summary` — public only while the anonymous viewer dashboard is enabled; otherwise a session is required so a non-public deployment doesn't leak queue contents / fleet health |
-| **admin read** | admin only | `GET /api/users`, `GET /api/slicer-keys`, `GET /api/audit-logs`, `GET /api/admin/update-status`, `GET /api/admin/backup/download`, `GET /api/notifications/*`, `GET /api/manager/requests`, `GET /api/settings/saml`, `GET /api/settings/home-assistant*` |
+| **admin read** | admin only | `GET /api/users`, `GET /api/slicer-keys`, `GET /api/audit-logs`, `GET /api/admin/update-status`, `GET /api/admin/backup/download`, `GET /api/notifications/*`, `GET /api/manager/requests`, `GET /api/settings/saml`, `GET /api/settings/home-assistant*`, `GET /api/status-light/provisioning` |
 | **public mutation** | anyone | `POST /api/queue/submit` (student intake), `POST /api/manager/request`, the auth endpoints above |
 | **operator** | operator or admin | `POST /api/printers` (create/edit/reorder), `POST /api/printers/:id/command`, `POST /api/queue/:id/printed`, `POST /api/maintenance/:id/complete`, `POST /api/maintenance/notifications/read` |
 | **authed** | any session | `POST /api/audit-logs` (actor is taken from the session, not the body) |

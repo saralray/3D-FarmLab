@@ -104,6 +104,12 @@ import { verifySlicerGrant } from './slicerGrant.js';
 import { handleFilamentStation } from './filamentStation.js';
 import { sendBambuCommand } from './bambuCommands.js';
 import {
+  ensureBrokerCredential,
+  getStatusLightDevices,
+  startStatusLightBroker,
+  statusLightMqttEnabled,
+} from './statusLightBroker.js';
+import {
   isRedisEnabled,
   redisDel,
   redisGet,
@@ -2077,6 +2083,9 @@ function isSensitiveRead(pathname) {
   if (pathname.startsWith('/api/settings/home-assistant')) {
     return true; // internal HA URL + device/entity lists are not viewer-readable
   }
+  if (pathname === '/api/status-light/provisioning') {
+    return true; // carries the shared MQTT broker credential
+  }
   return false;
 }
 
@@ -2867,7 +2876,47 @@ const DATA_API_RESOURCES = [
   'manager-requests',
   'maintenance',
   'filament-station',
+  'status-light',
 ];
+
+// Connection parameters + shared credential a status-light device needs. The
+// MQTT host is chosen by the flash page (prefilled with the site hostname) —
+// the server can't know which address the device's WiFi can reach.
+async function buildStatusLightProvisioning() {
+  if (!statusLightMqttEnabled()) {
+    return { enabled: false };
+  }
+  const credential = await ensureBrokerCredential();
+  return {
+    enabled: true,
+    // The host port compose publishes the raw-TCP listener on (container
+    // always listens on 1883; the ws/wss transport rides the normal web port).
+    mqttPort: Number.parseInt(process.env.MQTT_PORT || '1883', 10) || 1883,
+    wsPath: '/mqtt',
+    username: credential.username,
+    password: credential.password,
+    statusTopic: 'printfarm/printers/{printerId}/status',
+  };
+}
+
+// status-light: provisioning credential + connected-device list. Key-gated like
+// the rest of /api/v1, so the credential is not redacted here (the key is the
+// guard — same policy as admin-credential and users).
+async function handleDataApiStatusLight(req, res, { method, id }) {
+  if (id === 'provisioning' && method === 'GET') {
+    sendJson(res, 200, await buildStatusLightProvisioning(), 'no-store');
+    return true;
+  }
+  if (id === 'devices' && method === 'GET') {
+    sendJson(res, 200, { devices: getStatusLightDevices() }, 'no-store');
+    return true;
+  }
+  if (!id) {
+    return dataApiMethodNotAllowed(res);
+  }
+  sendJson(res, 404, { error: `Unknown status-light resource '${id}'.` });
+  return true;
+}
 
 function extractApiKey(req) {
   const headerKey = req.headers['x-api-key'];
@@ -2972,6 +3021,8 @@ async function handleDataApi(req, res, requestUrl) {
       return handleDataApiMaintenance(req, res, { apiKey, method, id, sub, requestUrl });
     case 'filament-station':
       return handleFilamentStation(req, res, { method, segments: segments.slice(1), requestUrl });
+    case 'status-light':
+      return handleDataApiStatusLight(req, res, { method, id });
     default:
       sendJson(res, 404, { error: `Unknown resource '${entity}'.`, resources: DATA_API_RESOURCES });
       return true;
@@ -3764,6 +3815,21 @@ async function handleApi(req, res, requestUrl) {
       .filter(Boolean)
       .map((part) => decodeURIComponent(part));
     return handleFilamentStation(req, res, { method: req.method, segments, requestUrl });
+  }
+
+  // Status lights ─────────────────────────────────────────────────────────────
+  // GET /api/status-light/provisioning — admin-only (isSensitiveRead): the
+  //   shared broker credential + connection parameters the flash page writes to
+  //   an ESP32 status light over Web Serial.
+  // GET /api/status-light/devices — public read (no secrets, same class as
+  //   /api/printers): which printers currently have a light connected.
+  if (requestUrl.pathname === '/api/status-light/provisioning' && req.method === 'GET') {
+    sendJson(res, 200, await buildStatusLightProvisioning(), 'no-store');
+    return true;
+  }
+  if (requestUrl.pathname === '/api/status-light/devices' && req.method === 'GET') {
+    sendJson(res, 200, { devices: getStatusLightDevices() }, 'no-store');
+    return true;
   }
 
   // Manager access request endpoints ──────────────────────────────────────────
@@ -6913,8 +6979,16 @@ function scheduleFilamentAssignmentReplayWorker() {
 }
 scheduleFilamentAssignmentReplayWorker();
 
-createServer(handleRequest).listen(port, host, () => {
+const httpServer = createServer(handleRequest);
+httpServer.listen(port, host, () => {
   logger.info('Print Farm server listening', { host, port });
   // Evaluate Home Assistant ⇄ printer automation rules on a background interval.
   startHaAutomationEngine();
+  // ESP32 status-light MQTT broker (raw TCP :1883 + WebSocket upgrade at
+  // /mqtt on this same HTTP server) and its DB→retained-status publisher.
+  startStatusLightBroker({ httpServer }).catch((err) => {
+    logger.error('status light broker failed to start', {
+      error: err && err.message ? err.message : String(err),
+    });
+  });
 });

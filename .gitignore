@@ -40,3 +40,7 @@ __pycache__/
 /go-services/poller
 /go-services/exporter
 /go-services/web
+
+# PlatformIO build tree (the merged firmware image is committed under
+# public/firmware/, the intermediate build dir is not)
+firmware/status-light/.pio
