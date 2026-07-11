@@ -14,6 +14,8 @@ import type { LedPolarity, MqttTransport } from './statusLightApi';
 export interface SerialPortLike {
   open(options: { baudRate: number }): Promise<void>;
   close(): Promise<void>;
+  // Optional in the spec surface we model; real Web Serial ports have it.
+  setSignals?(signals: { dataTerminalReady?: boolean; requestToSend?: boolean }): Promise<void>;
   readable: ReadableStream<Uint8Array> | null;
   writable: WritableStream<Uint8Array> | null;
 }
@@ -155,6 +157,13 @@ export async function provisionDevice(
 ): Promise<ProvisionResult> {
   const { timeoutMs = 20000, healthCheckMs = 15000, onStatus, onRaw } = options;
   await port.open({ baudRate: 115200 });
+  // The ESP32-C3 has no USB-UART bridge — Serial is the SoC's native
+  // USB-Serial/JTAG (HWCDC), which stays mute until the host asserts DTR to
+  // mark the terminal "connected". Web Serial's open() leaves DTR deasserted,
+  // so without this the device never transmits and provisioning sees zero
+  // bytes. A steady DTR (RTS held low) signals "connected" without pulsing EN,
+  // so it does not reset the running app. Best-effort: some adapters reject it.
+  await port.setSignals?.({ dataTerminalReady: true, requestToSend: false }).catch(() => {});
   const writer = port.writable?.getWriter();
   const reader = port.readable?.getReader();
   if (!writer || !reader) {
