@@ -261,6 +261,24 @@ server {
     limit_conn conn_per_ip 300; # DDoS: long-lived SSE — see /__printer_webcam/
   }
 
+  # MQTT-over-WebSockets for the ESP32 status lights (see
+  # server/statusLightBroker.js). The web server upgrades /mqtt to a WebSocket
+  # and pipes it into the embedded broker, so devices behind HTTPS termination
+  # or a tunnel (where raw TCP :1883 can't pass) still reach it on this port.
+  # Long-lived like SSE: no buffering, long read timeout (the 15 s MQTT
+  # keepalive pings keep the connection active well within it).
+  location = /mqtt {
+    proxy_pass http://web:5173;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+    limit_conn conn_per_ip 300; # DDoS: long-lived connection — see /api/events
+  }
+
   location / {
     proxy_pass http://web:5173;
     proxy_http_version 1.1;

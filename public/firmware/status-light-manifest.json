@@ -1,0 +1,7 @@
+{
+  "name": "printfarm-status-light",
+  "chip": "esp32c3",
+  "offset": 0,
+  "file": "status-light-esp32c3.bin",
+  "sizeBytes": 977872
+}

@@ -655,6 +655,9 @@ export default defineConfig(({ mode }) => {
           if (!id.includes('node_modules')) return
           if (id.includes('recharts') || id.includes('/d3-')) return 'charts'
           if (id.includes('@radix-ui')) return 'radix'
+          // Only referenced via a dynamic import in statusLightSerial.ts —
+          // keep it out of the eager vendor chunk so it loads on demand.
+          if (id.includes('esptool-js')) return 'esptool'
           if (
             id.includes('/node_modules/react/') ||
             id.includes('/node_modules/react-dom/') ||
