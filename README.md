@@ -10,7 +10,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-2ea44f.svg)](LICENSE)
 [![Deploy](https://github.com/saralray/3D-FarmLab/actions/workflows/deploy.yml/badge.svg)](https://github.com/saralray/3D-FarmLab/actions/workflows/deploy.yml)
-![React](https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white)
+![React](https://img.shields.io/badge/React-18-149eca?logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-Vite-3178c6?logo=typescript&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-20-339933?logo=node.js&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
@@ -33,6 +33,7 @@
 - [Viewer Mode](#-viewer-mode)
 - [Printer Profiles](#-printer-profiles)
 - [Preventive Maintenance](#-preventive-maintenance)
+- [Filament Station](#-filament-station)
 - [Home Assistant Integration](#-home-assistant-integration)
 - [Real-Time Events & Network Usage](#-real-time-events--network-usage)
 - [Print Request Form](#-print-request-form)
@@ -91,6 +92,7 @@
 
 **Operations**
 - Preventive maintenance tracking: per-printer health score, auto-created service tasks by print-hour interval
+- Filament Station: spool inventory, AMS/tray assignment, NFC read/write of OpenSpool tags (Android web + companion iOS app)
 - One-click admin software update (Watchtower-backed) with version/commit comparison
 - Real-time events over SSE (`/api/events`) — new-job and maintenance toasts without polling
 - Network usage analytics page — traffic by route, live throughput, poller bandwidth
@@ -167,6 +169,7 @@ Browser → nginx:8080 → Node web
 | `server/` | Node API middleware used by the `web` container |
 | `go-services/` | Go poller + exporter (`cmd/poller`, `cmd/exporter`) |
 | `poller/`, `exporter/` | Original Python services, retained for reference |
+| `ios-filament-station/` | Swift/Core NFC companion app source (spool NFC writing on iPhone) — source scaffold, not a buildable Xcode project |
 | `monitoring/` | Prometheus scrape config + importable Grafana dashboard |
 | `docker-compose.yml` | Full local stack |
 
@@ -218,6 +221,17 @@ Printers accumulate `totalPrintHours` and `currentNozzleHours` as jobs finish; a
 - Per-printer view: hours, health, pending/completed tasks, next service due
 - Admin-configurable default intervals per maintenance type (Settings → Maintenance)
 - Completing a task resets the relevant hour counter (e.g. nozzle hours after a nozzle service)
+
+## 🧵 Filament Station
+
+A dedicated `/filament-station` page (staff only) tracks physical filament spools and can read/write **OpenSpool**-format NFC tags, the schema read natively by the Snapmaker U1 Extended Firmware's OpenRFID mode:
+
+- **Inventory** — create/edit/archive spools (material, subtype, color, brand, weights, temps); each gets a server-generated unique `serial` (`FL-0001`, ...)
+- **AMS/tray assignment** — assign a spool to a printer's AMS slot; for Bambu printers a non-pending assignment immediately pushes an `ams_filament_setting` override over MQTT
+- **NFC scan/write** — resolve a scanned tag to a spool, or write a spool's OpenSpool payload onto a blank tag and link its UID
+- **Two ways to read/write NFC**, since there's no single cross-platform browser API: the web page uses **Web NFC** (`NDEFReader`), which only Chrome/Edge/Samsung Internet on Android support; iPhone has no Web NFC, so a companion **iOS app** (`ios-filament-station/`, SwiftUI + Core NFC) talks to the same backend over the key-gated `/api/v1/filament-station/*` surface — see its own [README](ios-filament-station/README.md) for build/provisioning steps (it's a source scaffold requiring Xcode + a paid Apple Developer account, untested on real hardware)
+
+Separately, **per-job filament usage** is tracked automatically for Bambu printers — the slicer's exact 3MF plate-weight estimate when available, falling back to the AMS remaining-grams delta — and rolls into analytics with no manual entry.
 
 ## 🏠 Home Assistant Integration
 
@@ -281,6 +295,7 @@ API keys are minted in Settings → API Keys and stored as sha256 hashes (plaint
 | **Queue** | list, upsert, mark printed, delete, reset, bulk delete, export/import for migration |
 | **Analytics** | daily rollups, reset |
 | **Maintenance** | list events, fleet/per-printer summaries, mark a task complete |
+| **Filament Station** | spool inventory CRUD, OpenSpool NFC payload, tag-scan/link, AMS/tray assignments |
 | **Notifications** | Discord webhook CRUD |
 | **Slicer keys** | list, mint, revoke |
 | **Audit logs** | read, append |
