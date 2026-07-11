@@ -44,12 +44,11 @@ struct DeviceConfig {
   bool valid = false;
   String wifiSsid;
   String wifiPassword;
-  String mqttTransport;  // "tcp" | "ws" | "wss"
-  String mqttHost;
-  uint16_t mqttPort = 1883;
-  String mqttPath;       // ws/wss only, e.g. "/mqtt"
-  String mqttUsername;
-  String mqttPassword;
+  // Dashboard origin the device polls, e.g. "http://10.0.0.5:8080" or
+  // "https://farm.example.com". https validates against the built-in public-CA
+  // bundle (Let's Encrypt etc.; self-signed needs http).
+  String serverUrl;
+  uint32_t pollIntervalMs = 5000;
   String printerId;
   bool commonAnode = false;
 };
@@ -74,16 +73,12 @@ bool configLoad(DeviceConfig &out) {
   }
   out.wifiSsid = prefs.getString("ssid", "");
   out.wifiPassword = prefs.getString("pass", "");
-  out.mqttTransport = prefs.getString("transport", "tcp");
-  out.mqttHost = prefs.getString("host", "");
-  out.mqttPort = prefs.getUShort("port", 1883);
-  out.mqttPath = prefs.getString("path", "/mqtt");
-  out.mqttUsername = prefs.getString("user", "");
-  out.mqttPassword = prefs.getString("mqttpass", "");
+  out.serverUrl = prefs.getString("srvurl", "");
+  out.pollIntervalMs = prefs.getUInt("interval", 5000);
   out.printerId = prefs.getString("printer", "");
   out.commonAnode = prefs.getBool("anode", false);
   prefs.end();
-  out.valid = out.wifiSsid.length() > 0 && out.mqttHost.length() > 0 && out.printerId.length() > 0;
+  out.valid = out.wifiSsid.length() > 0 && out.serverUrl.length() > 0 && out.printerId.length() > 0;
   return out.valid;
 }
 
@@ -92,12 +87,8 @@ void configSave(const DeviceConfig &config) {
   prefs.begin(NVS_NAMESPACE, /*readOnly=*/false);
   prefs.putString("ssid", config.wifiSsid);
   prefs.putString("pass", config.wifiPassword);
-  prefs.putString("transport", config.mqttTransport);
-  prefs.putString("host", config.mqttHost);
-  prefs.putUShort("port", config.mqttPort);
-  prefs.putString("path", config.mqttPath);
-  prefs.putString("user", config.mqttUsername);
-  prefs.putString("mqttpass", config.mqttPassword);
+  prefs.putString("srvurl", config.serverUrl);
+  prefs.putUInt("interval", config.pollIntervalMs);
   prefs.putString("printer", config.printerId);
   prefs.putBool("anode", config.commonAnode);
   prefs.end();
@@ -221,13 +212,13 @@ void ledTick() {
 enum class NetState : uint8_t {
   Idle,            // no config
   WifiConnecting,
-  MqttConnecting,
-  Connected,
+  Polling,         // WiFi up, HTTP poll not yet succeeded (or currently failing)
+  Connected,       // last poll succeeded
 };
 
-// Called from the MQTT event handler with each printer-status payload
-// (plain string: printing|idle|paused|error|offline, or "" when the retained
-// status was cleared because the printer was deleted).
+// Called after each successful status poll with the printer-status payload
+// (plain string: printing|idle|paused|error|offline, or "" when the printer was
+// deleted on the server).
 typedef void (*StatusCallback)(const String &status);
 
 void netBegin(const DeviceConfig &config, StatusCallback onStatus);
@@ -242,98 +233,82 @@ NetState netState();
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <mqtt_client.h>
-#if __has_include("esp_crt_bundle.h")
-#include "esp_crt_bundle.h"
-#define STATUSLIGHT_HAVE_CRT_BUNDLE 1
-#endif
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// Embedded public-CA bundle shipped by the ESP-IDF mbedtls component (the same
+// gen_crt_bundle.py format WiFiClientSecure::setCACertBundle expects); used to
+// validate an https:// dashboard certificate (Let's Encrypt etc.). A
+// self-signed cert won't validate — provision an http:// URL for those. The
+// arduino-embed symbol \`_binary_data_cert_..._bin_start\` isn't produced in a
+// PlatformIO build, so we reference the IDF bundle bytes directly.
+extern const uint8_t rootca_crt_bundle_start[] asm("x509_crt_bundle");
 
 static DeviceConfig s_config;
 static StatusCallback s_onStatus = nullptr;
-static esp_mqtt_client_handle_t s_client = nullptr;
 static NetState s_state = NetState::Idle;
 static uint32_t s_wifiRetryAt = 0;
+static uint32_t s_nextPollAt = 0;
+static String s_statusUrl;
+static bool s_https = false;
 
-static String s_brokerUri;
-static String s_clientId;
-static String s_statusTopic;
-static String s_availabilityTopic;
-
-// mqtt://host:port for LAN, ws(s)://host:port/mqtt through nginx — the same
-// broker either way (server/statusLightBroker.js).
-static String buildBrokerUri() {
-  String scheme = s_config.mqttTransport;
-  if (scheme != "ws" && scheme != "wss") {
-    scheme = "mqtt";
+// <serverUrl>/api/status-light/printers/<printerId> — the plain-string status
+// endpoint the dashboard serves (server/app.js).
+static String buildStatusUrl() {
+  String base = s_config.serverUrl;
+  while (base.endsWith("/")) {
+    base.remove(base.length() - 1);
   }
-  String uri = scheme + "://" + s_config.mqttHost + ":" + String(s_config.mqttPort);
-  if (scheme != "mqtt") {
-    uri += s_config.mqttPath.startsWith("/") ? s_config.mqttPath : "/" + s_config.mqttPath;
-  }
-  return uri;
+  return base + "/api/status-light/printers/" + s_config.printerId;
 }
 
-static void mqttEventHandler(void *, esp_event_base_t, int32_t eventId, void *eventData) {
-  esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)eventData;
-  switch ((esp_mqtt_event_id_t)eventId) {
-    case MQTT_EVENT_CONNECTED:
-      s_state = NetState::Connected;
-      esp_mqtt_client_publish(s_client, s_availabilityTopic.c_str(), "online", 0, 0, 1);
-      // Retained status arrives immediately after this subscribe.
-      esp_mqtt_client_subscribe(s_client, s_statusTopic.c_str(), 0);
-      break;
-    case MQTT_EVENT_DISCONNECTED:
-      if (s_state == NetState::Connected) {
-        s_state = NetState::MqttConnecting; // esp_mqtt auto-reconnects
-      }
-      break;
-    case MQTT_EVENT_DATA:
-      if (s_onStatus && event->topic_len > 0 &&
-          s_statusTopic.equals(String(event->topic, event->topic_len))) {
-        String payload(event->data, event->data_len);
-        s_onStatus(payload);
-      }
-      break;
-    default:
-      break;
+// One GET against the status endpoint using the given (plain or TLS) client.
+// On HTTP 200 with a {"status":"…"} body, hands the status to the callback.
+static bool requestWith(WiFiClient &client) {
+  HTTPClient http;
+  http.setConnectTimeout(6000);
+  http.setTimeout(6000);
+  if (!http.begin(client, s_statusUrl)) {
+    return false;
   }
+  const int code = http.GET();
+  bool ok = false;
+  if (code == 200) {
+    const String body = http.getString();
+    JsonDocument doc;
+    if (deserializeJson(doc, body) == DeserializationError::Ok) {
+      const char *status = doc["status"] | "";
+      if (s_onStatus) {
+        s_onStatus(String(status));
+      }
+      ok = true;
+    }
+  }
+  http.end();
+  return ok;
 }
 
-static void startMqtt() {
-  s_brokerUri = buildBrokerUri();
-  s_clientId = "statuslight-" + s_config.printerId;
-  s_statusTopic = "printfarm/printers/" + s_config.printerId + "/status";
-  s_availabilityTopic = "printfarm/lights/" + s_config.printerId + "/availability";
-
-  esp_mqtt_client_config_t mqttConfig = {};
-  mqttConfig.uri = s_brokerUri.c_str();
-  mqttConfig.client_id = s_clientId.c_str();
-  mqttConfig.username = s_config.mqttUsername.c_str();
-  mqttConfig.password = s_config.mqttPassword.c_str();
-  mqttConfig.keepalive = 15;
-  mqttConfig.lwt_topic = s_availabilityTopic.c_str();
-  mqttConfig.lwt_msg = "offline";
-  mqttConfig.lwt_qos = 0;
-  mqttConfig.lwt_retain = 1;
-#ifdef STATUSLIGHT_HAVE_CRT_BUNDLE
-  if (s_config.mqttTransport == "wss") {
-    // Validate the HTTPS certificate against the built-in public-CA bundle
-    // (works with Let's Encrypt etc.; a self-signed cert needs "ws" instead).
-    // arduino-esp32 ships the bundle under its own symbol name.
-    mqttConfig.crt_bundle_attach = arduino_esp_crt_bundle_attach;
+static bool pollStatus() {
+  if (s_https) {
+    WiFiClientSecure client;
+    client.setCACertBundle(rootca_crt_bundle_start);
+    return requestWith(client);
   }
-#endif
-
-  s_client = esp_mqtt_client_init(&mqttConfig);
-  esp_mqtt_client_register_event(s_client, (esp_mqtt_event_id_t)ESP_EVENT_ANY_ID, mqttEventHandler, nullptr);
-  esp_mqtt_client_start(s_client);
-  s_state = NetState::MqttConnecting;
+  WiFiClient client;
+  return requestWith(client);
 }
 
 void netBegin(const DeviceConfig &config, StatusCallback onStatus) {
   netStop();
   s_config = config;
   s_onStatus = onStatus;
+  if (s_config.pollIntervalMs < 1000) {
+    s_config.pollIntervalMs = 5000; // guard against a bad/zero provisioned value
+  }
+  s_statusUrl = buildStatusUrl();
+  s_https = s_config.serverUrl.startsWith("https://") || s_config.serverUrl.startsWith("HTTPS://");
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(s_config.wifiSsid.c_str(), s_config.wifiPassword.c_str());
@@ -342,11 +317,6 @@ void netBegin(const DeviceConfig &config, StatusCallback onStatus) {
 }
 
 void netStop() {
-  if (s_client) {
-    esp_mqtt_client_stop(s_client);
-    esp_mqtt_client_destroy(s_client);
-    s_client = nullptr;
-  }
   WiFi.disconnect(true);
   s_state = NetState::Idle;
 }
@@ -358,7 +328,8 @@ void netTick() {
   const bool wifiUp = WiFi.status() == WL_CONNECTED;
   if (s_state == NetState::WifiConnecting) {
     if (wifiUp) {
-      startMqtt();
+      s_state = NetState::Polling;
+      s_nextPollAt = millis(); // poll immediately once associated
     } else if ((int32_t)(millis() - s_wifiRetryAt) >= 0) {
       // Some APs need a fresh association attempt after a long failure.
       WiFi.disconnect();
@@ -368,10 +339,18 @@ void netTick() {
     return;
   }
   if (!wifiUp) {
-    // WiFi dropped: esp_mqtt keeps retrying on its own, but reflect the state
-    // for the LED (purple breathe) until the link is back.
+    // WiFi dropped: reflect it for the LED (purple breathe) until the link
+    // is back, then polling resumes.
     s_state = NetState::WifiConnecting;
     s_wifiRetryAt = millis() + 20000;
+    return;
+  }
+  // WiFi is up: poll the dashboard on the configured cadence. A failed poll
+  // drops us to Polling (keep-last color + stale hint) but keeps retrying.
+  if ((int32_t)(millis() - s_nextPollAt) >= 0) {
+    const bool ok = pollStatus();
+    s_state = ok ? NetState::Connected : NetState::Polling;
+    s_nextPollAt = millis() + s_config.pollIntervalMs;
   }
 }
 
@@ -426,16 +405,12 @@ static void handleLine(const String &line, const DeviceConfig &current,
     DeviceConfig config;
     config.wifiSsid = String(doc["wifiSsid"] | "");
     config.wifiPassword = String(doc["wifiPassword"] | "");
-    config.mqttTransport = String(doc["mqttTransport"] | "tcp");
-    config.mqttHost = String(doc["mqttHost"] | "");
-    config.mqttPort = (uint16_t)(doc["mqttPort"] | 1883);
-    config.mqttPath = String(doc["mqttPath"] | "/mqtt");
-    config.mqttUsername = String(doc["mqttUsername"] | "");
-    config.mqttPassword = String(doc["mqttPassword"] | "");
+    config.serverUrl = String(doc["serverUrl"] | "");
+    config.pollIntervalMs = (uint32_t)(doc["pollIntervalMs"] | 5000);
     config.printerId = String(doc["printerId"] | "");
     config.commonAnode = strcmp(doc["ledPolarity"] | "common_cathode", "common_anode") == 0;
-    if (config.wifiSsid.isEmpty() || config.mqttHost.isEmpty() || config.printerId.isEmpty()) {
-      replyError("wifiSsid, mqttHost and printerId are required");
+    if (config.wifiSsid.isEmpty() || config.serverUrl.isEmpty() || config.printerId.isEmpty()) {
+      replyError("wifiSsid, serverUrl and printerId are required");
       return;
     }
     config.valid = true;
@@ -456,11 +431,11 @@ static void handleLine(const String &line, const DeviceConfig &current,
     reply["ok"] = true;
     reply["configured"] = current.valid;
     reply["printerId"] = current.printerId;
-    reply["mqttHost"] = current.mqttHost;
-    reply["mqttTransport"] = current.mqttTransport;
+    reply["serverUrl"] = current.serverUrl;
+    reply["pollIntervalMs"] = current.pollIntervalMs;
     const NetState state = netState();
     reply["net"] = state == NetState::Connected      ? "connected"
-                   : state == NetState::MqttConnecting ? "mqtt-connecting"
+                   : state == NetState::Polling        ? "polling"
                    : state == NetState::WifiConnecting ? "wifi-connecting"
                                                        : "idle";
     serializeJson(reply, Serial);
@@ -507,15 +482,14 @@ void provisioningPoll(const DeviceConfig &current, ProvisionedCallback onProvisi
     path: 'src/main.cpp',
     content: `// ESP32-C3 Super Mini per-printer status light for STEM Lab Print Farm.
 //
-// Subscribes to printfarm/printers/<printerId>/status on the dashboard's
-// embedded MQTT broker (server/statusLightBroker.js) and drives a 4-pin
-// analog RGB LED:
+// Polls GET <serverUrl>/api/status-light/printers/<printerId> on the dashboard
+// (server/app.js) every pollIntervalMs and drives a 4-pin analog RGB LED:
 //   idle     -> solid green         printing -> solid blue
 //   paused   -> solid orange        error    -> solid red
 //   offline  -> blinking red (500 ms)
-// Local states: unprovisioned -> white breathe; WiFi/MQTT connecting ->
-// purple breathe; broker lost -> keep last color with a purple flash every
-// 5 s so a dead broker is distinguishable from a healthy idle printer.
+// Local states: unprovisioned -> white breathe; WiFi/first-poll connecting ->
+// purple breathe; polls failing -> keep last color with a purple flash every
+// 5 s so a dead link is distinguishable from a healthy idle printer.
 
 #include <Arduino.h>
 
@@ -571,12 +545,12 @@ void loop() {
   if (!s_config.valid) {
     ledSet(255, 255, 255, LedPattern::Breathe); // waiting for provisioning
   } else if (state == NetState::WifiConnecting ||
-             (state == NetState::MqttConnecting && !s_haveStatus)) {
+             (state == NetState::Polling && !s_haveStatus)) {
     ledSet(160, 0, 255, LedPattern::Breathe); // purple: connecting
   } else if (state == NetState::Connected && !s_haveStatus) {
     ledSet(255, 255, 255, LedPattern::Breathe); // connected, no status yet
   } else if (s_haveStatus) {
-    // Broker lost but we have a last-known status: keep showing it, with a
+    // Polls failing but we have a last-known status: keep showing it, with a
     // short purple flash every 5 s as a "stale" hint.
     if (state != NetState::Connected && (millis() % 5000) < 150) {
       ledSet(160, 0, 255, LedPattern::Solid);

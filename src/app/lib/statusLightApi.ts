@@ -1,17 +1,15 @@
 // API helpers for the ESP32 per-printer status lights (see
-// server/statusLightBroker.js). Mirrors the thin-fetch pattern of
-// printersApi.ts.
+// server/statusLightPresence.js and the /api/status-light routes in
+// server/app.js). Mirrors the thin-fetch pattern of printersApi.ts.
 
 export type LedPolarity = 'common_anode' | 'common_cathode';
-export type MqttTransport = 'tcp' | 'ws' | 'wss';
 
 export interface StatusLightProvisioningInfo {
   enabled: boolean;
-  mqttPort?: number;
-  wsPath?: string;
-  username?: string;
-  password?: string;
-  statusTopic?: string;
+  // Suggested default poll cadence and the status endpoint the device curls
+  // (`{printerId}` placeholder). No secrets — the status read is public.
+  pollIntervalMs?: number;
+  statusPath?: string;
 }
 
 export interface StatusLightDevice {
@@ -41,7 +39,7 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-// Admin-only: carries the shared MQTT broker credential.
+// Admin-only: the flash page's suggested poll settings.
 export async function fetchStatusLightProvisioning(): Promise<StatusLightProvisioningInfo> {
   const response = await fetch('/api/status-light/provisioning', { cache: 'no-store' });
   return readJsonResponse<StatusLightProvisioningInfo>(response);

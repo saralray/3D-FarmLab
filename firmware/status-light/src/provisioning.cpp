@@ -28,16 +28,12 @@ static void handleLine(const String &line, const DeviceConfig &current,
     DeviceConfig config;
     config.wifiSsid = String(doc["wifiSsid"] | "");
     config.wifiPassword = String(doc["wifiPassword"] | "");
-    config.mqttTransport = String(doc["mqttTransport"] | "tcp");
-    config.mqttHost = String(doc["mqttHost"] | "");
-    config.mqttPort = (uint16_t)(doc["mqttPort"] | 1883);
-    config.mqttPath = String(doc["mqttPath"] | "/mqtt");
-    config.mqttUsername = String(doc["mqttUsername"] | "");
-    config.mqttPassword = String(doc["mqttPassword"] | "");
+    config.serverUrl = String(doc["serverUrl"] | "");
+    config.pollIntervalMs = (uint32_t)(doc["pollIntervalMs"] | 5000);
     config.printerId = String(doc["printerId"] | "");
     config.commonAnode = strcmp(doc["ledPolarity"] | "common_cathode", "common_anode") == 0;
-    if (config.wifiSsid.isEmpty() || config.mqttHost.isEmpty() || config.printerId.isEmpty()) {
-      replyError("wifiSsid, mqttHost and printerId are required");
+    if (config.wifiSsid.isEmpty() || config.serverUrl.isEmpty() || config.printerId.isEmpty()) {
+      replyError("wifiSsid, serverUrl and printerId are required");
       return;
     }
     config.valid = true;
@@ -58,11 +54,11 @@ static void handleLine(const String &line, const DeviceConfig &current,
     reply["ok"] = true;
     reply["configured"] = current.valid;
     reply["printerId"] = current.printerId;
-    reply["mqttHost"] = current.mqttHost;
-    reply["mqttTransport"] = current.mqttTransport;
+    reply["serverUrl"] = current.serverUrl;
+    reply["pollIntervalMs"] = current.pollIntervalMs;
     const NetState state = netState();
     reply["net"] = state == NetState::Connected      ? "connected"
-                   : state == NetState::MqttConnecting ? "mqtt-connecting"
+                   : state == NetState::Polling        ? "polling"
                    : state == NetState::WifiConnecting ? "wifi-connecting"
                                                        : "idle";
     serializeJson(reply, Serial);

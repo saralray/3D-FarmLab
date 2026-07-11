@@ -309,34 +309,27 @@ the cookie-session frontend.
 
 ### Status Lights — `/api/v1/status-light` (also `/api/status-light/*`, cookie-session)
 
-Per-printer ESP32-C3 RGB status lights (see `server/statusLightBroker.js` and
-`firmware/status-light/`). The web service embeds an MQTT broker (aedes):
-**raw MQTT/TCP** published on host port `MQTT_PORT` (default 1883) and
-**MQTT-over-WebSockets** at `/mqtt` on the normal HTTP(S) port through nginx.
-`STATUS_LIGHT_MQTT_ENABLED=false` disables the whole feature.
+Per-printer ESP32-C3 RGB status lights (see `server/statusLightPresence.js` and
+`firmware/status-light/`). Each device joins WiFi and then **polls the dashboard
+over plain HTTP(S)** for its printer's status — there is no broker and no extra
+port. `STATUS_LIGHT_ENABLED=false` disables the feature.
 
 | Method & path | Description |
 |---------------|-------------|
-| `GET /status-light/provisioning` | The shared device credential + connection parameters: `{ enabled, mqttPort, wsPath, username, password, statusTopic }`. When the broker is disabled: `{ enabled: false }`. |
-| `GET /status-light/devices` | Connected lights: `{ devices: [{ printerId, connected, lastSeen }] }`. Fed by broker connection events and the retained availability topic (covers LWT). |
+| `GET /status-light/provisioning` | Poll settings the flash page writes to a device: `{ enabled, pollIntervalMs, statusPath }` (`statusPath` has a `{printerId}` placeholder). When disabled: `{ enabled: false }`. No secrets. |
+| `GET /status-light/devices` | Lights currently polling: `{ devices: [{ printerId, connected, lastSeen }] }`. `connected` is true while the device has polled within `STATUS_LIGHT_STALE_MS`. |
+| `GET /status-light/printers/:id` | The plain status a light polls: `{ id, status }` where `status` ∈ `idle\|printing\|paused\|error\|offline` (same live-telemetry overlay as `/api/printers/:id`). Each call also stamps the device's presence for the devices list. `404` if the printer is unknown. |
 
-Frontend mirror: `GET /api/status-light/provisioning` is **admin-only**
-(carries the broker password; used by the flash dialog on the printer detail
-page); `GET /api/status-light/devices` is a public read (no secrets).
+Frontend mirror: `GET /api/status-light/provisioning` is **admin-only** (used by
+the flash dialog on the printer detail page); `GET /api/status-light/devices`
+and `GET /api/status-light/printers/:id` are **public reads** (no secrets — the
+status string is not sensitive).
 
-**MQTT contract** (device client id `statuslight-<printerId>`, keepalive 15 s,
-one shared credential auto-generated into app_settings key
-`status_light_broker_credential`):
-
-| Topic | Direction | Retained | Payload |
-|---|---|---|---|
-| `printfarm/printers/<printerId>/status` | server → device | yes | plain string `printing\|idle\|paused\|error\|offline` (empty payload clears a deleted printer) |
-| `printfarm/lights/<printerId>/availability` | device → server (also the LWT) | yes | `online` / `offline` |
-
-Devices may only subscribe to printer-status topics and only publish their own
-availability topic (ACL by client id). The shared password makes client ids
-spoofable — accepted for the LAN/classroom trust boundary; status strings carry
-no secrets.
+**HTTP contract:** the device curls `GET <serverUrl>/api/status-light/printers/<printerId>`
+every `pollIntervalMs`, expects `200` with `{ "id": …, "status": … }`, and
+colors the LED from `status`. The `serverUrl` and `pollIntervalMs` are chosen at
+provisioning time (flash dialog / serial protocol in
+`firmware/status-light/README.md`).
 
 ---
 
@@ -576,7 +569,7 @@ classified below requires an admin session.
 
 | Class | Who | Examples |
 | --- | --- | --- |
-| **public read** | anyone | `GET /api/printers`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, `GET /api/settings/favicon`, `GET /api/events`, `GET /api/status-light/devices`, branding/layout reads |
+| **public read** | anyone | `GET /api/printers`, `GET /api/analytics/daily`, `GET /api/cameras/health`, `GET /api/maintenance`, `GET /api/maintenance/notifications`, `GET /api/printers/:id/maintenance`, `GET /api/settings/maintenance-intervals`, `GET /api/settings/favicon`, `GET /api/events`, `GET /api/status-light/devices`, `GET /api/status-light/printers/:id`, branding/layout reads |
 | **viewer-gated read** | anyone when `VITE_PUBLIC_VIEWER_MODE=true`, else any session | `GET /api/queue`, `GET /api/maintenance/summary` — public only while the anonymous viewer dashboard is enabled; otherwise a session is required so a non-public deployment doesn't leak queue contents / fleet health |
 | **admin read** | admin only | `GET /api/users`, `GET /api/slicer-keys`, `GET /api/audit-logs`, `GET /api/admin/update-status`, `GET /api/admin/backup/download`, `GET /api/notifications/*`, `GET /api/manager/requests`, `GET /api/settings/saml`, `GET /api/settings/home-assistant*`, `GET /api/status-light/provisioning` |
 | **public mutation** | anyone | `POST /api/queue/submit` (student intake), `POST /api/manager/request`, the auth endpoints above |

@@ -27,8 +27,8 @@ interface StatusLightCardProps {
   printerName: string;
 }
 
-// Per-printer ESP32 RGB status light: shows whether a light is connected to
-// the embedded MQTT broker, and (admin) flashes/provisions one over Web Serial.
+// Per-printer ESP32 RGB status light: shows whether a light is polling the
+// dashboard, and (admin) flashes/provisions one over Web Serial.
 export function StatusLightCard({ printerId, printerName }: StatusLightCardProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
