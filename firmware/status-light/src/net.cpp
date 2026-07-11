@@ -2,98 +2,82 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <mqtt_client.h>
-#if __has_include("esp_crt_bundle.h")
-#include "esp_crt_bundle.h"
-#define STATUSLIGHT_HAVE_CRT_BUNDLE 1
-#endif
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// Embedded public-CA bundle shipped by the ESP-IDF mbedtls component (the same
+// gen_crt_bundle.py format WiFiClientSecure::setCACertBundle expects); used to
+// validate an https:// dashboard certificate (Let's Encrypt etc.). A
+// self-signed cert won't validate — provision an http:// URL for those. The
+// arduino-embed symbol `_binary_data_cert_..._bin_start` isn't produced in a
+// PlatformIO build, so we reference the IDF bundle bytes directly.
+extern const uint8_t rootca_crt_bundle_start[] asm("x509_crt_bundle");
 
 static DeviceConfig s_config;
 static StatusCallback s_onStatus = nullptr;
-static esp_mqtt_client_handle_t s_client = nullptr;
 static NetState s_state = NetState::Idle;
 static uint32_t s_wifiRetryAt = 0;
+static uint32_t s_nextPollAt = 0;
+static String s_statusUrl;
+static bool s_https = false;
 
-static String s_brokerUri;
-static String s_clientId;
-static String s_statusTopic;
-static String s_availabilityTopic;
-
-// mqtt://host:port for LAN, ws(s)://host:port/mqtt through nginx — the same
-// broker either way (server/statusLightBroker.js).
-static String buildBrokerUri() {
-  String scheme = s_config.mqttTransport;
-  if (scheme != "ws" && scheme != "wss") {
-    scheme = "mqtt";
+// <serverUrl>/api/status-light/printers/<printerId> — the plain-string status
+// endpoint the dashboard serves (server/app.js).
+static String buildStatusUrl() {
+  String base = s_config.serverUrl;
+  while (base.endsWith("/")) {
+    base.remove(base.length() - 1);
   }
-  String uri = scheme + "://" + s_config.mqttHost + ":" + String(s_config.mqttPort);
-  if (scheme != "mqtt") {
-    uri += s_config.mqttPath.startsWith("/") ? s_config.mqttPath : "/" + s_config.mqttPath;
-  }
-  return uri;
+  return base + "/api/status-light/printers/" + s_config.printerId;
 }
 
-static void mqttEventHandler(void *, esp_event_base_t, int32_t eventId, void *eventData) {
-  esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)eventData;
-  switch ((esp_mqtt_event_id_t)eventId) {
-    case MQTT_EVENT_CONNECTED:
-      s_state = NetState::Connected;
-      esp_mqtt_client_publish(s_client, s_availabilityTopic.c_str(), "online", 0, 0, 1);
-      // Retained status arrives immediately after this subscribe.
-      esp_mqtt_client_subscribe(s_client, s_statusTopic.c_str(), 0);
-      break;
-    case MQTT_EVENT_DISCONNECTED:
-      if (s_state == NetState::Connected) {
-        s_state = NetState::MqttConnecting; // esp_mqtt auto-reconnects
-      }
-      break;
-    case MQTT_EVENT_DATA:
-      if (s_onStatus && event->topic_len > 0 &&
-          s_statusTopic.equals(String(event->topic, event->topic_len))) {
-        String payload(event->data, event->data_len);
-        s_onStatus(payload);
-      }
-      break;
-    default:
-      break;
+// One GET against the status endpoint using the given (plain or TLS) client.
+// On HTTP 200 with a {"status":"…"} body, hands the status to the callback.
+static bool requestWith(WiFiClient &client) {
+  HTTPClient http;
+  http.setConnectTimeout(6000);
+  http.setTimeout(6000);
+  if (!http.begin(client, s_statusUrl)) {
+    return false;
   }
+  const int code = http.GET();
+  bool ok = false;
+  if (code == 200) {
+    const String body = http.getString();
+    JsonDocument doc;
+    if (deserializeJson(doc, body) == DeserializationError::Ok) {
+      const char *status = doc["status"] | "";
+      if (s_onStatus) {
+        s_onStatus(String(status));
+      }
+      ok = true;
+    }
+  }
+  http.end();
+  return ok;
 }
 
-static void startMqtt() {
-  s_brokerUri = buildBrokerUri();
-  s_clientId = "statuslight-" + s_config.printerId;
-  s_statusTopic = "printfarm/printers/" + s_config.printerId + "/status";
-  s_availabilityTopic = "printfarm/lights/" + s_config.printerId + "/availability";
-
-  esp_mqtt_client_config_t mqttConfig = {};
-  mqttConfig.uri = s_brokerUri.c_str();
-  mqttConfig.client_id = s_clientId.c_str();
-  mqttConfig.username = s_config.mqttUsername.c_str();
-  mqttConfig.password = s_config.mqttPassword.c_str();
-  mqttConfig.keepalive = 15;
-  mqttConfig.lwt_topic = s_availabilityTopic.c_str();
-  mqttConfig.lwt_msg = "offline";
-  mqttConfig.lwt_qos = 0;
-  mqttConfig.lwt_retain = 1;
-#ifdef STATUSLIGHT_HAVE_CRT_BUNDLE
-  if (s_config.mqttTransport == "wss") {
-    // Validate the HTTPS certificate against the built-in public-CA bundle
-    // (works with Let's Encrypt etc.; a self-signed cert needs "ws" instead).
-    // arduino-esp32 ships the bundle under its own symbol name.
-    mqttConfig.crt_bundle_attach = arduino_esp_crt_bundle_attach;
+static bool pollStatus() {
+  if (s_https) {
+    WiFiClientSecure client;
+    client.setCACertBundle(rootca_crt_bundle_start);
+    return requestWith(client);
   }
-#endif
-
-  s_client = esp_mqtt_client_init(&mqttConfig);
-  esp_mqtt_client_register_event(s_client, (esp_mqtt_event_id_t)ESP_EVENT_ANY_ID, mqttEventHandler, nullptr);
-  esp_mqtt_client_start(s_client);
-  s_state = NetState::MqttConnecting;
+  WiFiClient client;
+  return requestWith(client);
 }
 
 void netBegin(const DeviceConfig &config, StatusCallback onStatus) {
   netStop();
   s_config = config;
   s_onStatus = onStatus;
+  if (s_config.pollIntervalMs < 1000) {
+    s_config.pollIntervalMs = 5000; // guard against a bad/zero provisioned value
+  }
+  s_statusUrl = buildStatusUrl();
+  s_https = s_config.serverUrl.startsWith("https://") || s_config.serverUrl.startsWith("HTTPS://");
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(s_config.wifiSsid.c_str(), s_config.wifiPassword.c_str());
@@ -102,11 +86,6 @@ void netBegin(const DeviceConfig &config, StatusCallback onStatus) {
 }
 
 void netStop() {
-  if (s_client) {
-    esp_mqtt_client_stop(s_client);
-    esp_mqtt_client_destroy(s_client);
-    s_client = nullptr;
-  }
   WiFi.disconnect(true);
   s_state = NetState::Idle;
 }
@@ -118,7 +97,8 @@ void netTick() {
   const bool wifiUp = WiFi.status() == WL_CONNECTED;
   if (s_state == NetState::WifiConnecting) {
     if (wifiUp) {
-      startMqtt();
+      s_state = NetState::Polling;
+      s_nextPollAt = millis(); // poll immediately once associated
     } else if ((int32_t)(millis() - s_wifiRetryAt) >= 0) {
       // Some APs need a fresh association attempt after a long failure.
       WiFi.disconnect();
@@ -128,10 +108,18 @@ void netTick() {
     return;
   }
   if (!wifiUp) {
-    // WiFi dropped: esp_mqtt keeps retrying on its own, but reflect the state
-    // for the LED (purple breathe) until the link is back.
+    // WiFi dropped: reflect it for the LED (purple breathe) until the link
+    // is back, then polling resumes.
     s_state = NetState::WifiConnecting;
     s_wifiRetryAt = millis() + 20000;
+    return;
+  }
+  // WiFi is up: poll the dashboard on the configured cadence. A failed poll
+  // drops us to Polling (keep-last color + stale hint) but keeps retrying.
+  if ((int32_t)(millis() - s_nextPollAt) >= 0) {
+    const bool ok = pollStatus();
+    s_state = ok ? NetState::Connected : NetState::Polling;
+    s_nextPollAt = millis() + s_config.pollIntervalMs;
   }
 }
 

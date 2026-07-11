@@ -7,7 +7,7 @@
 // Web Serial is Chromium-only and requires a secure context (HTTPS or
 // localhost) — callers must gate on isWebSerialSupported() and show a notice.
 
-import type { LedPolarity, MqttTransport } from './statusLightApi';
+import type { LedPolarity } from './statusLightApi';
 
 // Minimal Web Serial surface (the DOM lib in this project doesn't ship the
 // w3c-web-serial types); only what this module touches.
@@ -98,19 +98,15 @@ export async function flashFirmware(
 export interface ProvisioningConfig {
   wifiSsid: string;
   wifiPassword: string;
-  mqttTransport: MqttTransport;
-  mqttHost: string;
-  mqttPort: number;
-  mqttPath: string;
-  mqttUsername: string;
-  mqttPassword: string;
+  serverUrl: string;
+  pollIntervalMs: number;
   printerId: string;
   ledPolarity: LedPolarity;
 }
 
 // Mirrors the firmware's `net` field in its `{"cmd":"status"}` reply
 // (firmware/status-light/src/provisioning.cpp).
-export type NetConnectionState = 'idle' | 'wifi-connecting' | 'mqtt-connecting' | 'connected';
+export type NetConnectionState = 'idle' | 'wifi-connecting' | 'polling' | 'connected';
 
 export interface ProvisionResult {
   ok: boolean;
@@ -125,9 +121,9 @@ export interface ProvisionOptions {
   // How long to wait for the provisioning ack itself.
   timeoutMs?: number;
   // How long, after a successful ack, to keep polling {"cmd":"status"} for
-  // the device to actually reach the broker — a saved config only proves the
-  // firmware accepted the JSON, not that the WiFi password or broker
-  // credentials are correct.
+  // the device to actually reach the dashboard — a saved config only proves the
+  // firmware accepted the JSON, not that the WiFi password is correct or the
+  // server URL is reachable.
   healthCheckMs?: number;
   // Fired with each status poll's net state (including intermediate ones)
   // while the health check runs.

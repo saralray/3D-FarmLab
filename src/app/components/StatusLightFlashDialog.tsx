@@ -25,7 +25,6 @@ import {
   fetchFirmwareBinary,
   fetchStatusLightProvisioning,
   type LedPolarity,
-  type MqttTransport,
   type StatusLightProvisioningInfo,
 } from '../lib/statusLightApi';
 import { STATUS_LIGHT_FIRMWARE_SOURCE } from '../lib/statusLightFirmwareSource';
@@ -42,9 +41,11 @@ type Step = 'intro' | 'form' | 'flashing' | 'writing' | 'done';
 const NET_STATUS_LABEL: Record<NetConnectionState, string> = {
   idle: 'Writing settings…',
   'wifi-connecting': 'Connecting to WiFi…',
-  'mqtt-connecting': 'Connecting to the broker…',
+  polling: 'Reaching the dashboard…',
   connected: 'Connected!',
 };
+
+const DEFAULT_POLL_INTERVAL_MS = 5000;
 
 interface StatusLightFlashDialogProps {
   mode: 'flash' | 'provision';
@@ -53,23 +54,8 @@ interface StatusLightFlashDialogProps {
   onClose: () => void;
 }
 
-function defaultTransport(): MqttTransport {
-  return window.location.protocol === 'https:' ? 'wss' : 'tcp';
-}
-
-function defaultPortFor(transport: MqttTransport, provisioning: StatusLightProvisioningInfo | null): number {
-  if (transport === 'tcp') {
-    return provisioning?.mqttPort ?? 1883;
-  }
-  const pagePort = Number.parseInt(window.location.port, 10);
-  if (Number.isFinite(pagePort) && pagePort > 0) {
-    return pagePort;
-  }
-  return transport === 'wss' ? 443 : 80;
-}
-
 // Stepper dialog: pick the USB serial device, optionally flash the merged
-// firmware image, then ask for WiFi + broker settings and write the
+// firmware image, then ask for WiFi + server settings and write the
 // provisioning JSON over serial (firmware protocol in
 // firmware/status-light/README.md).
 export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }: StatusLightFlashDialogProps) {
@@ -88,9 +74,8 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
 
   const [wifiSsid, setWifiSsid] = useState('');
   const [wifiPassword, setWifiPassword] = useState('');
-  const [transport, setTransport] = useState<MqttTransport>(defaultTransport);
-  const [mqttHost, setMqttHost] = useState(() => window.location.hostname);
-  const [mqttPort, setMqttPort] = useState(() => String(defaultPortFor(defaultTransport(), null)));
+  const [serverUrl, setServerUrl] = useState(() => window.location.origin);
+  const [pollInterval, setPollInterval] = useState(String(DEFAULT_POLL_INTERVAL_MS));
   const [ledPolarity, setLedPolarity] = useState<LedPolarity>('common_cathode');
   const [sourceFileIndex, setSourceFileIndex] = useState(0);
   const [sourceCopied, setSourceCopied] = useState(false);
@@ -101,11 +86,11 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
     fetchStatusLightProvisioning()
       .then((info) => {
         setProvisioning(info);
-        setMqttPort((current) =>
-          current === String(defaultPortFor(defaultTransport(), null))
-            ? String(defaultPortFor(defaultTransport(), info))
-            : current,
-        );
+        if (info.pollIntervalMs) {
+          setPollInterval((current) =>
+            current === String(DEFAULT_POLL_INTERVAL_MS) ? String(info.pollIntervalMs) : current,
+          );
+        }
       })
       .catch((err: Error) => setProvisioningError(err.message));
     if (mode === 'flash') {
@@ -113,30 +98,24 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
     }
   }, [mode]);
 
-  const brokerDisabled = provisioning !== null && provisioning.enabled === false;
+  const featureDisabled = provisioning !== null && provisioning.enabled === false;
   // Gates the serial-port picker for flows that don't flash over the browser
-  // (manual esptool flash, or re-provisioning an already-flashed device) —
-  // those only need the broker credential, not the hosted firmware image.
-  const provisioningBlocked = brokerDisabled || provisioningError !== null;
+  // (manual esptool flash, or re-provisioning an already-flashed device).
+  const provisioningBlocked = featureDisabled || provisioningError !== null;
   const introBlocked = provisioningBlocked || (mode === 'flash' && firmwareAvailable === false);
 
   const introNotice = useMemo(() => {
     if (provisioningError) {
-      return `Could not load the broker credential: ${provisioningError}`;
+      return `Could not load the status-light settings: ${provisioningError}`;
     }
-    if (brokerDisabled) {
-      return 'The status-light MQTT broker is disabled on this server (STATUS_LIGHT_MQTT_ENABLED=false).';
+    if (featureDisabled) {
+      return 'The status-light feature is disabled on this server (STATUS_LIGHT_ENABLED=false).';
     }
     if (mode === 'flash' && firmwareAvailable === false) {
       return 'The firmware image has not been built yet — build firmware/status-light with PlatformIO first (see its README), then rebuild the web image.';
     }
     return null;
-  }, [provisioningError, brokerDisabled, mode, firmwareAvailable]);
-
-  const handleTransportChange = (next: MqttTransport) => {
-    setTransport(next);
-    setMqttPort(String(defaultPortFor(next, provisioning)));
-  };
+  }, [provisioningError, featureDisabled, mode, firmwareAvailable]);
 
   const handleCopySource = async () => {
     try {
@@ -155,7 +134,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
     } catch {
       return; // user cancelled the port picker
     }
-    // WiFi/broker settings are collected before flashing, not after — that
+    // WiFi/server settings are collected before flashing, not after — that
     // way a flash immediately rolls into provisioning with no extra dialog
     // in between (and holding BOOT for the flash is the very next click).
     setStep('form');
@@ -163,15 +142,17 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
 
   const handleSubmit = async () => {
     const port = portRef.current;
-    if (!port || !provisioning?.username || !provisioning.password) {
-      setError('Missing serial port or broker credential.');
+    if (!port) {
+      setError('No serial port selected.');
       return;
     }
-    const portNumber = Number.parseInt(mqttPort, 10);
-    if (!wifiSsid.trim() || !mqttHost.trim() || !Number.isFinite(portNumber) || portNumber <= 0) {
-      setError('WiFi SSID, MQTT host, and a valid port are required.');
+    const trimmedUrl = serverUrl.trim().replace(/\/+$/, '');
+    const intervalNumber = Number.parseInt(pollInterval, 10);
+    if (!wifiSsid.trim() || !/^https?:\/\/.+/i.test(trimmedUrl)) {
+      setError('WiFi SSID and a server URL (http:// or https://) are required.');
       return;
     }
+    const pollIntervalMs = Number.isFinite(intervalNumber) && intervalNumber >= 1000 ? intervalNumber : DEFAULT_POLL_INTERVAL_MS;
     setError(null);
 
     if (mode === 'flash' && flashMethod === 'web') {
@@ -206,12 +187,8 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
         {
           wifiSsid: wifiSsid.trim(),
           wifiPassword,
-          mqttTransport: transport,
-          mqttHost: mqttHost.trim(),
-          mqttPort: portNumber,
-          mqttPath: provisioning.wsPath ?? '/mqtt',
-          mqttUsername: provisioning.username,
-          mqttPassword: provisioning.password,
+          serverUrl: trimmedUrl,
+          pollIntervalMs,
           printerId,
           ledPolarity,
         },
@@ -229,7 +206,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
               message:
                 outcome.net === 'connected'
                   ? 'Device provisioned and connected — it will light up with the printer status.'
-                  : "Settings written, but the device hasn't reached the broker yet — double-check the WiFi password and broker address. It will keep retrying on its own.",
+                  : "Settings written, but the device hasn't reached the dashboard yet — double-check the WiFi password and server URL. It will keep retrying on its own.",
             }
           : { ok: false, message: outcome.error || 'The device rejected the configuration.' },
       );
@@ -253,10 +230,10 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
           </DialogTitle>
           <DialogDescription>
             {mode === 'provision'
-              ? 'Writes new WiFi and broker settings to an already-flashed device over USB.'
+              ? 'Writes new WiFi and server settings to an already-flashed device over USB.'
               : flashMethod === 'manual'
-                ? "Writes WiFi and broker settings to a device you've flashed yourself."
-                : 'Flashes the ESP32-C3 firmware over USB, then writes the WiFi and broker settings.'}
+                ? "Writes WiFi and server settings to a device you've flashed yourself."
+                : 'Flashes the ESP32-C3 firmware over USB, then writes the WiFi and server settings.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -279,7 +256,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
               <span>
                 <span className="block text-sm font-medium">Use the web flasher</span>
                 <span className="block text-xs text-muted-foreground">
-                  Flashes over USB right from this browser (Chrome/Edge), then sends WiFi and broker
+                  Flashes over USB right from this browser (Chrome/Edge), then sends WiFi and server
                   settings.
                 </span>
               </span>
@@ -294,7 +271,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
                 <span className="block text-sm font-medium">I'll flash it myself</span>
                 <span className="block text-xs text-muted-foreground">
                   View the firmware source, build it yourself (PlatformIO), and flash it with esptool,
-                  then come back here to send WiFi and broker settings.
+                  then come back here to send WiFi and server settings.
                 </span>
               </span>
             </button>
@@ -355,7 +332,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
             </div>
             <p className="text-sm text-muted-foreground">
               Once it's flashed, plug the device back in and pick its serial port to send WiFi and
-              broker settings.
+              server settings.
             </p>
             <DialogFooter>
               <Button variant="outline" onClick={() => setFlashMethod(null)}>
@@ -410,55 +387,42 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
                 onChange={(event) => setWifiPassword(event.target.value)}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Connection</Label>
-                <Select value={transport} onValueChange={(value) => handleTransportChange(value as MqttTransport)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="tcp">MQTT (LAN, port {String(provisioning?.mqttPort ?? 1883)})</SelectItem>
-                    <SelectItem value="ws">WebSocket (http)</SelectItem>
-                    <SelectItem value="wss">WebSocket (https)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>LED type</Label>
-                <Select value={ledPolarity} onValueChange={(value) => setLedPolarity(value as LedPolarity)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="common_cathode">Common cathode</SelectItem>
-                    <SelectItem value="common_anode">Common anode</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
             <div className="grid grid-cols-[1fr_6rem] gap-3">
               <div className="space-y-2">
-                <Label htmlFor="status-light-host">MQTT host</Label>
+                <Label htmlFor="status-light-server">Server URL</Label>
                 <Input
-                  id="status-light-host"
-                  value={mqttHost}
-                  onChange={(event) => setMqttHost(event.target.value)}
+                  id="status-light-server"
+                  value={serverUrl}
+                  onChange={(event) => setServerUrl(event.target.value)}
+                  placeholder="http://10.0.0.5:8080"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="status-light-port">Port</Label>
+                <Label htmlFor="status-light-interval">Poll (ms)</Label>
                 <Input
-                  id="status-light-port"
+                  id="status-light-interval"
                   inputMode="numeric"
-                  value={mqttPort}
-                  onChange={(event) => setMqttPort(event.target.value)}
+                  value={pollInterval}
+                  onChange={(event) => setPollInterval(event.target.value)}
                 />
               </div>
             </div>
+            <div className="space-y-2">
+              <Label>LED type</Label>
+              <Select value={ledPolarity} onValueChange={(value) => setLedPolarity(value as LedPolarity)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="common_cathode">Common cathode</SelectItem>
+                  <SelectItem value="common_anode">Common anode</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <p className="text-xs text-muted-foreground">
-              The device must be able to reach this address from its WiFi network. Use MQTT (LAN) when
-              the server is on the same network; use WebSocket when only the website is reachable.
+              The device must be able to reach this dashboard URL from its WiFi network. Use an
+              http:// or https:// address (https validates against public CAs, so use http on a LAN
+              with a self-signed cert).
             </p>
             {mode === 'flash' && flashMethod === 'web' && (
               <p className="text-xs text-muted-foreground">
@@ -496,7 +460,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
             </p>
             {netStatus !== 'idle' && netStatus !== 'connected' && (
               <p className="text-xs text-muted-foreground">
-                Checking the device's connection to the broker — this can take a few seconds.
+                Checking the device's connection to the dashboard — this can take a few seconds.
               </p>
             )}
           </div>
