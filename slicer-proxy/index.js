@@ -587,21 +587,33 @@ function publishBambuPrint(printer, serial, remoteName, fileUrl, plateParam = 'M
   //                        mapping table; please select 'Resume' to retry"
   //                        (bambuddy sends this same empty array for a
   //                        non-AMS push)
-  //   bed_leveling: false — American spelling is what firmware reads (not
-  //                        "levelling"). Auto bed leveling needs the camera to
-  //                        locate the buildplate marker (xcam module
-  //                        "buildplate_marker_detector"); on a unit with a
-  //                        genuine camera-hardware fault (confirmed live: HMS
-  //                        camera-family faults on every farm-pushed print,
-  //                        pausing at 0% every time regardless of the
-  //                        xcam_control_set disables below, which only cover
-  //                        the *monitoring* modules, not the leveling
-  //                        calibration step itself) requesting it is exactly
-  //                        what triggers the pause. Off farm-wide rather than
-  //                        per-printer: this is a real quality tradeoff, not
-  //                        free, but the alternative is a farm push that can
-  //                        silently never get past 0%.
-  //   extrude_cali_flag 2 / nozzle_offset_cali 2 — "skip"; we don't drive calibration
+  //   bed_leveling: false — the intent flag (American spelling is what
+  //                        firmware reads). Honored on the A1 Mini, but NOT
+  //                        on the H2 series: measured live on the farm H2S
+  //                        (dense stg_cur capture + camera) that the printer
+  //                        runs auto bed leveling — G29, reported as
+  //                        stg_cur=1 — at startup on every farm push
+  //                        regardless of this flag. The sliced start gcode
+  //                        gates leveling on `M1002 judge_flag
+  //                        g29_before_print_flag` (M622 J1/J2 = G29, J0 = a
+  //                        bare G28), and the H2 firmware simply doesn't set
+  //                        that flag from this param. So on the H2 bed
+  //                        leveling can't be turned off from here — it's the
+  //                        slicer (Orca process "Bed leveling") / the
+  //                        printer's own settings that own it. Kept false so
+  //                        the A1 Mini still benefits and the intent is clear.
+  //   extrude_cali_flag: 0 — the one start-up calibration the farm CAN turn
+  //                        off on the H2. Measured live: with flag 0 the
+  //                        "calibrating extrusion" stage (stg_cur=8) never
+  //                        fires (startup goes 4→14, AMS load straight to
+  //                        nozzle wipe). Flag 2 is NOT "skip" — the H2S start
+  //                        gcode's `M1002 judge_flag extrude_cali_flag` runs
+  //                        the full heated M983.3 flow-dynamics cali on the
+  //                        M622 J2 branch identically to J1; only flag 0
+  //                        takes the light M622 J0 path. Off for faster,
+  //                        predictable farm starts (relies on the filament
+  //                        profile's stored k-value).
+  //   nozzle_offset_cali 2 — dual-nozzle offset cali left as-is (H2D/H2C only)
   const subtaskName = bambuSubtaskName(remoteName);
   const payload = {
     print: {
@@ -620,7 +632,7 @@ function publishBambuPrint(printer, serial, remoteName, fileUrl, plateParam = 'M
       use_ams: Array.isArray(amsMapping),
       ams_mapping: Array.isArray(amsMapping) ? amsMapping : [],
       cfg: '0',
-      extrude_cali_flag: 2,
+      extrude_cali_flag: 0,
       extrude_cali_manual_mode: 0,
       nozzle_offset_cali: 2,
       subtask_name: subtaskName,

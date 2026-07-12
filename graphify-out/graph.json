@@ -69,7 +69,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "eslint_config",
-      "community": 98,
+      "community": 208,
       "norm_label": "eslint.config.js"
     },
     {
@@ -3559,7 +3559,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_poller_util_go",
-      "community": 98,
+      "community": 208,
       "norm_label": "util.go"
     },
     {
@@ -3579,7 +3579,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_poller_util_addrport",
-      "community": 98,
+      "community": 208,
       "norm_label": "addrport()"
     },
     {
@@ -3589,7 +3589,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_poller_util_bambutlsconfig",
-      "community": 98,
+      "community": 208,
       "norm_label": "bambutlsconfig()"
     },
     {
@@ -3659,7 +3659,7 @@
       "source_location": "L259",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_api_decodepathsegment",
-      "community": 94,
+      "community": 58,
       "norm_label": "decodepathsegment()"
     },
     {
@@ -3699,7 +3699,7 @@
       "source_location": "L293",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_api_sendrawjson",
-      "community": 36,
+      "community": 94,
       "norm_label": "sendrawjson()"
     },
     {
@@ -4159,7 +4159,7 @@
       "source_location": "L418",
       "_origin": "ast",
       "id": "web_rateresult",
-      "community": 16,
+      "community": 60,
       "norm_label": "rateresult"
     },
     {
@@ -4179,7 +4179,7 @@
       "source_location": "L423",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_authroutes_checkloginrate",
-      "community": 16,
+      "community": 60,
       "norm_label": "checkloginrate()"
     },
     {
@@ -5199,7 +5199,7 @@
       "source_location": "L58",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_dataapi_normalizekeypermissions",
-      "community": 94,
+      "community": 36,
       "norm_label": "normalizekeypermissions()"
     },
     {
@@ -5349,7 +5349,7 @@
       "source_location": "L642",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_dataapi_handledataapislicerkeys",
-      "community": 94,
+      "community": 36,
       "norm_label": "handledataapislicerkeys()"
     },
     {
@@ -5359,7 +5359,7 @@
       "source_location": "L695",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_dataapi_handledataapiauditlogs",
-      "community": 58,
+      "community": 36,
       "norm_label": "handledataapiauditlogs()"
     },
     {
@@ -5489,7 +5489,7 @@
       "source_location": "L1218",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_dataapi_isjsonarray",
-      "community": 36,
+      "community": 19,
       "norm_label": "isjsonarray()"
     },
     {
@@ -5539,7 +5539,7 @@
       "source_location": "L1266",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_dataapi_stringslice",
-      "community": 94,
+      "community": 36,
       "norm_label": "stringslice()"
     },
     {
@@ -6049,7 +6049,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_logger_go",
-      "community": 9,
+      "community": 64,
       "norm_label": "logger.go"
     },
     {
@@ -6059,7 +6059,7 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_logger_init",
-      "community": 9,
+      "community": 64,
       "norm_label": "init()"
     },
     {
@@ -6069,7 +6069,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_logger_logemit",
-      "community": 9,
+      "community": 64,
       "norm_label": "logemit()"
     },
     {
@@ -6079,7 +6079,7 @@
       "source_location": "L68",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_logger_logdebug",
-      "community": 9,
+      "community": 64,
       "norm_label": "logdebug()"
     },
     {
@@ -6089,7 +6089,7 @@
       "source_location": "L69",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_logger_loginfo",
-      "community": 9,
+      "community": 64,
       "norm_label": "loginfo()"
     },
     {
@@ -6099,7 +6099,7 @@
       "source_location": "L70",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_logger_logwarn",
-      "community": 9,
+      "community": 64,
       "norm_label": "logwarn()"
     },
     {
@@ -6109,7 +6109,7 @@
       "source_location": "L71",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_logger_logerror",
-      "community": 9,
+      "community": 64,
       "norm_label": "logerror()"
     },
     {
@@ -6119,7 +6119,7 @@
       "source_location": "L73",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_logger_envor",
-      "community": 9,
+      "community": 64,
       "norm_label": "envor()"
     },
     {
@@ -6449,7 +6449,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_manager_go",
-      "community": 94,
+      "community": 58,
       "norm_label": "manager.go"
     },
     {
@@ -6459,7 +6459,7 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_manager_buildid",
-      "community": 94,
+      "community": 58,
       "norm_label": "buildid()"
     },
     {
@@ -6469,7 +6469,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_manager_handlemanagerroutes",
-      "community": 94,
+      "community": 58,
       "norm_label": "handlemanagerroutes()"
     },
     {
@@ -6509,7 +6509,7 @@
       "source_location": "L209",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_manager_handlenotificationsroutes",
-      "community": 94,
+      "community": 58,
       "norm_label": "handlenotificationsroutes()"
     },
     {
@@ -6519,7 +6519,7 @@
       "source_location": "L245",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_manager_handleslicerkeysroutes",
-      "community": 94,
+      "community": 36,
       "norm_label": "handleslicerkeysroutes()"
     },
     {
@@ -6529,7 +6529,7 @@
       "source_location": "L299",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_manager_trimmedptr",
-      "community": 94,
+      "community": 58,
       "norm_label": "trimmedptr()"
     },
     {
@@ -6779,7 +6779,7 @@
       "source_location": "L384",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_mutations_decodebodymap",
-      "community": 58,
+      "community": 36,
       "norm_label": "decodebodymap()"
     },
     {
@@ -6789,7 +6789,7 @@
       "source_location": "L393",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_mutations_rawbody",
-      "community": 36,
+      "community": 58,
       "norm_label": "rawbody()"
     },
     {
@@ -7589,7 +7589,7 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_redis_redisenabled",
-      "community": 16,
+      "community": 9,
       "norm_label": "redisenabled()"
     },
     {
@@ -7669,7 +7669,7 @@
       "source_location": "L130",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_redis_bambutlsconfig",
-      "community": 98,
+      "community": 208,
       "norm_label": "bambutlsconfig()"
     },
     {
@@ -7719,7 +7719,7 @@
       "source_location": "L143",
       "_origin": "ast",
       "id": "web_ssrfsafetransport_roundtrip",
-      "community": 60,
+      "community": 205,
       "norm_label": ".roundtrip()"
     },
     {
@@ -7769,7 +7769,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_security_go",
-      "community": 64,
+      "community": 195,
       "norm_label": "security.go"
     },
     {
@@ -7779,7 +7779,7 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_security_resolvecsp",
-      "community": 64,
+      "community": 195,
       "norm_label": "resolvecsp()"
     },
     {
@@ -7789,7 +7789,7 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_security_resolvecspheader",
-      "community": 64,
+      "community": 195,
       "norm_label": "resolvecspheader()"
     },
     {
@@ -7799,7 +7799,7 @@
       "source_location": "L50",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_security_resolvehsts",
-      "community": 64,
+      "community": 195,
       "norm_label": "resolvehsts()"
     },
     {
@@ -7809,7 +7809,7 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_security_setsecurityheaders",
-      "community": 64,
+      "community": 195,
       "norm_label": "setsecurityheaders()"
     },
     {
@@ -7829,7 +7829,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "header",
-      "community": 64,
+      "community": 195,
       "norm_label": "header"
     },
     {
@@ -8599,7 +8599,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_ssrf_go",
-      "community": 60,
+      "community": 205,
       "norm_label": "ssrf.go"
     },
     {
@@ -8609,7 +8609,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_ssrf_isprivatehost",
-      "community": 60,
+      "community": 205,
       "norm_label": "isprivatehost()"
     },
     {
@@ -8619,7 +8619,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_ssrf_isprivateip",
-      "community": 60,
+      "community": 205,
       "norm_label": "isprivateip()"
     },
     {
@@ -8629,7 +8629,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ip",
-      "community": 60,
+      "community": 205,
       "norm_label": "ip"
     },
     {
@@ -8639,7 +8639,7 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_ssrf_init",
-      "community": 60,
+      "community": 205,
       "norm_label": "init()"
     },
     {
@@ -8929,7 +8929,7 @@
       "source_location": "L441",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_store_listauditlogsjson",
-      "community": 58,
+      "community": 49,
       "norm_label": "listauditlogsjson()"
     },
     {
@@ -9009,7 +9009,7 @@
       "source_location": "L110",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_store_dataapi_deletequeuejobsbulk",
-      "community": 19,
+      "community": 36,
       "norm_label": "deletequeuejobsbulk()"
     },
     {
@@ -9079,7 +9079,7 @@
       "source_location": "L304",
       "_origin": "ast",
       "id": "web_slicerkeyrecord",
-      "community": 36,
+      "community": 19,
       "norm_label": "slicerkeyrecord"
     },
     {
@@ -9089,7 +9089,7 @@
       "source_location": "L310",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_store_dataapi_listslicerapikeysjson",
-      "community": 94,
+      "community": 36,
       "norm_label": "listslicerapikeysjson()"
     },
     {
@@ -9189,7 +9189,7 @@
       "source_location": "L437",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_store_dataapi_listmanagerrequestsjson",
-      "community": 49,
+      "community": 58,
       "norm_label": "listmanagerrequestsjson()"
     },
     {
@@ -9389,7 +9389,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_util_randombase64url",
-      "community": 94,
+      "community": 36,
       "norm_label": "randombase64url()"
     },
     {
@@ -9399,7 +9399,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_cmd_web_util_itoa",
-      "community": 64,
+      "community": 16,
       "norm_label": "itoa()"
     },
     {
@@ -9481,7 +9481,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_db_db_go",
-      "community": 64,
+      "community": 366,
       "norm_label": "db.go"
     },
     {
@@ -9491,7 +9491,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_db_db_url",
-      "community": 64,
+      "community": 366,
       "norm_label": "url()"
     },
     {
@@ -9501,7 +9501,7 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_db_db_envint",
-      "community": 64,
+      "community": 366,
       "norm_label": "envint()"
     },
     {
@@ -9511,7 +9511,7 @@
       "source_location": "L45",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_db_db_connect",
-      "community": 64,
+      "community": 366,
       "norm_label": "connect()"
     },
     {
@@ -9811,7 +9811,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_pwcrypto_pwcrypto_go",
-      "community": 366,
+      "community": 16,
       "norm_label": "pwcrypto.go"
     },
     {
@@ -9821,7 +9821,7 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_pwcrypto_pwcrypto_hash",
-      "community": 366,
+      "community": 16,
       "norm_label": "hash()"
     },
     {
@@ -9831,7 +9831,7 @@
       "source_location": "L41",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_pwcrypto_pwcrypto_issha256hex",
-      "community": 366,
+      "community": 16,
       "norm_label": "issha256hex()"
     },
     {
@@ -9841,7 +9841,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_pwcrypto_pwcrypto_isscrypthash",
-      "community": 366,
+      "community": 16,
       "norm_label": "isscrypthash()"
     },
     {
@@ -9851,7 +9851,7 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_pwcrypto_pwcrypto_needsupgrade",
-      "community": 366,
+      "community": 16,
       "norm_label": "needsupgrade()"
     },
     {
@@ -9861,7 +9861,7 @@
       "source_location": "L57",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_pwcrypto_pwcrypto_derive",
-      "community": 366,
+      "community": 16,
       "norm_label": "derive()"
     },
     {
@@ -9871,7 +9871,7 @@
       "source_location": "L73",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_pwcrypto_pwcrypto_tostored",
-      "community": 366,
+      "community": 16,
       "norm_label": "tostored()"
     },
     {
@@ -9881,7 +9881,7 @@
       "source_location": "L86",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_go_services_internal_pwcrypto_pwcrypto_verify",
-      "community": 366,
+      "community": 16,
       "norm_label": "verify()"
     },
     {
@@ -10523,7 +10523,7 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_codingkeys",
-      "community": 361,
+      "community": 71,
       "norm_label": "codingkeys"
     },
     {
@@ -10533,7 +10533,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "codingkey",
-      "community": 361,
+      "community": 71,
       "norm_label": "codingkey"
     },
     {
@@ -10543,7 +10543,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_codingkeys_matched",
-      "community": 361,
+      "community": 71,
       "norm_label": "matched"
     },
     {
@@ -10553,7 +10553,7 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_codingkeys_spoolid",
-      "community": 361,
+      "community": 71,
       "norm_label": "spoolid"
     },
     {
@@ -11195,7 +11195,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_ios_filament_station_filamentstation_views_spoollistview_spoollistview",
-      "community": 81,
+      "community": 71,
       "norm_label": "spoollistview"
     },
     {
@@ -11235,7 +11235,7 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_ios_filament_station_filamentstation_views_spoollistview_spoollistview_load",
-      "community": 81,
+      "community": 71,
       "norm_label": ".load()"
     },
     {
@@ -12053,7 +12053,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_py",
-      "community": 23,
+      "community": 25,
       "norm_label": "printer_status_poller.py"
     },
     {
@@ -12063,7 +12063,7 @@
       "source_location": "L272",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_printerofflineerror",
-      "community": 23,
+      "community": 52,
       "norm_label": "printerofflineerror"
     },
     {
@@ -12073,7 +12073,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "exception",
-      "community": 23,
+      "community": 52,
       "norm_label": "exception"
     },
     {
@@ -12083,7 +12083,7 @@
       "source_location": "L277",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_db_url",
-      "community": 195,
+      "community": 118,
       "norm_label": "db_url()"
     },
     {
@@ -12093,7 +12093,7 @@
       "source_location": "L284",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_connect_db",
-      "community": 195,
+      "community": 118,
       "norm_label": "connect_db()"
     },
     {
@@ -12143,7 +12143,7 @@
       "source_location": "L362",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_load_secret_key",
-      "community": 23,
+      "community": 25,
       "norm_label": "_load_secret_key()"
     },
     {
@@ -12253,7 +12253,7 @@
       "source_location": "L663",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_map_print_state_to_status",
-      "community": 23,
+      "community": 25,
       "norm_label": "map_print_state_to_status()"
     },
     {
@@ -12443,7 +12443,7 @@
       "source_location": "L1049",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_map_bambu_state",
-      "community": 23,
+      "community": 52,
       "norm_label": "map_bambu_state()"
     },
     {
@@ -12453,7 +12453,7 @@
       "source_location": "L1058",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_build_bambu_current_job",
-      "community": 23,
+      "community": 87,
       "norm_label": "build_bambu_current_job()"
     },
     {
@@ -12463,7 +12463,7 @@
       "source_location": "L1104",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_build_bambu_spools",
-      "community": 23,
+      "community": 52,
       "norm_label": "build_bambu_spools()"
     },
     {
@@ -12473,7 +12473,7 @@
       "source_location": "L1161",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_bambu_active_spool_id",
-      "community": 23,
+      "community": 52,
       "norm_label": "bambu_active_spool_id()"
     },
     {
@@ -12493,7 +12493,7 @@
       "source_location": "L1208",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_is_bambu_runout_code",
-      "community": 23,
+      "community": 85,
       "norm_label": "_is_bambu_runout_code()"
     },
     {
@@ -12513,7 +12513,7 @@
       "source_location": "L1237",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_bambu_filament_runout",
-      "community": 23,
+      "community": 85,
       "norm_label": "bambu_filament_runout()"
     },
     {
@@ -12533,7 +12533,7 @@
       "source_location": "L1339",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_load_bambu_hms_table",
-      "community": 23,
+      "community": 25,
       "norm_label": "_load_bambu_hms_table()"
     },
     {
@@ -12613,7 +12613,7 @@
       "source_location": "L1571",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_implicitftptls",
-      "community": 195,
+      "community": 118,
       "norm_label": "_implicitftptls"
     },
     {
@@ -12623,7 +12623,7 @@
       "source_location": "L1580",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_implicitftptls_connect",
-      "community": 195,
+      "community": 118,
       "norm_label": ".connect()"
     },
     {
@@ -12633,7 +12633,7 @@
       "source_location": "L1592",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_open_bambu_ftp",
-      "community": 195,
+      "community": 118,
       "norm_label": "_open_bambu_ftp()"
     },
     {
@@ -12683,7 +12683,7 @@
       "source_location": "L1773",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_build_bambu_fan_speeds",
-      "community": 23,
+      "community": 52,
       "norm_label": "build_bambu_fan_speeds()"
     },
     {
@@ -12693,7 +12693,7 @@
       "source_location": "L1793",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_decode_chamber_value",
-      "community": 23,
+      "community": 52,
       "norm_label": "_decode_chamber_value()"
     },
     {
@@ -12703,7 +12703,7 @@
       "source_location": "L1807",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_chamber_temp_candidates",
-      "community": 23,
+      "community": 52,
       "norm_label": "_chamber_temp_candidates()"
     },
     {
@@ -12713,7 +12713,7 @@
       "source_location": "L1818",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_decode_bambu_chamber_temp",
-      "community": 23,
+      "community": 52,
       "norm_label": "decode_bambu_chamber_temp()"
     },
     {
@@ -12723,7 +12723,7 @@
       "source_location": "L1828",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_decode_bambu_chamber_target",
-      "community": 23,
+      "community": 52,
       "norm_label": "decode_bambu_chamber_target()"
     },
     {
@@ -12733,7 +12733,7 @@
       "source_location": "L1849",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_decode_nozzle_value",
-      "community": 23,
+      "community": 52,
       "norm_label": "_decode_nozzle_value()"
     },
     {
@@ -12743,7 +12743,7 @@
       "source_location": "L1871",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_build_bambu_dual_nozzles",
-      "community": 23,
+      "community": 52,
       "norm_label": "build_bambu_dual_nozzles()"
     },
     {
@@ -12753,7 +12753,7 @@
       "source_location": "L1917",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_fetch_bambu_status",
-      "community": 23,
+      "community": 52,
       "norm_label": "fetch_bambu_status()"
     },
     {
@@ -12813,7 +12813,7 @@
       "source_location": "L2202",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_grab_mjpeg_frame",
-      "community": 52,
+      "community": 25,
       "norm_label": "grab_mjpeg_frame()"
     },
     {
@@ -12843,7 +12843,7 @@
       "source_location": "L2271",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_webhook_wants",
-      "community": 52,
+      "community": 361,
       "norm_label": "webhook_wants()"
     },
     {
@@ -12853,7 +12853,7 @@
       "source_location": "L2283",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_tts_content_for_embed",
-      "community": 52,
+      "community": 361,
       "norm_label": "tts_content_for_embed()"
     },
     {
@@ -12863,7 +12863,7 @@
       "source_location": "L2293",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_send_discord_embed",
-      "community": 52,
+      "community": 361,
       "norm_label": "send_discord_embed()"
     },
     {
@@ -12903,7 +12903,7 @@
       "source_location": "L2549",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_spool_ids",
-      "community": 87,
+      "community": 25,
       "norm_label": "spool_ids()"
     },
     {
@@ -12913,7 +12913,7 @@
       "source_location": "L2557",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_check_filament_runout",
-      "community": 87,
+      "community": 25,
       "norm_label": "check_filament_runout()"
     },
     {
@@ -13063,7 +13063,7 @@
       "source_location": "L273",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_rationale_273",
-      "community": 23,
+      "community": 52,
       "norm_label": "raised when a printer is unreachable for an expected reason (no mqtt report,"
     },
     {
@@ -13073,7 +13073,7 @@
       "source_location": "L285",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_rationale_285",
-      "community": 195,
+      "community": 118,
       "norm_label": "open the poll-loop's postgres connection with the same safety guards as the"
     },
     {
@@ -13153,7 +13153,7 @@
       "source_location": "L1162",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_rationale_1162",
-      "community": 23,
+      "community": 52,
       "norm_label": "slot id (matching build_bambu_spools ids) of the tray currently feeding the"
     },
     {
@@ -13183,7 +13183,7 @@
       "source_location": "L1238",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_rationale_1238",
-      "community": 23,
+      "community": 85,
       "norm_label": "true when the bambu report carries an active filament-run-out fault."
     },
     {
@@ -13263,7 +13263,7 @@
       "source_location": "L1572",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_rationale_1572",
-      "community": 195,
+      "community": 118,
       "norm_label": "ftp_tls that does the tls handshake immediately on connect (implicit ftps)."
     },
     {
@@ -13323,7 +13323,7 @@
       "source_location": "L2203",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_rationale_2203",
-      "community": 52,
+      "community": 25,
       "norm_label": "pull the first complete jpeg frame out of a multipart/x-mixed-replace mjpeg"
     },
     {
@@ -13343,7 +13343,7 @@
       "source_location": "L2272",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_rationale_2272",
-      "community": 52,
+      "community": 361,
       "norm_label": "a webhook with events == none receives every event (historical default);     a l"
     },
     {
@@ -13353,7 +13353,7 @@
       "source_location": "L2284",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_rationale_2284",
-      "community": 52,
+      "community": 361,
       "norm_label": "discord only speaks the message `content` aloud (embeds are never read by     tt"
     },
     {
@@ -13363,7 +13363,7 @@
       "source_location": "L2558",
       "_origin": "ast",
       "id": "home_saral_3d_farmlab_poller_printer_status_poller_rationale_2558",
-      "community": 87,
+      "community": 25,
       "norm_label": "fire once when filament runs out, from either signal:      - bambu: the hms/prin"
     },
     {
@@ -15093,7 +15093,7 @@
       "source_location": "L2406",
       "_origin": "ast",
       "id": "server_app_parseidlist",
-      "community": 17,
+      "community": 3,
       "norm_label": "parseidlist()"
     },
     {
@@ -15103,7 +15103,7 @@
       "source_location": "L2429",
       "_origin": "ast",
       "id": "server_app_readbodybounded",
-      "community": 11,
+      "community": 3,
       "norm_label": "readbodybounded()"
     },
     {
@@ -15163,7 +15163,7 @@
       "source_location": "L2559",
       "_origin": "ast",
       "id": "server_app_broadcastqueuestatusupdate",
-      "community": 205,
+      "community": 3,
       "norm_label": "broadcastqueuestatusupdate()"
     },
     {
@@ -15373,7 +15373,7 @@
       "source_location": "L3228",
       "_origin": "ast",
       "id": "server_app_handledataapiqueue",
-      "community": 17,
+      "community": 3,
       "norm_label": "handledataapiqueue()"
     },
     {
@@ -16123,7 +16123,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "server_eventstream",
-      "community": 205,
+      "community": 45,
       "norm_label": "eventstream.js"
     },
     {
@@ -16133,7 +16133,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "server_eventstream_subscribers",
-      "community": 205,
+      "community": 45,
       "norm_label": "subscribers"
     },
     {
@@ -16143,7 +16143,7 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "server_eventstream_writeevent",
-      "community": 205,
+      "community": 45,
       "norm_label": "writeevent()"
     },
     {
@@ -16153,7 +16153,7 @@
       "source_location": "L24",
       "_origin": "ast",
       "id": "server_eventstream_addeventsubscriber",
-      "community": 205,
+      "community": 45,
       "norm_label": "addeventsubscriber()"
     },
     {
@@ -16163,7 +16163,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "server_eventstream_broadcastqueueadded",
-      "community": 205,
+      "community": 45,
       "norm_label": "broadcastqueueadded()"
     },
     {
@@ -16173,7 +16173,7 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "server_eventstream_broadcastmaintenancenotification",
-      "community": 205,
+      "community": 45,
       "norm_label": "broadcastmaintenancenotification()"
     },
     {
@@ -16183,7 +16183,7 @@
       "source_location": "L67",
       "_origin": "ast",
       "id": "server_eventstream_broadcastqueuestatus",
-      "community": 205,
+      "community": 45,
       "norm_label": "broadcastqueuestatus()"
     },
     {
@@ -16193,7 +16193,7 @@
       "source_location": "L77",
       "_origin": "ast",
       "id": "server_eventstream_broadcastmaintenancestatus",
-      "community": 205,
+      "community": 45,
       "norm_label": "broadcastmaintenancestatus()"
     },
     {
@@ -17033,7 +17033,7 @@
       "source_location": "L1356",
       "_origin": "ast",
       "id": "server_postgres_listqueuedata",
-      "community": 45,
+      "community": 3,
       "norm_label": "listqueuedata()"
     },
     {
@@ -18333,7 +18333,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "server_ziparchive",
-      "community": 370,
+      "community": 11,
       "norm_label": "ziparchive.js"
     },
     {
@@ -18343,7 +18343,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "server_ziparchive_crc_table",
-      "community": 370,
+      "community": 11,
       "norm_label": "crc_table"
     },
     {
@@ -18353,7 +18353,7 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "server_ziparchive_crc32",
-      "community": 370,
+      "community": 11,
       "norm_label": "crc32()"
     },
     {
@@ -18363,7 +18363,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "server_ziparchive_dosdatetime",
-      "community": 370,
+      "community": 11,
       "norm_label": "dosdatetime()"
     },
     {
@@ -18373,7 +18373,7 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "server_ziparchive_createzip",
-      "community": 370,
+      "community": 11,
       "norm_label": "createzip()"
     },
     {
@@ -18383,7 +18383,7 @@
       "source_location": "L103",
       "_origin": "ast",
       "id": "server_ziparchive_readzip",
-      "community": 370,
+      "community": 11,
       "norm_label": "readzip()"
     },
     {
@@ -18740,7 +18740,7 @@
       "label": "handleUpload()",
       "file_type": "code",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L713",
+      "source_location": "L725",
       "_origin": "ast",
       "id": "slicer_proxy_index_handleupload",
       "community": 12,
@@ -18750,7 +18750,7 @@
       "label": "DEVICE_STATE_PATHS",
       "file_type": "code",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L814",
+      "source_location": "L826",
       "_origin": "ast",
       "id": "slicer_proxy_index_device_state_paths",
       "community": 12,
@@ -18760,7 +18760,7 @@
       "label": "handleDeviceState()",
       "file_type": "code",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L819",
+      "source_location": "L831",
       "_origin": "ast",
       "id": "slicer_proxy_index_handledevicestate",
       "community": 12,
@@ -18770,7 +18770,7 @@
       "label": "FILAMENT_SYNC_PATHS",
       "file_type": "code",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L838",
+      "source_location": "L850",
       "_origin": "ast",
       "id": "slicer_proxy_index_filament_sync_paths",
       "community": 12,
@@ -18780,7 +18780,7 @@
       "label": "handleFilamentSync()",
       "file_type": "code",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L847",
+      "source_location": "L859",
       "_origin": "ast",
       "id": "slicer_proxy_index_handlefilamentsync",
       "community": 12,
@@ -18790,7 +18790,7 @@
       "label": "handleRequest()",
       "file_type": "code",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L865",
+      "source_location": "L877",
       "_origin": "ast",
       "id": "slicer_proxy_index_handlerequest",
       "community": 12,
@@ -18800,7 +18800,7 @@
       "label": "server",
       "file_type": "code",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L1008",
+      "source_location": "L1020",
       "_origin": "ast",
       "id": "slicer_proxy_index_server",
       "community": 12,
@@ -31662,7 +31662,7 @@
       "source_location": "L5",
       "weight": 1.0,
       "source": "eslint_config",
-      "target": "home_saral_3d_farmlab_go_services_cmd_poller_config_istruthy",
+      "target": "home_saral_3d_farmlab_go_services_cmd_web_config_envint",
       "confidence_score": 1.0
     },
     {
@@ -35418,28 +35418,6 @@
       "weight": 1.0,
       "source": "home_saral_3d_farmlab_go_services_cmd_poller_config_envintmin",
       "target": "home_saral_3d_farmlab_go_services_cmd_poller_config_envint",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "go-services/cmd/poller/util.go",
-      "source_location": "L28",
-      "weight": 1.0,
-      "context": "return_type",
-      "source": "home_saral_3d_farmlab_go_services_cmd_poller_util_bambutlsconfig",
-      "target": "home_saral_3d_farmlab_go_services_cmd_poller_config_istruthy",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "go-services/cmd/web/redis.go",
-      "source_location": "L130",
-      "weight": 1.0,
-      "context": "return_type",
-      "source": "home_saral_3d_farmlab_go_services_cmd_web_redis_bambutlsconfig",
-      "target": "home_saral_3d_farmlab_go_services_cmd_poller_config_istruthy",
       "confidence_score": 1.0
     },
     {
@@ -39471,6 +39449,17 @@
       "target": "home_saral_3d_farmlab_go_services_cmd_web_util_itoa"
     },
     {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "go-services/cmd/poller/util.go",
+      "source_location": "L28",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "home_saral_3d_farmlab_go_services_cmd_poller_util_bambutlsconfig",
+      "target": "home_saral_3d_farmlab_go_services_cmd_web_config_envint",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "go-services/cmd/web/api.go",
@@ -43087,6 +43076,17 @@
       "source_location": "L22",
       "weight": 1.0,
       "source": "home_saral_3d_farmlab_go_services_cmd_web_config_go",
+      "target": "home_saral_3d_farmlab_go_services_cmd_web_config_envint",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "go-services/cmd/web/redis.go",
+      "source_location": "L130",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "home_saral_3d_farmlab_go_services_cmd_web_redis_bambutlsconfig",
       "target": "home_saral_3d_farmlab_go_services_cmd_web_config_envint",
       "confidence_score": 1.0
     },
@@ -54699,50 +54699,6 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ios-filament-station/FilamentStation/Networking/FilamentStationAPI.swift",
-      "source_location": "L81",
-      "weight": 1.0,
-      "context": "return_type",
-      "source": "home_saral_3d_farmlab_ios_filament_station_filamentstation_networking_filamentstationapi_filamentstationapi_listspools",
-      "target": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_swift",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ios-filament-station/FilamentStation/Views/ScanView.swift",
-      "source_location": "L9",
-      "weight": 1.0,
-      "context": "field",
-      "source": "home_saral_3d_farmlab_ios_filament_station_filamentstation_views_scanview_scanview",
-      "target": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_swift",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ios-filament-station/FilamentStation/Views/SpoolListView.swift",
-      "source_location": "L8",
-      "weight": 1.0,
-      "context": "field",
-      "source": "home_saral_3d_farmlab_ios_filament_station_filamentstation_views_spoollistview_spoollistview",
-      "target": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_swift",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ios-filament-station/FilamentStation/Views/WriteTagView.swift",
-      "source_location": "L10",
-      "weight": 1.0,
-      "context": "field",
-      "source": "home_saral_3d_farmlab_ios_filament_station_filamentstation_views_writetagview_writetagview",
-      "target": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_swift",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "imports",
       "context": "import",
       "confidence": "EXTRACTED",
@@ -54865,6 +54821,50 @@
       "weight": 1.0,
       "source": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_codingkeys",
       "target": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_codingkeys_spoolid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "ios-filament-station/FilamentStation/Networking/FilamentStationAPI.swift",
+      "source_location": "L81",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "home_saral_3d_farmlab_ios_filament_station_filamentstation_networking_filamentstationapi_filamentstationapi_listspools",
+      "target": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_codingkeys_matched",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "ios-filament-station/FilamentStation/Views/ScanView.swift",
+      "source_location": "L9",
+      "weight": 1.0,
+      "context": "field",
+      "source": "home_saral_3d_farmlab_ios_filament_station_filamentstation_views_scanview_scanview",
+      "target": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_codingkeys_matched",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "ios-filament-station/FilamentStation/Views/SpoolListView.swift",
+      "source_location": "L8",
+      "weight": 1.0,
+      "context": "field",
+      "source": "home_saral_3d_farmlab_ios_filament_station_filamentstation_views_spoollistview_spoollistview",
+      "target": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_codingkeys_matched",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "ios-filament-station/FilamentStation/Views/WriteTagView.swift",
+      "source_location": "L10",
+      "weight": 1.0,
+      "context": "field",
+      "source": "home_saral_3d_farmlab_ios_filament_station_filamentstation_views_writetagview_writetagview",
+      "target": "home_saral_3d_farmlab_ios_filament_station_filamentstation_models_filamentspool_codingkeys_matched",
       "confidence_score": 1.0
     },
     {
@@ -57544,7 +57544,7 @@
       "source_location": "L26",
       "weight": 1.0,
       "source": "home_saral_3d_farmlab_poller_printer_status_poller_py",
-      "target": "home_saral_3d_farmlab_poller_redis_client_py",
+      "target": "home_saral_3d_farmlab_poller_redis_client_warn_once",
       "confidence_score": 1.0
     },
     {
@@ -74956,7 +74956,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L822",
+      "source_location": "L834",
       "weight": 1.0,
       "source": "slicer_proxy_index_handledevicestate",
       "target": "server_postgres_getprinterbyid",
@@ -74967,7 +74967,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L850",
+      "source_location": "L862",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlefilamentsync",
       "target": "server_postgres_getprinterbyid",
@@ -74978,7 +74978,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L744",
+      "source_location": "L756",
       "weight": 1.0,
       "source": "slicer_proxy_index_handleupload",
       "target": "server_postgres_getprinterbyid",
@@ -76768,7 +76768,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L857",
+      "source_location": "L869",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlefilamentsync",
       "target": "slicer_proxy_filamentsync_buildfilamentmanagerspools",
@@ -76790,7 +76790,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L859",
+      "source_location": "L871",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlefilamentsync",
       "target": "slicer_proxy_filamentsync_buildfilamentmanagerselections",
@@ -76812,7 +76812,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L861",
+      "source_location": "L873",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlefilamentsync",
       "target": "slicer_proxy_filamentsync_buildspoolmanagerspools",
@@ -76903,7 +76903,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L814",
+      "source_location": "L826",
       "weight": 1.0,
       "source": "slicer_proxy_index",
       "target": "slicer_proxy_index_device_state_paths",
@@ -76923,7 +76923,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L838",
+      "source_location": "L850",
       "weight": 1.0,
       "source": "slicer_proxy_index",
       "target": "slicer_proxy_index_filament_sync_paths",
@@ -76953,7 +76953,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L819",
+      "source_location": "L831",
       "weight": 1.0,
       "source": "slicer_proxy_index",
       "target": "slicer_proxy_index_handledevicestate",
@@ -76963,7 +76963,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L847",
+      "source_location": "L859",
       "weight": 1.0,
       "source": "slicer_proxy_index",
       "target": "slicer_proxy_index_handlefilamentsync",
@@ -76973,7 +76973,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L865",
+      "source_location": "L877",
       "weight": 1.0,
       "source": "slicer_proxy_index",
       "target": "slicer_proxy_index_handlerequest",
@@ -76983,7 +76983,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L713",
+      "source_location": "L725",
       "weight": 1.0,
       "source": "slicer_proxy_index",
       "target": "slicer_proxy_index_handleupload",
@@ -77093,7 +77093,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L1008",
+      "source_location": "L1020",
       "weight": 1.0,
       "source": "slicer_proxy_index",
       "target": "slicer_proxy_index_server",
@@ -77254,7 +77254,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L903",
+      "source_location": "L915",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlerequest",
       "target": "slicer_proxy_index_parserangeheader",
@@ -77265,7 +77265,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L881",
+      "source_location": "L893",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlerequest",
       "target": "slicer_proxy_index_getclientip",
@@ -77276,7 +77276,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L714",
+      "source_location": "L726",
       "weight": 1.0,
       "source": "slicer_proxy_index_handleupload",
       "target": "slicer_proxy_index_getclientip",
@@ -77287,7 +77287,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L718",
+      "source_location": "L730",
       "weight": 1.0,
       "source": "slicer_proxy_index_handleupload",
       "target": "slicer_proxy_index_audit",
@@ -77309,7 +77309,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L949",
+      "source_location": "L961",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlerequest",
       "target": "slicer_proxy_index_builddeviceurl",
@@ -77364,7 +77364,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L824",
+      "source_location": "L836",
       "weight": 1.0,
       "source": "slicer_proxy_index_handledevicestate",
       "target": "slicer_proxy_index_sendjson",
@@ -77375,7 +77375,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L852",
+      "source_location": "L864",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlefilamentsync",
       "target": "slicer_proxy_index_sendjson",
@@ -77386,7 +77386,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L870",
+      "source_location": "L882",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlerequest",
       "target": "slicer_proxy_index_sendjson",
@@ -77397,7 +77397,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L725",
+      "source_location": "L737",
       "weight": 1.0,
       "source": "slicer_proxy_index_handleupload",
       "target": "slicer_proxy_index_sendjson",
@@ -77430,7 +77430,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L715",
+      "source_location": "L727",
       "weight": 1.0,
       "source": "slicer_proxy_index_handleupload",
       "target": "slicer_proxy_index_authenticate",
@@ -77452,7 +77452,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L820",
+      "source_location": "L832",
       "weight": 1.0,
       "source": "slicer_proxy_index_handledevicestate",
       "target": "slicer_proxy_index_requirekey",
@@ -77463,7 +77463,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L848",
+      "source_location": "L860",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlefilamentsync",
       "target": "slicer_proxy_index_requirekey",
@@ -77474,7 +77474,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L965",
+      "source_location": "L977",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlerequest",
       "target": "slicer_proxy_index_requirekey",
@@ -77485,7 +77485,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L752",
+      "source_location": "L764",
       "weight": 1.0,
       "source": "slicer_proxy_index_handleupload",
       "target": "slicer_proxy_index_parseupload",
@@ -77496,7 +77496,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L767",
+      "source_location": "L779",
       "weight": 1.0,
       "source": "slicer_proxy_index_handleupload",
       "target": "slicer_proxy_index_uploadtomoonraker",
@@ -77518,7 +77518,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L774",
+      "source_location": "L786",
       "weight": 1.0,
       "source": "slicer_proxy_index_handleupload",
       "target": "slicer_proxy_index_uploadtobambu",
@@ -77595,7 +77595,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L605",
+      "source_location": "L617",
       "weight": 1.0,
       "source": "slicer_proxy_index_publishbambuprint",
       "target": "slicer_proxy_index_bambusubtaskname",
@@ -77606,7 +77606,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L981",
+      "source_location": "L993",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlerequest",
       "target": "slicer_proxy_index_handleupload",
@@ -77618,7 +77618,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L993",
+      "source_location": "L1005",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlerequest",
       "target": "slicer_proxy_index_device_state_paths"
@@ -77628,7 +77628,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L829",
+      "source_location": "L841",
       "weight": 1.0,
       "source": "slicer_proxy_index_handledevicestate",
       "target": "slicer_proxy_octoprintdevice_buildconnection",
@@ -77639,7 +77639,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L833",
+      "source_location": "L845",
       "weight": 1.0,
       "source": "slicer_proxy_index_handledevicestate",
       "target": "slicer_proxy_octoprintdevice_buildjob",
@@ -77650,7 +77650,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L831",
+      "source_location": "L843",
       "weight": 1.0,
       "source": "slicer_proxy_index_handledevicestate",
       "target": "slicer_proxy_octoprintdevice_buildprinterstate",
@@ -77661,7 +77661,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L994",
+      "source_location": "L1006",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlerequest",
       "target": "slicer_proxy_index_handledevicestate",
@@ -77673,7 +77673,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L999",
+      "source_location": "L1011",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlerequest",
       "target": "slicer_proxy_index_filament_sync_paths"
@@ -77683,7 +77683,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "slicer-proxy/index.js",
-      "source_location": "L1000",
+      "source_location": "L1012",
       "weight": 1.0,
       "source": "slicer_proxy_index_handlerequest",
       "target": "slicer_proxy_index_handlefilamentsync",
@@ -104468,5 +104468,5 @@
       "source_file": "monitoring/README.md"
     }
   ],
-  "built_at_commit": "330c1e1896a6dbf70fd38fb3eab8d497dc652344"
+  "built_at_commit": "d4fd4ba5ab3d7809f34cf4f7f678d7df5bb35c03"
 }
