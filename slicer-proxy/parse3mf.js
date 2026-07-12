@@ -275,7 +275,7 @@ function rewriteZipEntries(buf, replacements) {
     const method = entry.rewritten?.method ?? entry.method;
     const crc = entry.rewritten?.crc ?? entry.crc;
     const size = entry.rewritten?.size ?? entry.compSize;
-    const uncompSize = entry.rewritten?.size ?? entry.uncompSize;
+    const uncompSize = entry.rewritten?.uncompSize ?? entry.uncompSize;
     const cdh = Buffer.alloc(46);
     cdh.writeUInt32LE(CDIR_SIG, 0);
     cdh.writeUInt16LE(20, 4); // version made by
