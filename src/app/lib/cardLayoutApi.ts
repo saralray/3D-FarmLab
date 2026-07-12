@@ -10,8 +10,7 @@ export type CardId =
   | 'motion'
   | 'cooling'
   | 'filament'
-  | 'information'
-  | 'statusLight';
+  | 'information';
 
 // A layout is three columns, each an ordered list of card ids.
 export type CardLayout = CardId[][];
@@ -23,7 +22,6 @@ export const CARD_IDS: CardId[] = [
   'cooling',
   'filament',
   'information',
-  'statusLight',
 ];
 
 export const CARD_LABELS: Record<CardId, string> = {
@@ -33,13 +31,12 @@ export const CARD_LABELS: Record<CardId, string> = {
   cooling: 'Cooling',
   filament: 'Current Filament',
   information: 'Information',
-  statusLight: 'Status Light',
 };
 
 export const DEFAULT_CARD_LAYOUT: CardLayout = [
   ['currentJob'],
   ['temperature', 'motion', 'cooling', 'filament'],
-  ['information', 'statusLight'],
+  ['information'],
 ];
 
 // Reconcile an arbitrary (possibly stale) saved layout into a valid one:
