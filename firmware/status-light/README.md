@@ -55,10 +55,11 @@ esptool.py --chip esp32c3 write_flash 0x0 ../../public/firmware/status-light-esp
 
 ## Provisioning (serial protocol)
 
-The dashboard's Printer Detail → Status Light card does this for you; the
-protocol is documented for debugging. 115200 baud over the USB port, one JSON
-object per line. Accepted at **any time** — re-provisioning never needs a
-reflash.
+Flash and provision the device with an external tool (the dashboard has no
+in-browser flasher). After flashing, send the provisioning line over the USB
+serial port: 115200 baud, one JSON object per line. Accepted at **any time** —
+re-provisioning never needs a reflash. Any serial terminal works (e.g.
+`pio device monitor`, `screen`, or a script).
 
 ```json
 {"cmd":"provision","wifiSsid":"Lab-WiFi","wifiPassword":"…",

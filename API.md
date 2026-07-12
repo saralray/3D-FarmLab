@@ -316,19 +316,19 @@ port. `STATUS_LIGHT_ENABLED=false` disables the feature.
 
 | Method & path | Description |
 |---------------|-------------|
-| `GET /status-light/provisioning` | Poll settings the flash page writes to a device: `{ enabled, pollIntervalMs, statusPath }` (`statusPath` has a `{printerId}` placeholder). When disabled: `{ enabled: false }`. No secrets. |
+| `GET /status-light/provisioning` | Suggested poll settings for an (externally flashed) device: `{ enabled, pollIntervalMs, statusPath }` (`statusPath` has a `{printerId}` placeholder). When disabled: `{ enabled: false }`. No secrets. |
 | `GET /status-light/devices` | Lights currently polling: `{ devices: [{ printerId, connected, lastSeen }] }`. `connected` is true while the device has polled within `STATUS_LIGHT_STALE_MS`. |
 | `GET /status-light/printers/:id` | The plain status a light polls: `{ id, status }` where `status` ∈ `idle\|printing\|paused\|error\|offline` (same live-telemetry overlay as `/api/printers/:id`). Each call also stamps the device's presence for the devices list. `404` if the printer is unknown. |
 
-Frontend mirror: `GET /api/status-light/provisioning` is **admin-only** (used by
-the flash dialog on the printer detail page); `GET /api/status-light/devices`
-and `GET /api/status-light/printers/:id` are **public reads** (no secrets — the
-status string is not sensitive).
+Frontend mirror: `GET /api/status-light/provisioning` is **admin-only**;
+`GET /api/status-light/devices` and `GET /api/status-light/printers/:id` are
+**public reads** (no secrets — the status string is not sensitive). There is no
+in-browser flasher; devices are flashed and provisioned externally.
 
 **HTTP contract:** the device curls `GET <serverUrl>/api/status-light/printers/<printerId>`
 every `pollIntervalMs`, expects `200` with `{ "id": …, "status": … }`, and
-colors the LED from `status`. The `serverUrl` and `pollIntervalMs` are chosen at
-provisioning time (flash dialog / serial protocol in
+colors the LED from `status`. The `serverUrl` and `pollIntervalMs` are written to
+the device out-of-band (serial provisioning protocol in
 `firmware/status-light/README.md`).
 
 ---

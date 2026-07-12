@@ -45,7 +45,6 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "date-fns": "3.6.0",
-    "esptool-js": "^0.6.0",
     "ioredis": "^5.4.1",
     "lucide-react": "0.487.0",
     "mqtt": "^5.15.1",
