@@ -1,0 +1,28 @@
+FROM node:20-bookworm-slim AS runtime
+
+ENV NODE_ENV=production
+ENV MCP_PORT=8092
+ENV MCP_TRANSPORT=http
+
+WORKDIR /app
+
+RUN groupadd --system printfarm \
+  && useradd --system --gid printfarm --home-dir /app printfarm
+
+COPY package.json ./
+
+# Runtime deps for the MCP server: the Model Context Protocol SDK (server +
+# stdio/Streamable-HTTP transports) and zod (tool input schemas). No pg — the
+# MCP server never touches Postgres; it is a thin client of /api/v1 over HTTP.
+# Keep these versions in sync with package.json.
+RUN npm install @modelcontextprotocol/sdk@1.29.0 zod@3.25.76 --no-save --no-audit --no-fund \
+  && npm cache clean --force
+
+COPY mcp ./mcp
+
+USER printfarm
+
+# No EXPOSE: the server is never published to the host. nginx reaches it over
+# the internal compose network at mcp:8092 (MCP_PORT).
+
+CMD ["node", "mcp/index.js"]
