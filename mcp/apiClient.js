@@ -13,6 +13,14 @@ export function createApiClient({ apiBase, apiKey }) {
   const base = String(apiBase || '').replace(/\/+$/, '');
 
   async function request(method, path, { body, raw = false } = {}) {
+    // Guard against `..` traversal: a path like "/api/v1/../../metrics" passes a
+    // naive startsWith('/api/v1/') check but fetch normalizes it to "/metrics",
+    // reaching internal-only web endpoints the mcp container talks to directly
+    // (bypassing nginx). Legitimate /api/v1 paths never contain a `..` segment.
+    if (/(^|\/)\.\.(\/|$)/.test(String(path))) {
+      throw new Error(`path may not contain ".." segments: "${path}"`);
+    }
+
     const headers = {
       'X-Api-Key': apiKey,
       Accept: raw ? '*/*' : 'application/json',

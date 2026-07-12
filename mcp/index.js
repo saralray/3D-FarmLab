@@ -40,13 +40,30 @@ async function startStdio() {
   console.error(`[printfarm-mcp] ${SERVER_NAME} v${SERVER_VERSION} stdio ready (api ${apiBase})`);
 }
 
+// Bound the in-memory session map so a client that opens sessions without ever
+// sending DELETE can't leak them until process restart.
+const SESSION_TTL_MS = Number.parseInt(process.env.MCP_SESSION_TTL_MS || String(30 * 60 * 1000), 10);
+const MAX_SESSIONS = Number.parseInt(process.env.MCP_MAX_SESSIONS || '256', 10);
+
 function startHttp() {
   const port = Number.parseInt(process.env.MCP_PORT || '8092', 10);
   const host = process.env.HOST || '0.0.0.0';
 
-  // Session id -> { transport, server }. In-memory and single-process — run one
-  // mcp replica (same caveat as eventStream.js / statusLightPresence.js).
+  // Session id -> { transport, server, lastSeen }. In-memory and single-process
+  // — run one mcp replica (same caveat as eventStream.js / statusLightPresence.js).
   const sessions = new Map();
+
+  // Evict sessions idle past the TTL. transport.close() fires onclose, which
+  // removes the entry and closes its server. unref() so this never keeps the
+  // process alive on its own.
+  setInterval(() => {
+    const now = Date.now();
+    for (const [sid, entry] of sessions) {
+      if (now - entry.lastSeen > SESSION_TTL_MS) {
+        entry.transport.close().catch(() => {});
+      }
+    }
+  }, 60 * 1000).unref();
 
   const server = createServer((req, res) => {
     handleHttp(req, res, sessions).catch((error) => {
@@ -87,6 +104,7 @@ async function handleHttp(req, res, sessions) {
       res.end(jsonRpcError(null, -32001, 'Unknown or expired MCP session.'));
       return;
     }
+    entry.lastSeen = Date.now();
     const body = req.method === 'POST' ? await readJsonBody(req) : undefined;
     await entry.transport.handleRequest(req, res, body);
     return;
@@ -120,11 +138,17 @@ async function handleHttp(req, res, sessions) {
     return;
   }
 
+  if (sessions.size >= MAX_SESSIONS) {
+    res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+    res.end(jsonRpcError(null, -32000, 'Too many active MCP sessions; try again shortly.'));
+    return;
+  }
+
   const mcp = createMcpServer({ apiBase, apiKey });
   const httpTransport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (sid) => {
-      sessions.set(sid, { transport: httpTransport, server: mcp });
+      sessions.set(sid, { transport: httpTransport, server: mcp, lastSeen: Date.now() });
     },
   });
   httpTransport.onclose = () => {

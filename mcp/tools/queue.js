@@ -75,19 +75,24 @@ export function registerQueueTools(server, api) {
     {
       title: 'Get queue job file metadata',
       description:
-        "Report a stored job model file's metadata (size, content type). Does not return the raw bytes — download them via GET /api/queue/<id>/file.",
+        "Report whether a queue job has a stored model file and where to download it. Does not return the raw bytes — download them via GET /api/queue/<id>/file.",
       inputSchema: { id: z.string() },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ id }) => {
-      const { size, contentType } = await api.request('GET', `/api/v1/queue/${qid(id)}/file`, {
-        raw: true,
-      });
+      // Resolve from the cheap queue list rather than streaming the (up to
+      // ~50 MB) file body just to read its metadata.
+      const data = await api.request('GET', '/api/v1/queue');
+      const jobs = [...(data?.queue || []), ...(data?.history || [])];
+      const job = jobs.find((j) => String(j.id) === String(id));
+      if (!job) throw new Error(`queue job "${id}" not found`);
       return asText({
-        id,
-        sizeBytes: size,
-        contentType,
-        downloadPath: `/api/queue/${id}/file`,
+        id: job.id,
+        filename: job.filename,
+        hasFile: Boolean(job.hasFile),
+        downloadPath: job.hasFile ? `/api/queue/${job.id}/file` : null,
+        printedStatus: job.printedStatus,
+        priority: job.priority,
       });
     },
   );
