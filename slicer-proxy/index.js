@@ -41,9 +41,11 @@ import {
 import { mintSlicerGrant } from '../server/slicerGrant.js';
 import {
   extractFilamentGramsFrom3mf,
+  extractFilamentsFrom3mf,
   extractPlateGcodeFrom3mf,
   patchBambuToolheadCameraDetection,
 } from './parse3mf.js';
+import { resolveAmsMapping } from './amsMapping.js';
 import {
   buildFilamentManagerSelections,
   buildFilamentManagerSpools,
@@ -61,6 +63,12 @@ const SLICER_UPLOAD_MAX_BYTES = Number.parseInt(
   process.env.SLICER_UPLOAD_MAX_BYTES || String(500 * 1024 * 1024),
   10,
 );
+
+// Auto-map slicer pushes onto the printer's AMS trays (resolveAmsMapping).
+// On by default; set SLICER_AMS_AUTO=false to always use the external spool
+// (the pre-feature behavior), e.g. when the AMS is reserved for Bambu
+// Studio/Handy jobs.
+const SLICER_AMS_AUTO = String(process.env.SLICER_AMS_AUTO ?? 'true').toLowerCase() !== 'false';
 
 // In-memory staging area for the HTTP-delivery Bambu upload path (see
 // uploadToBambu): H2-series firmware rejects FTP writes even to root, so
@@ -463,8 +471,28 @@ async function uploadToBambu(printer, file, req) {
   const plate = extractPlateGcodeFrom3mf(file.buffer);
   const plateParam = plate?.name ?? 'Metadata/plate_1.gcode';
 
+  // Feed from the AMS when every filament the plate uses matches a loaded
+  // tray (material match, color preferred, fullest spool as tiebreaker —
+  // resolveAmsMapping). Otherwise — no AMS, no full match, or the operator
+  // set SLICER_AMS_AUTO=false — fall back to the external spool, the
+  // pre-feature behavior (which pauses AMS-only printers on "external
+  // filament is missing", hence this mapping).
+  let amsMapping = null;
+  if (SLICER_AMS_AUTO) {
+    const plan = resolveAmsMapping(extractFilamentsFrom3mf(file.buffer), printer.spools);
+    if (plan) {
+      amsMapping = plan.mapping;
+      const trace = plan.assignments
+        .map((a) => `filament ${a.filamentId} -> tray ${a.tray.globalId} (${a.tray.label})`)
+        .join(', ');
+      console.log(`[ams] ${printer.id}: ${trace}`);
+    } else {
+      console.log(`[ams] ${printer.id}: no full AMS match for ${remoteName}; using external spool`);
+    }
+  }
+
   try {
-    await publishBambuPrint(printer, serial, remoteName, fileUrl, plateParam);
+    await publishBambuPrint(printer, serial, remoteName, fileUrl, plateParam, amsMapping);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     // The file is already staged (SD card or our own temp store); only the
@@ -526,7 +554,7 @@ function bambuSubtaskName(remoteName) {
   return remoteName.replace(/\.gcode\.3mf$/i, '').replace(/\.3mf$/i, '');
 }
 
-function publishBambuPrint(printer, serial, remoteName, fileUrl, plateParam = 'Metadata/plate_1.gcode') {
+function publishBambuPrint(printer, serial, remoteName, fileUrl, plateParam = 'Metadata/plate_1.gcode', amsMapping = null) {
   // Unique per-submission identity. Bambu firmware (notably P1S 01.10) clamps
   // task identity fields to int32 max and treats a reused id as a continuation
   // of the prior job, so raw epoch-ms (13 digits) collides every time. Modulo
@@ -546,13 +574,19 @@ function publishBambuPrint(printer, serial, remoteName, fileUrl, plateParam = 'M
   //                        H2 family (see uploadToBambu)
   //   md5: ""            — empty tells firmware to skip md5 validation; a wrong
   //                        digest can hard-fail the job, so we don't synthesize one
-  //   use_ams: false     — a slicer push carries no AMS mapping
-  //   ams_mapping: []    — must accompany use_ams: false, not just be omitted:
-  //                        confirmed live that use_ams: false alone still left
-  //                        the firmware trying to resolve AMS trays, pausing
-  //                        mid-print with "Failed to get AMS mapping table;
-  //                        please select 'Resume' to retry" (bambuddy sends
-  //                        this same empty array for a non-AMS push)
+  //   use_ams / ams_mapping — caller-supplied (see uploadToBambu): when
+  //                        resolveAmsMapping matched every sliced filament to
+  //                        a loaded AMS tray, use_ams: true with the global
+  //                        tray ids ([2] = AMS 0 slot 3; confirmed live on the
+  //                        farm H2S, which loaded and printed from that tray).
+  //                        Otherwise use_ams: false with ams_mapping: [] — the
+  //                        empty array must accompany false, not just be
+  //                        omitted: confirmed live that use_ams: false alone
+  //                        still left the firmware trying to resolve AMS
+  //                        trays, pausing mid-print with "Failed to get AMS
+  //                        mapping table; please select 'Resume' to retry"
+  //                        (bambuddy sends this same empty array for a
+  //                        non-AMS push)
   //   bed_leveling: false — American spelling is what firmware reads (not
   //                        "levelling"). Auto bed leveling needs the camera to
   //                        locate the buildplate marker (xcam module
@@ -583,8 +617,8 @@ function publishBambuPrint(printer, serial, remoteName, fileUrl, plateParam = 'M
       flow_cali: false,
       vibration_cali: true,
       layer_inspect: false,
-      use_ams: false,
-      ams_mapping: [],
+      use_ams: Array.isArray(amsMapping),
+      ams_mapping: Array.isArray(amsMapping) ? amsMapping : [],
       cfg: '0',
       extrude_cali_flag: 2,
       extrude_cali_manual_mode: 0,

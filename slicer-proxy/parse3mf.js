@@ -157,6 +157,33 @@ export function extractFilamentGramsFrom3mf(buf) {
   return seen ? Math.round(total * 10) / 10 : null;
 }
 
+// List the filaments a sliced Bambu/Orca 3MF actually uses, from
+// Metadata/slice_info.config's per-plate <filament id=".." type=".." color=".."/>
+// entries. Only used filaments appear there — a four-filament project sliced
+// with one filament carries a single entry whose id is that filament's 1-based
+// global number (so the id doubles as the ams_mapping slot index + 1). Returns
+// [{ id, type, color }] sorted by id, deduped across plates; [] when the file
+// has no slice info.
+export function extractFilamentsFrom3mf(buf) {
+  const data = readZipEntry(buf, 'Metadata/slice_info.config');
+  if (!data) return [];
+  const xml = data.toString('utf8');
+  const filaments = new Map();
+  const re = /<filament\s+([^>]*?)\/?>/gi;
+  let match = re.exec(xml);
+  while (match !== null) {
+    const attrs = match[1];
+    const id = Number.parseInt(/(?:^|\s)id="(\d+)"/.exec(attrs)?.[1] ?? '', 10);
+    const type = (/(?:^|\s)type="([^"]*)"/.exec(attrs)?.[1] ?? '').trim();
+    const color = (/(?:^|\s)color="([^"]*)"/.exec(attrs)?.[1] ?? '').trim();
+    if (Number.isInteger(id) && id > 0 && type && !filaments.has(id)) {
+      filaments.set(id, { id, type, color });
+    }
+    match = re.exec(xml);
+  }
+  return [...filaments.values()].sort((a, b) => a.id - b.id);
+}
+
 // List every central-directory entry (name, method, sizes, crc32, local
 // header offset, and its DOS mod time/date so a rewritten entry can keep
 // them). Needed to rebuild the archive when patching one entry's content.
