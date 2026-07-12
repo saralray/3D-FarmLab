@@ -163,6 +163,24 @@ server {
     proxy_send_timeout 3600s;
   }
 
+  # MCP server (Model Context Protocol) for LLM clients. Streamable HTTP: the
+  # server streams JSON-RPC responses back as SSE, so buffering must be off and
+  # read timeouts long. No trailing slash on either side so the /mcp path is
+  # preserved to the service. The caller's Authorization/X-Api-Key header passes
+  # through unchanged — that key (printfarm_manage scope) is the sole guard, same
+  # threat model as /api/v1. Payloads are small, so no body-cap bump.
+  location /mcp {
+    proxy_pass http://mcp:8092;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    chunked_transfer_encoding on;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+  }
+
   # H-1: Prometheus has no auth of its own. If PROMETHEUS_BASIC_AUTH_PASSWORD
   # is set, /prometheus is gated behind HTTP Basic Auth; if it's left unset,
   # /prometheus is served with no auth at all (an operator opt-out, e.g. for a

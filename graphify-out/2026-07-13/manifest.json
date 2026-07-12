@@ -320,8 +320,8 @@
     "semantic_hash": "96e293533f8749538c1c64aa5fbc5c13"
   },
   "package.json": {
-    "mtime": 1783865372.0204818,
-    "ast_hash": "b680bcb73e13f67afb41089b4f7e53dc",
+    "mtime": 1783889065.566641,
+    "ast_hash": "c356083a2bd657e7381882c1be57216f",
     "semantic_hash": ""
   },
   "poller/printer_status_poller.py": {
@@ -400,8 +400,8 @@
     "semantic_hash": "c25e1b4913ad90d86caf72591783f425"
   },
   "slicer-proxy/index.js": {
-    "mtime": 1783870649.9788744,
-    "ast_hash": "de10437582288cbde9f40bce9925d851",
+    "mtime": 1783873392.3669255,
+    "ast_hash": "73393a1383738ad82ab495e6154eddee",
     "semantic_hash": ""
   },
   "slicer-proxy/octoprintDevice.js": {
@@ -995,8 +995,8 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1783870769.7668622,
-    "ast_hash": "9f495e30227b948d814f2592d0337d67",
+    "mtime": 1783889314.881955,
+    "ast_hash": "8f054f831645991cfed365be757b559e",
     "semantic_hash": ""
   },
   "README.md": {
@@ -1025,8 +1025,8 @@
     "semantic_hash": ""
   },
   "docker-compose.yml": {
-    "mtime": 1783870693.2071698,
-    "ast_hash": "3b5f4e41787a6f229735b4f9569bf786",
+    "mtime": 1783889025.821587,
+    "ast_hash": "c8f926eb03bae5c81645e2e32741a14c",
     "semantic_hash": ""
   },
   "exporter/requirements.txt": {
@@ -1362,6 +1362,66 @@
   "slicer-proxy/amsMapping.js": {
     "mtime": 1783870588.9268727,
     "ast_hash": "ecc126f2a5c089ea5551ff132e002a35",
+    "semantic_hash": ""
+  },
+  "mcp/apiClient.js": {
+    "mtime": 1783888879.2495322,
+    "ast_hash": "6bdf36f4ace42f6746926ba9a4e26a36",
+    "semantic_hash": ""
+  },
+  "mcp/index.js": {
+    "mtime": 1783889200.8572195,
+    "ast_hash": "f1fa15a17ead5d2c8d995e390f44ce2b",
+    "semantic_hash": ""
+  },
+  "mcp/server.js": {
+    "mtime": 1783888976.5845182,
+    "ast_hash": "dd34190e15d59c83b85c33f0b14d92fd",
+    "semantic_hash": ""
+  },
+  "mcp/tools/admin.js": {
+    "mtime": 1783888964.1356366,
+    "ast_hash": "941fe0ed02afea818685e86e1cc8ac43",
+    "semantic_hash": ""
+  },
+  "mcp/tools/analytics.js": {
+    "mtime": 1783888929.7295666,
+    "ast_hash": "ef996897c7e0c8854874269a8ca15b9f",
+    "semantic_hash": ""
+  },
+  "mcp/tools/maintenance.js": {
+    "mtime": 1783888940.0658622,
+    "ast_hash": "5146cdf76cfea8e0a3d5664d7e816422",
+    "semantic_hash": ""
+  },
+  "mcp/tools/notifications.js": {
+    "mtime": 1783888947.270795,
+    "ast_hash": "220887235e8aeac8b336cea35df86921",
+    "semantic_hash": ""
+  },
+  "mcp/tools/printers.js": {
+    "mtime": 1783888909.9531384,
+    "ast_hash": "10792a1c2d51d5041d95c11eae5c99d1",
+    "semantic_hash": ""
+  },
+  "mcp/tools/queue.js": {
+    "mtime": 1783888923.2170177,
+    "ast_hash": "842bbaae44481300c94595082e5d3d94",
+    "semantic_hash": ""
+  },
+  "mcp/tools/status.js": {
+    "mtime": 1783888953.5017369,
+    "ast_hash": "56e44e35a060c65aa7e9379c5937beaa",
+    "semantic_hash": ""
+  },
+  "mcp/tools/util.js": {
+    "mtime": 1783888884.2879722,
+    "ast_hash": "ddc8a8e1e182ee1ae71e28cf0b72e20a",
+    "semantic_hash": ""
+  },
+  "mcp/README.md": {
+    "mtime": 1783889273.4274209,
+    "ast_hash": "d1c2f65adf99b0f645a61c6952788845",
     "semantic_hash": ""
   }
 }

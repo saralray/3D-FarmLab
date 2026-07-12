@@ -142,6 +142,8 @@ services:
       # nginx resolves these upstreams at startup, so they must be up.
       slicer-proxy:
         condition: service_started
+      mcp:
+        condition: service_started
       prometheus:
         condition: service_started
     environment:
@@ -255,6 +257,30 @@ services:
       # Auto-map slicer pushes onto the printer's AMS trays (material match,
       # color preferred). Set false to always demand the external spool.
       SLICER_AMS_AUTO: ${SLICER_AMS_AUTO:-true}
+
+  # MCP (Model Context Protocol) server: exposes the farm's /api/v1 surface as
+  # MCP tools so an LLM client (Claude Desktop / Claude Code) can monitor and
+  # control the farm. Holds no state and never touches the DB — it is a thin
+  # client of web:5173/api/v1, forwarding the caller's printfarm_manage API key.
+  # Not published to the host — nginx routes /mcp to it over the internal network
+  # (Streamable HTTP), so a remote client reaches it at http://<domain>/mcp.
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      # The MCP server calls the data API over the internal compose network.
+      PRINTFARM_API_BASE: ${PRINTFARM_API_BASE:-http://web:5173}
+      # http = Streamable HTTP behind nginx (default); stdio is for local use.
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-http}
+      MCP_PORT: ${MCP_PORT:-8092}
+      # PRINTFARM_API_KEY is only used when MCP_TRANSPORT=stdio (single local
+      # user). Over HTTP the key is taken per-request from the caller's header.
+      PRINTFARM_API_KEY: ${PRINTFARM_API_KEY:-}
 
   # Read-only Prometheus exporter: exposes the PostgreSQL print-farm data as
   # metrics on :9180/metrics. Not published to the host — Prometheus scrapes it

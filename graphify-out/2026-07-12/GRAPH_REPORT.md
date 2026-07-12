@@ -1,16 +1,16 @@
 # Graph Report - vigorous-fermat-a0f881  (2026-07-12)
 
 ## Corpus Check
-- 253 files · ~267,409 words
+- 254 files · ~268,334 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 3121 nodes · 6842 edges · 365 communities (138 shown, 227 thin omitted)
+- 3125 nodes · 6852 edges · 375 communities (149 shown, 226 thin omitted)
 - Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 608 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `40dd1e53`
+- Built from commit: `330c1e18`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -369,6 +369,16 @@
 - [[_COMMUNITY_scripts|scripts]]
 - [[_COMMUNITY_CodingKeys|CodingKeys]]
 - [[_COMMUNITY_Sign-in settings (`apisettingsoauthprovider`)|Sign-in settings (`/api/settings/oauth/:provider`)]]
+- [[_COMMUNITY_notificationsApi.ts|notificationsApi.ts]]
+- [[_COMMUNITY_Verify|Verify]]
+- [[_COMMUNITY_authSessionApi.ts|authSessionApi.ts]]
+- [[_COMMUNITY_toggle-group.tsx|toggle-group.tsx]]
+- [[_COMMUNITY_adminCredentialApi.ts|adminCredentialApi.ts]]
+- [[_COMMUNITY_zipArchive.js|zipArchive.js]]
+- [[_COMMUNITY_publicViewerApi.ts|publicViewerApi.ts]]
+- [[_COMMUNITY_alert.tsx|alert.tsx]]
+- [[_COMMUNITY_NDEFReaderLike|NDEFReaderLike]]
+- [[_COMMUNITY_hover-card.tsx|hover-card.tsx]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `cn()` - 198 edges
@@ -391,8 +401,8 @@
   src/app/lib/analyticsLayoutApi.ts → slicer-proxy/octoprintDevice.js
 - `Watchtower sidecar (one-click update)` --shares_data_with--> `CI: Build and Push Images workflow`  [INFERRED]
   docker-compose.deploy.yml → .github/workflows/deploy.yml
-- `applyFilamentConsumption()` --calls--> `decrementSpoolWeight()`  [INFERRED]
-  go-services/cmd/poller/filament_consumption.go → go-services/cmd/poller/store.go
+- `checkLoginRate()` --calls--> `redisCheckLoginRate()`  [INFERRED]
+  go-services/cmd/web/authroutes.go → go-services/cmd/web/redis.go
 
 ## Import Cycles
 - 1-file cycle: `src/app/components/ui/sonner.tsx -> src/app/components/ui/sonner.tsx`
@@ -402,11 +412,11 @@
 - **Critical-severity security audit findings** — security_audit_c1_unauth_printer_proxy, security_audit_c2_rate_limiter_bypass, security_audit_c3_no_rate_limit_verify, security_audit_c4_slicer_upload_no_size_limit [INFERRED 0.85]
 - **Exporter to Prometheus to Grafana metrics pipeline** — claude_exporter_service, monitoring_prometheus_prometheus_scrape_config, monitoring_grafana_provisioning_datasources_prometheus_datasource_provisioning [EXTRACTED 1.00]
 
-## Communities (365 total, 227 thin omitted)
+## Communities (375 total, 226 thin omitted)
 
 ### Community 0 - "Radix UI Primitives (Avatar/Breadcrumb)"
-Cohesion: 0.03
-Nodes (85): AccordionContent(), AccordionItem(), AccordionTrigger(), Avatar(), AvatarFallback(), AvatarImage(), BreadcrumbEllipsis(), BreadcrumbItem() (+77 more)
+Cohesion: 0.06
+Nodes (38): Separator(), Sheet(), SheetContent(), SheetDescription(), SheetFooter(), SheetHeader(), SheetOverlay(), SheetTitle() (+30 more)
 
 ### Community 1 - "Go OAuth Provider Handling"
 Cohesion: 0.10
@@ -418,11 +428,11 @@ Nodes (98): analyzeSvgForTheme(), APP_VERSION, assertPublicHttpTarget(), authent
 
 ### Community 3 - "Postgres Store Maintenance/Analytics"
 Cohesion: 0.05
-Nodes (106): broadcastMaintenanceStatusUpdate(), broadcastQueueStatusUpdate(), createAndBroadcastMaintenanceNotification(), handleDataApiQueue(), maintenanceOverdueGrace(), parseIdList(), readBodyBounded(), runMaintenanceWorkerPass() (+98 more)
+Nodes (101): broadcastMaintenanceStatusUpdate(), createAndBroadcastMaintenanceNotification(), maintenanceOverdueGrace(), runMaintenanceWorkerPass(), streamQueueJobFile(), addPrintHours(), approveManagerRequest(), backfillAllMaintenanceSchedules() (+93 more)
 
 ### Community 4 - "Camera & Printer API Helpers"
 Cohesion: 0.08
-Nodes (32): BAMBU_SETUP_STEPS, buildCurrentJob(), buildJogGcode(), disablePrinterMotors(), FanDescriptor, fetchPrinterLiveStatus(), FilamentMaterial, getReachableGenericStatus() (+24 more)
+Nodes (34): normalizeMaxTwoDecimals(), BAMBU_SETUP_STEPS, buildCurrentJob(), buildJogGcode(), disablePrinterMotors(), fetchPrinterLiveStatus(), FILAMENT_MATERIALS, FilamentMaterial (+26 more)
 
 ### Community 5 - "Bambu Command Payload Builders"
 Cohesion: 0.14
@@ -430,55 +440,55 @@ Nodes (34): callHaService(), decodeBodyRawMap(), dispatchPrintControl(), evaluat
 
 ### Community 6 - "Settings Dialogs (Maintenance/OAuth/SAML)"
 Cohesion: 0.07
-Nodes (42): OAuthProviderSettings(), OAuthProviderSettingsProps, ACCEPTED_EXTENSIONS, FileEntry, PrintRequestDialogProps, DAY_LABELS, DEFAULT_SETTINGS, QueueAvailabilityDialogProps (+34 more)
+Nodes (49): COMMON_SERVICES, HIDDEN_CARD_DOMAINS, HomeAssistantSettings(), HomeAssistantSettingsProps, PRINTER_COMMANDS, PRINTER_STATUSES, OAuthProviderSettings(), ACCEPTED_EXTENSIONS (+41 more)
 
 ### Community 7 - "Go Maintenance Scheduling"
-Cohesion: 0.14
-Nodes (30): buildQueueAddedEmbed(), evaluateQueueAvailability(), getQueueAvailabilitySetting(), getQueueJobFileMeta(), handleQueueIntake(), handleQueueSubmit(), insertQueueSubmission(), listDiscordWebhooks() (+22 more)
+Cohesion: 0.07
+Nodes (58): completeMaintenanceEvent(), getMaintenanceDefaultIntervals(), getMaintenanceSummary(), getPrinterMaintenance(), healthStatusFromScore(), isNozzleResetType(), isOverdue(), jsISO() (+50 more)
 
 ### Community 8 - "Go Camera Hub (RTSP/ffmpeg)"
 Cohesion: 0.11
 Nodes (21): Cmd, addCameraViewer(), buildRtspURL(), ensureSupervisor(), exitCodeOf(), ffmpegArgs(), getAllCameraHealth(), getCameraHealth() (+13 more)
 
 ### Community 9 - "Go Data API Command Handling"
-Cohesion: 0.30
-Nodes (8): redisEnabled(), checkReadiness(), handleRequest(), marshalJSON(), sendEmpty(), sendJSON(), readinessResult, statusRecorder
+Cohesion: 0.19
+Nodes (15): envOr(), init(), logDebug(), logEmit(), logError(), logInfo(), logWarn(), checkReadiness() (+7 more)
 
 ### Community 10 - "Notification & Navigation UI"
 Cohesion: 0.04
 Nodes (51): dependencies, basic-ftp, busboy, class-variance-authority, clsx, date-fns, @dnd-kit/core, @dnd-kit/sortable (+43 more)
 
 ### Community 11 - "NPM Dependencies"
-Cohesion: 0.05
-Nodes (60): clampLogoScale(), decodeJwtClaims(), decodeSvgDataUrl(), defaultSamlAcsUrl(), defaultSamlSpEntityId(), evaluateQueueAvailability(), fetchLatestCommit(), getBranding() (+52 more)
+Cohesion: 0.06
+Nodes (56): clampLogoScale(), decodeJwtClaims(), decodeSvgDataUrl(), defaultSamlAcsUrl(), defaultSamlSpEntityId(), evaluateQueueAvailability(), fetchLatestCommit(), getBranding() (+48 more)
 
 ### Community 12 - "Slicer Grant & Filament Sync"
 Cohesion: 0.07
-Nodes (53): mintSlicerGrant(), SECRET, sign(), verifySlicerGrant(), buildFilamentManagerSelections(), buildFilamentManagerSpools(), buildSpoolManagerSpools(), FILAMENT_PLUGIN_SETTINGS (+45 more)
+Nodes (56): mintSlicerGrant(), SECRET, sign(), verifySlicerGrant(), normalizeColor(), resolveAmsMapping(), buildFilamentManagerSelections(), buildFilamentManagerSpools() (+48 more)
 
 ### Community 13 - "Branding & Integration Settings"
 Cohesion: 0.08
-Nodes (36): FilamentSpoolIcon(), CameraHealth, fetchCameraHealth(), buildPrinterWebcamMjpegUrl(), buildPrinterWebcamPlayerUrl(), buildPrinterWebcamSnapshotUrl(), FILAMENT_MATERIALS, FILAMENT_VENDORS (+28 more)
+Nodes (37): FilamentSpoolIcon(), CameraHealth, fetchCameraHealth(), buildPrinterWebcamMjpegUrl(), buildPrinterWebcamPlayerUrl(), buildPrinterWebcamSnapshotUrl(), FanDescriptor, FILAMENT_VENDORS (+29 more)
 
 ### Community 14 - "Home Assistant / SAML Settings UI"
-Cohesion: 0.12
-Nodes (25): logAuditEvent(), assignFilamentSpool(), AssignSpoolInput, createFilamentSpool(), deleteFilamentSpool(), fetchFilamentSpools(), fetchFilamentStationAssignments(), fetchOpenSpoolPayload() (+17 more)
+Cohesion: 0.15
+Nodes (20): logAuditEvent(), assignFilamentSpool(), AssignSpoolInput, createFilamentSpool(), deleteFilamentSpool(), fetchFilamentSpools(), fetchFilamentStationAssignments(), fetchOpenSpoolPayload() (+12 more)
 
 ### Community 15 - "Go Exporter Metrics Collection"
 Cohesion: 0.27
 Nodes (11): parse3mfFilamentSlots(), build3mf(), TestParse3mfFilamentSlots_MissingOrZeroUsedGSkipped(), TestParse3mfFilamentSlots_MultiplePlatesAndFilaments(), TestParse3mfFilamentSlots_NoSliceInfoConfig(), TestParse3mfFilamentSlots_NotAZip(), NewWriter(), filamentSlot (+3 more)
 
 ### Community 16 - "Go Auth Routes (Login/Rate Limit)"
-Cohesion: 0.16
-Nodes (28): adminStoredHash(), authProviders(), clearLoginAttempts(), clientIPString(), findUserByCredential(), handleAdminCredential(), handleAdminCredentialVerify(), handleAuthRoutes() (+20 more)
+Cohesion: 0.19
+Nodes (24): adminStoredHash(), authProviders(), checkLoginRate(), clearLoginAttempts(), clientIPString(), findUserByCredential(), handleAdminCredential(), handleAdminCredentialVerify() (+16 more)
 
 ### Community 17 - "Go Data API Route Dispatch"
-Cohesion: 0.16
-Nodes (36): auditDataApi(), dataApiMethodNotAllowed(), derivePasswordHash(), establishSsoSession(), findUserByCredential(), getClientIp(), handleDataApi(), handleDataApiAdminCredential() (+28 more)
+Cohesion: 0.15
+Nodes (38): auditDataApi(), dataApiMethodNotAllowed(), derivePasswordHash(), establishSsoSession(), findUserByCredential(), getClientIp(), handleDataApi(), handleDataApiAdminCredential() (+30 more)
 
 ### Community 18 - "Go Bambu Report Decoding"
-Cohesion: 0.10
-Nodes (26): accruePrintHoursAndTriggerMaintenance(), bptrToAny(), decrementSpoolWeight(), derefStr(), finalizeJobAnalytics(), findAssignedSpoolID(), fptrToAny(), jsonbParam() (+18 more)
+Cohesion: 0.15
+Nodes (20): accruePrintHoursAndTriggerMaintenance(), bptrToAny(), derefStr(), finalizeJobAnalytics(), fptrToAny(), jsonbParam(), listDiscordWebhooks(), listPrinters() (+12 more)
 
 ### Community 19 - "Go Manager & Notification Routes"
 Cohesion: 0.10
@@ -489,12 +499,12 @@ Cohesion: 0.11
 Nodes (25): checkReadiness(), deltaSince(), flushNetworkUsagePass(), handleRequest(), setSecurityHeaders(), bytesByRoute, bytesInByRoute, classifyRoute() (+17 more)
 
 ### Community 21 - "Nav & Print Request UI Shell"
-Cohesion: 0.09
-Nodes (26): MaintenanceNotifier(), AdminRoute(), ProtectedRoute(), StaffRoute(), useAuth(), usePrinters(), isPrivilegedStaff(), SidebarProvider() (+18 more)
+Cohesion: 0.07
+Nodes (37): AccordionContent(), AccordionItem(), AccordionTrigger(), Avatar(), AvatarFallback(), AvatarImage(), BreadcrumbEllipsis(), BreadcrumbItem() (+29 more)
 
 ### Community 22 - "Software Update Settings & Cards"
-Cohesion: 0.06
-Nodes (53): AnalyticsCardGrid(), AnalyticsCardGridProps, BREAKPOINTS, buildMobileLayout(), COLS, Rect, ResponsiveGridLayout, STAT_CARD_IDS (+45 more)
+Cohesion: 0.08
+Nodes (38): Table(), TableBody(), TableCaption(), TableCell(), TableFooter(), TableHead(), TableHeader(), TableRow() (+30 more)
 
 ### Community 23 - "Python Poller Bambu State Builders"
 Cohesion: 0.12
@@ -509,20 +519,20 @@ Cohesion: 0.08
 Nodes (31): Connection, accrue_print_hours_and_trigger_maintenance(), accumulate_total_print_time(), apply_slicer_filament_estimate(), collect_analytics_for_transition(), decrypt_secret(), encrypt_secret(), ensure_schema() (+23 more)
 
 ### Community 26 - "Frontend Auth Context"
-Cohesion: 0.06
-Nodes (41): AuthContext, AuthContextType, ChangePasswordResult, ChangeRoleResult, clearStoredSession(), CreateUserInput, CreateUserResult, createViewerSession() (+33 more)
+Cohesion: 0.09
+Nodes (24): AuthContext, AuthContextType, ChangePasswordResult, ChangeRoleResult, clearStoredSession(), CreateUserInput, CreateUserResult, createViewerSession() (+16 more)
 
 ### Community 27 - "Node Bambu Camera Snapshot/Stream"
 Cohesion: 0.15
 Nodes (8): addCameraViewer(), buildRtspUrl(), CameraStream, ensureSupervisor(), ffmpegArgs(), getCameraSnapshot(), getStream(), streams
 
 ### Community 28 - "Queue & Notification List Items"
-Cohesion: 0.18
-Nodes (21): completeMaintenanceEvent(), getMaintenanceSummary(), getPrinterMaintenance(), healthStatusFromScore(), isNozzleResetType(), isOverdue(), jsISO(), listMaintenanceEvents() (+13 more)
+Cohesion: 0.14
+Nodes (19): AnalyticsCardGrid(), AnalyticsCardGridProps, BREAKPOINTS, buildMobileLayout(), COLS, Rect, ResponsiveGridLayout, STAT_CARD_IDS (+11 more)
 
 ### Community 29 - "Go Printer Store Encryption/CRUD"
 Cohesion: 0.11
-Nodes (22): MaintenanceIntervalsSettings(), completeMaintenanceTask(), fetchMaintenanceEvents(), fetchMaintenanceIntervals(), fetchMaintenanceNotifications(), fetchPrinterMaintenance(), HealthStatus, healthStatusFromScore() (+14 more)
+Nodes (26): MaintenanceIntervalsSettings(), QueueItem(), completeMaintenanceTask(), fetchMaintenanceEvents(), fetchMaintenanceIntervals(), fetchMaintenanceNotifications(), fetchMaintenanceSummary(), fetchPrinterMaintenance() (+18 more)
 
 ### Community 30 - "Home Assistant Settings UI"
 Cohesion: 0.18
@@ -545,8 +555,8 @@ Cohesion: 0.19
 Nodes (13): estimateRequestLineBytes(), getJSON(), httpGet(), computeNextPrinter(), isExpectedOffline(), refreshStatus(), buildSpoolsFromTaskConfig(), fetchGenericStatus() (+5 more)
 
 ### Community 35 - "Go Settings/Branding API"
-Cohesion: 0.10
-Nodes (24): LEVEL_BY_KIND, NotificationBell(), EmitEvent, getJobName(), notifyPrinterTransition(), PrinterSnapshot, PrinterStatusNotifier(), TransitionResult (+16 more)
+Cohesion: 0.11
+Nodes (20): EventRow(), formatRelativeTime(), LEVEL_ICON, LEVEL_ICON_COLOR, NotificationBell(), EmitEvent, getJobName(), notifyPrinterTransition() (+12 more)
 
 ### Community 36 - "Go Analytics Mutation Handlers"
 Cohesion: 0.17
@@ -558,7 +568,7 @@ Nodes (26): round(), bambuLightNodes(), buildBambuCommandPayload(), buildBambuLe
 
 ### Community 38 - "Radix Alert Dialog"
 Cohesion: 0.10
-Nodes (22): AlertDialog(), AlertDialogAction(), AlertDialogCancel(), AlertDialogContent(), AlertDialogDescription(), AlertDialogFooter(), AlertDialogHeader(), AlertDialogOverlay() (+14 more)
+Nodes (22): BackupSettings(), AlertDialog(), AlertDialogAction(), AlertDialogCancel(), AlertDialogContent(), AlertDialogDescription(), AlertDialogFooter(), AlertDialogHeader() (+14 more)
 
 ### Community 40 - "Go Poller Network & Refresh Cycle"
 Cohesion: 0.06
@@ -569,20 +579,20 @@ Cohesion: 0.31
 Nodes (15): mMap(), discordColorForStatus(), buildFilamentRunoutEmbed(), buildJobTransitionEvent(), buildStatusTransitionEmbed(), buildTempReachedEmbed(), checkFilamentRunout(), collectAnalyticsForTransition() (+7 more)
 
 ### Community 42 - "App Shell & Theme Providers"
-Cohesion: 0.16
-Nodes (8): App(), RootErrorBoundary, BrandingApplier(), ThemeProvider(), Toaster(), AuthProvider(), useDeployDetector(), router
+Cohesion: 0.18
+Nodes (7): App(), RootErrorBoundary, BrandingApplier(), ThemeProvider(), Toaster(), AuthProvider(), useDeployDetector()
 
 ### Community 43 - "Go Bambu FTP Filament Estimate"
-Cohesion: 0.21
-Nodes (20): buildBambuCurrentJob(), spoolColorsAndTypes(), spoolGrams(), updateBambuFilamentUsed(), applySlicerFilamentEstimate(), bambu3mfCandidates(), ensureBambuSlicerEstimate(), fetchBambu3mf() (+12 more)
+Cohesion: 0.32
+Nodes (12): applySlicerFilamentEstimate(), bambu3mfCandidates(), ensureBambuSlicerEstimate(), fetchBambu3mf(), maybeRecordBambu3mfEstimate(), minF(), openBambuFTP(), parse3mfFilamentGrams() (+4 more)
 
 ### Community 44 - "Go Auth & CSRF Enforcement"
 Cohesion: 0.23
 Nodes (15): authorizeFrontendApi(), buildSessionCookie(), classifyApiRequest(), clearSessionCookie(), getClientIP(), isAdminMutation(), isOperatorMutation(), isPrivilegedRole() (+7 more)
 
 ### Community 45 - "Legacy Sheet Sync & Vite Config"
-Cohesion: 0.11
-Nodes (15): buildQueueAddedEmbed(), sendQueueAddedNotifications(), addEventSubscriber(), broadcastMaintenanceNotification(), broadcastMaintenanceStatus(), broadcastQueueAdded(), broadcastQueueStatus(), subscribers (+7 more)
+Cohesion: 0.14
+Nodes (9): buildQueueAddedEmbed(), sendQueueAddedNotifications(), listDiscordWebhooks(), listQueueData(), buildQueueAddedEmbed(), getGoogleSheetId(), isoTimestamp(), sendQueueAddedNotifications() (+1 more)
 
 ### Community 46 - "Docker Compose Services"
 Cohesion: 0.15
@@ -617,12 +627,12 @@ Cohesion: 0.31
 Nodes (12): analyzeSvgForTheme(), brandingScaleInput(), capRunes(), decodeSvgDataUrl(), firstGroup(), handleBrandingPut(), normalizeSvgSize(), replaceFirst() (+4 more)
 
 ### Community 54 - "Python Discord Notification Builders"
-Cohesion: 0.12
-Nodes (24): analyticsTab, BottomTabBar(), filamentStationTab, maintenanceTab, primaryTabs, TabConfig, Logo(), LogoProps (+16 more)
+Cohesion: 0.06
+Nodes (50): analyticsTab, BottomTabBar(), filamentStationTab, maintenanceTab, primaryTabs, TabConfig, Logo(), LogoProps (+42 more)
 
 ### Community 55 - "Node Printer Proxy & Metrics"
-Cohesion: 0.09
-Nodes (31): EventRow(), formatRelativeTime(), LEVEL_ICON, LEVEL_ICON_COLOR, PrinterCard(), PrinterCardProps, SIZE_CLASSES, QueueItemProps (+23 more)
+Cohesion: 0.14
+Nodes (19): PrinterCard(), PrinterCardProps, SIZE_CLASSES, Popover(), PopoverContent(), PopoverTrigger(), PrintersContextValue, CardSize (+11 more)
 
 ### Community 56 - "Node SAML SP Implementation"
 Cohesion: 0.26
@@ -641,8 +651,8 @@ Cohesion: 0.31
 Nodes (5): FilamentStationAPI, JSONDecoder, TagScanResult, URL, URLRequest
 
 ### Community 60 - "Go Redis Client & TLS Config"
-Cohesion: 0.17
-Nodes (9): checkLoginRate(), redisCheckLoginRate(), redisClearLoginAttempts(), redisRecordLoginFailure(), samlProbeTransport(), RoundTripper, rateResult, ssrfBlockedError (+1 more)
+Cohesion: 0.13
+Nodes (10): redisCheckLoginRate(), redisClearLoginAttempts(), redisRecordLoginFailure(), samlProbeTransport(), isPrivateHost(), isPrivateIP(), IP, RoundTripper (+2 more)
 
 ### Community 61 - "Frontend XLSX Export"
 Cohesion: 0.22
@@ -657,24 +667,24 @@ Cohesion: 0.31
 Nodes (8): changeUserPasswordApi(), changeUserRoleApi(), createUserApi(), CreateUserApiResult, deleteUserApi(), MutationResult, readError(), StaffUser
 
 ### Community 64 - "Go Logger & Main Entrypoint"
-Cohesion: 0.21
-Nodes (13): envOr(), init(), logDebug(), logEmit(), logError(), logInfo(), logWarn(), main() (+5 more)
+Cohesion: 0.12
+Nodes (9): Header, main(), maxIntVal(), initRedis(), setSecurityHeaders(), itoa(), Connect(), NewPool() (+1 more)
 
 ### Community 65 - "Radix Form Components"
-Cohesion: 0.10
-Nodes (20): react, ChartConfig, ChartContainer(), ChartContext, ChartContextProps, ChartLegendContent(), ChartTooltipContent(), THEMES (+12 more)
+Cohesion: 0.14
+Nodes (13): react, ChartConfig, ChartContainer(), ChartContext, ChartContextProps, ChartLegendContent(), ChartTooltipContent(), THEMES (+5 more)
 
 ### Community 66 - "Go Discord Notify & Snapshot"
-Cohesion: 0.16
-Nodes (15): QueueAvailabilityDialog(), QueueItem(), PrintersContext, PrintersContextValue, PrintersProvider(), fetchPrintersIfChanged(), bypassQueueAvailability(), deleteQueueJob() (+7 more)
+Cohesion: 0.13
+Nodes (19): QueueAvailabilityDialog(), QueueItemProps, SpoolIndicatorProps, bypassQueueAvailability(), deleteQueueJob(), fetchQueueAvailability(), fetchQueueJobs(), markQueueJobAsPrinted() (+11 more)
 
 ### Community 67 - "Go Server & Static Handling"
-Cohesion: 0.13
-Nodes (17): AuditActor, AuditLogEntry, currentActor, fetchAuditLogs(), setAuditActor(), DiscordWebhook, fetchDiscordWebhooks(), NOTIFICATION_EVENT_KEYS (+9 more)
+Cohesion: 0.16
+Nodes (13): AuditActor, AuditLogEntry, currentActor, fetchAuditLogs(), setAuditActor(), fetchPrinterCallbackUrl(), parseError(), PrinterCallbackUrlSetting (+5 more)
 
 ### Community 68 - "Go Telemetry & Frontend Bootstrap"
-Cohesion: 0.15
-Nodes (28): bambuActiveSpoolID(), bambuTrayKey(), buildBambuDualNozzles(), buildBambuFanSpeeds(), buildBambuSpools(), chamberTempCandidates(), decodeBambuChamberTarget(), decodeBambuChamberTemp() (+20 more)
+Cohesion: 0.14
+Nodes (32): bambuActiveSpoolID(), bambuTrayKey(), buildBambuCurrentJob(), buildBambuDualNozzles(), buildBambuFanSpeeds(), buildBambuSpools(), chamberTempCandidates(), decodeBambuChamberTarget() (+24 more)
 
 ### Community 69 - "Python Bambu FTP Implicit TLS"
 Cohesion: 0.21
@@ -701,8 +711,8 @@ Cohesion: 0.25
 Nodes (15): bambuAMSFamily(), bambuDoorOpen(), bambuErrorMessage(), bambuFilamentRunout(), bambuHMSCodes(), bambuHMSTextFor(), buildBambuErrorMessage(), coerceHMSInt() (+7 more)
 
 ### Community 76 - "Python Redis Telemetry Publisher"
-Cohesion: 0.33
-Nodes (6): relativeTime(), short(), SoftwareUpdateSettings(), UpdateLogEntry, Badge(), badgeVariants
+Cohesion: 0.21
+Nodes (11): relativeTime(), short(), SoftwareUpdateSettings(), UpdateLogEntry, Badge(), badgeVariants, ApplyResult, applyUpdate() (+3 more)
 
 ### Community 77 - "Frontend Users API"
 Cohesion: 0.17
@@ -713,8 +723,8 @@ Cohesion: 0.35
 Nodes (13): createFilamentSpoolFromTray(), ensureAutoAssignment(), findFilamentSpoolByTag(), isValidTag(), isValidTrayUUID(), matchOrCreateFilamentSpools(), normalizeHex(), normalizeTagUID() (+5 more)
 
 ### Community 79 - "Go SSRF Guard"
-Cohesion: 0.23
-Nodes (14): decodeMqttMapping(), matchSlotsByColor(), normalizeColorHex(), resolveSlotToTray(), TestDecodeMqttMapping(), TestDecodeMqttMapping_AllUnmapped(), TestDecodeMqttMapping_Empty(), TestMatchSlotsByColor_AmbiguousReturnsNil() (+6 more)
+Cohesion: 0.16
+Nodes (19): takeBambuPrintBaseline(), applyFilamentConsumption(), decodeMqttMapping(), matchSlotsByColor(), normalizeColorHex(), resolveSlotToTray(), TestDecodeMqttMapping(), TestDecodeMqttMapping_AllUnmapped() (+11 more)
 
 ### Community 80 - "package.json Metadata"
 Cohesion: 0.19
@@ -778,19 +788,19 @@ Nodes (3): Android Adaptive Icon Maskable Safe Zone, PrintFarm 3D Printer Glyph 
 
 ### Community 98 - "ESLint & Go Config Stub"
 Cohesion: 0.16
-Nodes (7): durationFromMs(), envInt(), envIntMin(), maxInt(), addrPort(), bambuTLSConfig(), bambuTLSConfig()
+Nodes (8): durationFromMs(), envInt(), envIntMin(), isTruthy(), maxInt(), addrPort(), bambuTLSConfig(), bambuTLSConfig()
 
 ### Community 101 - "Go Web Dockerfile"
-Cohesion: 0.19
-Nodes (6): addBytesIn(), FromEnv(), Message, Once, rootElement, Client
+Cohesion: 0.13
+Nodes (11): getBambuClient(), newBambuClient(), pruneBambuClients(), addBytesIn(), addBytesOut(), FromEnv(), Message, Once (+3 more)
 
 ### Community 108 - "3D-FarmLab — API Reference"
 Cohesion: 0.11
 Nodes (17): 3D-FarmLab — API Reference, Authentication, Conventions, Discovery, Example, `GET /api/settings/public-viewer`, `GET /api/settings/saml`, `GET /api/settings/sso-public-url` (+9 more)
 
 ### Community 109 - "Monitoring — Prometheus"
-Cohesion: 0.24
-Nodes (10): EnabledOAuthProviders, fetchOAuthSettings(), MutationResult, OAuthSettings, OAuthSettingsInput, OAuthUser, readError(), saveOAuthSettings() (+2 more)
+Cohesion: 0.18
+Nodes (13): OAuthProviderSettingsProps, EnabledOAuthProviders, fetchEnabledOAuthProviders(), fetchOAuthSettings(), MutationResult, OAuthProvider, OAuthSettings, OAuthSettingsInput (+5 more)
 
 ### Community 110 - "menubar.tsx"
 Cohesion: 0.33
@@ -837,8 +847,8 @@ Cohesion: 0.31
 Nodes (10): fetchBambuSnapshot(), fetchPrinterSnapshot(), fileHeader(), grabMJPEGFrame(), postJSON(), postSnapshot(), sendDiscordEmbed(), ttsContentForEmbed() (+2 more)
 
 ### Community 122 - "Go web/api port — roadmap"
-Cohesion: 0.06
-Nodes (49): BackupSettings(), COMMON_SERVICES, HIDDEN_CARD_DOMAINS, HomeAssistantSettings(), HomeAssistantSettingsProps, PRINTER_COMMANDS, PRINTER_STATUSES, Alert() (+41 more)
+Cohesion: 0.33
+Nodes (9): approveManagerRequest(), denyManagerRequest(), fetchManagerRequests(), ManagerRequest, ManagerRequestStatus, parseError(), pollManagerRequestStatus(), revokeManagerAccess() (+1 more)
 
 ### Community 123 - "Frontend session API (`/api/auth/*`)"
 Cohesion: 0.22
@@ -849,8 +859,8 @@ Cohesion: 0.22
 Nodes (7): Architecture, Code Style, Commands, graphify, Guidelines, Key Operational Behaviors, Project
 
 ### Community 125 - "pagination.tsx"
-Cohesion: 0.28
-Nodes (7): getMaintenanceDefaultIntervals(), normalizeIntervals(), setMaintenanceDefaultIntervals(), matchLubric(), round2(), trimString(), maintenanceInterval
+Cohesion: 0.12
+Nodes (9): ContextMenuCheckboxItem(), ContextMenuContent(), ContextMenuItem(), ContextMenuLabel(), ContextMenuRadioItem(), ContextMenuSeparator(), ContextMenuShortcut(), ContextMenuSubContent() (+1 more)
 
 ### Community 126 - "SSO configuration (`/api/settings/saml`)"
 Cohesion: 0.48
@@ -885,8 +895,12 @@ Cohesion: 0.29
 Nodes (6): Deployment Hardening, Disclosure Policy, Reporting a Vulnerability, Scope, Security Policy, Supported Versions
 
 ### Community 200 - "scripts"
-Cohesion: 0.40
-Nodes (3): isPrivateHost(), isPrivateIP(), IP
+Cohesion: 0.12
+Nodes (9): DropdownMenuCheckboxItem(), DropdownMenuContent(), DropdownMenuItem(), DropdownMenuLabel(), DropdownMenuRadioItem(), DropdownMenuSeparator(), DropdownMenuShortcut(), DropdownMenuSubContent() (+1 more)
+
+### Community 201 - "security.go"
+Cohesion: 0.23
+Nodes (10): FormControl(), FormDescription(), FormFieldContext, FormFieldContextValue, FormItem(), FormItemContext, FormItemContextValue, FormLabel() (+2 more)
 
 ### Community 202 - "devDependencies"
 Cohesion: 0.33
@@ -896,9 +910,13 @@ Nodes (6): devDependencies, tailwindcss, @tailwindcss/vite, @types/react-grid-la
 Cohesion: 0.50
 Nodes (3): Filament Station — iOS (Core NFC), Screens, What needs real-device verification (can't be checked here)
 
+### Community 204 - "db.go"
+Cohesion: 0.27
+Nodes (9): fetchSamlMetadata(), fetchSamlSettings(), readError(), SamlSettings, SamlSettingsInput, SamlTestCheck, SamlTestResult, saveSamlSettings() (+1 more)
+
 ### Community 205 - "merge_firmware.py"
-Cohesion: 0.40
-Nodes (5): ApplyResult, applyUpdate(), fetchUpdateStatus(), readError(), UpdateStatus
+Cohesion: 0.33
+Nodes (8): broadcastQueueStatusUpdate(), addEventSubscriber(), broadcastMaintenanceNotification(), broadcastMaintenanceStatus(), broadcastQueueAdded(), broadcastQueueStatus(), subscribers, writeEvent()
 
 ### Community 360 - "scripts"
 Cohesion: 0.40
@@ -912,6 +930,42 @@ Nodes (4): CodingKey, CodingKeys, matched, spoolId
 Cohesion: 0.67
 Nodes (3): `GET /api/settings/oauth/:provider`, `PUT /api/settings/oauth/:provider`, Sign-in settings (`/api/settings/oauth/:provider`)
 
+### Community 365 - "notificationsApi.ts"
+Cohesion: 0.31
+Nodes (8): DiscordWebhook, fetchDiscordWebhooks(), NOTIFICATION_EVENT_KEYS, NOTIFICATION_EVENTS, NotificationEvent, parseError(), removeDiscordWebhook(), saveDiscordWebhook()
+
+### Community 366 - "Verify"
+Cohesion: 0.46
+Nodes (6): Derive(), IsScryptHash(), IsSha256Hex(), NeedsUpgrade(), ToStored(), Verify()
+
+### Community 367 - "authSessionApi.ts"
+Cohesion: 0.29
+Nodes (7): fetchSession(), loginSession(), LoginSessionResult, logoutSession(), readError(), SessionRole, SessionUser
+
+### Community 368 - "toggle-group.tsx"
+Cohesion: 0.43
+Nodes (5): ToggleGroup(), ToggleGroupContext, ToggleGroupItem(), Toggle(), toggleVariants
+
+### Community 369 - "adminCredentialApi.ts"
+Cohesion: 0.38
+Nodes (5): changeAdminCredential(), fetchAdminConfigured(), MutationResult, readError(), setupAdminCredential()
+
+### Community 370 - "zipArchive.js"
+Cohesion: 0.47
+Nodes (5): crc32(), CRC_TABLE, createZip(), dosDateTime(), readZip()
+
+### Community 371 - "publicViewerApi.ts"
+Cohesion: 0.47
+Nodes (5): isPublicViewerAllowed(), fetchPublicViewerSetting(), parseError(), PublicViewerSetting, savePublicViewerSetting()
+
+### Community 372 - "alert.tsx"
+Cohesion: 0.50
+Nodes (4): Alert(), AlertDescription(), AlertTitle(), alertVariants
+
+### Community 373 - "NDEFReaderLike"
+Cohesion: 0.40
+Nodes (3): NDEFReaderLike, SpoolsTab(), useSpoolTagWriter()
+
 ## Ambiguous Edges - Review These
 - `public/icons.svg (icon sprite sheet)` → `documentation-icon symbol (open-book glyph)`  [AMBIGUOUS]
   public/icons.svg · relation: conceptually_related_to
@@ -921,7 +975,7 @@ Nodes (3): `GET /api/settings/oauth/:provider`, `PUT /api/settings/oauth/:provid
 ## Knowledge Gaps
 - **534 isolated node(s):** `valid`, `wifiSsid`, `wifiPassword`, `serverUrl`, `pollIntervalMs` (+529 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **227 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **226 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
@@ -930,13 +984,13 @@ _Questions this graph is uniquely positioned to answer:_
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `public/icons.svg (icon sprite sheet)` and `github-icon symbol (GitHub cat mark)`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **Why does `Client` connect `Go Web Dockerfile` to `Go Telemetry & Frontend Bootstrap`?**
-  _High betweenness centrality (0.326) - this node is a cross-community bridge._
-- **Why does `Select()` connect `Go web/api port — roadmap` to `Node SAML SP Implementation`, `Branding & Integration Settings`?**
-  _High betweenness centrality (0.168) - this node is a cross-community bridge._
-- **Why does `selectNs()` connect `Node SAML SP Implementation` to `Go web/api port — roadmap`?**
-  _High betweenness centrality (0.167) - this node is a cross-community bridge._
+- **Why does `Select()` connect `Settings Dialogs (Maintenance/OAuth/SAML)` to `Node SAML SP Implementation`, `Branding & Integration Settings`?**
+  _High betweenness centrality (0.164) - this node is a cross-community bridge._
+- **Why does `selectNs()` connect `Node SAML SP Implementation` to `Settings Dialogs (Maintenance/OAuth/SAML)`?**
+  _High betweenness centrality (0.164) - this node is a cross-community bridge._
 - **What connects `Prometheus exporter for the STEM Lab Print Farm.  A standalone, read-only servic`, `Reads the print-farm tables on every scrape and yields metric families.`, `Run every query and build the metric families, or raise on failure.          Ret` to the rest of the system?**
   _608 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Radix UI Primitives (Avatar/Breadcrumb)` be split into smaller, more focused modules?**
-  _Cohesion score 0.03247400655177325 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05893719806763285 - nodes in this community are weakly interconnected._
+- **Should `Go OAuth Provider Handling` be split into smaller, more focused modules?**
+  _Cohesion score 0.09577677224736049 - nodes in this community are weakly interconnected._
