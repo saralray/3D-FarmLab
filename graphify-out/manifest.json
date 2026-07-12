@@ -400,8 +400,8 @@
     "semantic_hash": "c25e1b4913ad90d86caf72591783f425"
   },
   "slicer-proxy/index.js": {
-    "mtime": 1783866693.1262221,
-    "ast_hash": "1cbdd21976b577e4e32da8036f8a0d6b",
+    "mtime": 1783870649.9788744,
+    "ast_hash": "de10437582288cbde9f40bce9925d851",
     "semantic_hash": ""
   },
   "slicer-proxy/octoprintDevice.js": {
@@ -410,8 +410,8 @@
     "semantic_hash": "5342eba78d24ff440ecda7b812864d75"
   },
   "slicer-proxy/parse3mf.js": {
-    "mtime": 1783866508.080537,
-    "ast_hash": "081cddcf6bcf0046e9713e914f1a3af3",
+    "mtime": 1783870568.580206,
+    "ast_hash": "8f33fb44f0ac3a0a5bba3981c61b8b43",
     "semantic_hash": ""
   },
   "src/app/App.tsx": {
@@ -995,8 +995,8 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1783865371.905776,
-    "ast_hash": "67cf176cbc3aceb1420f9dd127e66558",
+    "mtime": 1783870769.7668622,
+    "ast_hash": "9f495e30227b948d814f2592d0337d67",
     "semantic_hash": ""
   },
   "README.md": {
@@ -1025,8 +1025,8 @@
     "semantic_hash": ""
   },
   "docker-compose.yml": {
-    "mtime": 1783865371.926776,
-    "ast_hash": "fcaffd36bb825a86076b26416835e1d8",
+    "mtime": 1783870693.2071698,
+    "ast_hash": "3b5f4e41787a6f229735b4f9569bf786",
     "semantic_hash": ""
   },
   "exporter/requirements.txt": {
@@ -1357,6 +1357,11 @@
   "server/statusLightPresence.js": {
     "mtime": 1783865372.0329325,
     "ast_hash": "2ecdae9a6efd65270f8e5b50220e20ac",
+    "semantic_hash": ""
+  },
+  "slicer-proxy/amsMapping.js": {
+    "mtime": 1783870588.9268727,
+    "ast_hash": "ecc126f2a5c089ea5551ff132e002a35",
     "semantic_hash": ""
   }
 }

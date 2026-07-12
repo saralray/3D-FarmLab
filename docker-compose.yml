@@ -252,6 +252,9 @@ services:
       # C-4 FIX: cap the in-memory multipart buffer. Must be <= the nginx
       # client_max_body_size for /printers/ (SLICER_MAX_BODY_SIZE). Default 500 MB.
       SLICER_UPLOAD_MAX_BYTES: ${SLICER_UPLOAD_MAX_BYTES:-524288000}
+      # Auto-map slicer pushes onto the printer's AMS trays (material match,
+      # color preferred). Set false to always demand the external spool.
+      SLICER_AMS_AUTO: ${SLICER_AMS_AUTO:-true}
 
   # Read-only Prometheus exporter: exposes the PostgreSQL print-farm data as
   # metrics on :9180/metrics. Not published to the host — Prometheus scrapes it
