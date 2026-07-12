@@ -63,6 +63,12 @@ jobs:
             -f Dockerfile.slicer-proxy \
             -t "${IMAGE_PREFIX}/printfarm-slicer-proxy:latest" .
 
+      - name: Build mcp image
+        run: |
+          docker build \
+            -f Dockerfile.mcp \
+            -t "${IMAGE_PREFIX}/printfarm-mcp:latest" .
+
       - name: Push images
         run: |
           docker push "${IMAGE_PREFIX}/printfarm-web:latest"
@@ -70,3 +76,4 @@ jobs:
           docker push "${IMAGE_PREFIX}/printfarm-nginx:latest"
           docker push "${IMAGE_PREFIX}/printfarm-exporter:latest"
           docker push "${IMAGE_PREFIX}/printfarm-slicer-proxy:latest"
+          docker push "${IMAGE_PREFIX}/printfarm-mcp:latest"

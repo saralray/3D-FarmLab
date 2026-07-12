@@ -58,6 +58,10 @@ services:
     build: !reset null
     image: ${IMAGE_PREFIX:?set IMAGE_PREFIX}/printfarm-slicer-proxy:latest
 
+  mcp:
+    build: !reset null
+    image: ${IMAGE_PREFIX:?set IMAGE_PREFIX}/printfarm-mcp:latest
+
   # On-demand updater. Runs no periodic poll — it only acts when the web server
   # POSTs to its HTTP API (the admin's "Update now" click), then pulls the newer
   # :latest images and recreates the changed containers.
