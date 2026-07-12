@@ -2894,6 +2894,25 @@ function buildStatusLightProvisioning() {
   };
 }
 
+// Full printer roster for the flasher's device picker, not just printers with
+// a light currently polling — a brand-new device being provisioned has never
+// polled, so it would never appear in a presence-only list. Merges the
+// redacted (secret-free) printer list with whatever presence data exists, so
+// entries the flasher hasn't seen yet still show up with connected: false.
+async function buildStatusLightDeviceRoster() {
+  const printers = await listPrintersRedacted();
+  const presence = new Map(getStatusLightDevices().map((d) => [d.printerId, d]));
+  return printers.map((p) => {
+    const seen = presence.get(p.id);
+    return {
+      printerId: p.id,
+      name: p.name,
+      connected: seen ? seen.connected : false,
+      lastSeen: seen ? seen.lastSeen : null,
+    };
+  });
+}
+
 // Resolve a printer's current light status (idle|printing|paused|error|offline),
 // applying the same live-telemetry overlay /api/printers/:id uses so the light
 // tracks the freshest state. Returns { id, status } or null when the printer is
@@ -3838,7 +3857,9 @@ async function handleApi(req, res, requestUrl) {
   // GET /api/status-light/provisioning — admin-only (isSensitiveRead): the poll
   //   settings the flash page writes to an ESP32 status light over Web Serial.
   // GET /api/status-light/devices — public read (no secrets, same class as
-  //   /api/printers): which printers currently have a light polling. Carries
+  //   /api/printers): the full printer roster (id, name) merged with presence,
+  //   so a brand-new device that has never polled still shows up for picking —
+  //   only `connected`/`lastSeen` distinguish printers with a live light. Carries
   //   CORS headers — the static in-browser flasher (a different origin) reads
   //   this to populate its printer picker.
   // GET /api/status-light/printers/:id — public read: the plain status string
@@ -3860,7 +3881,7 @@ async function handleApi(req, res, requestUrl) {
       res.end();
       return true;
     }
-    sendJson(res, 200, { devices: getStatusLightDevices() }, 'no-store');
+    sendJson(res, 200, { devices: await buildStatusLightDeviceRoster() }, 'no-store');
     return true;
   }
   {
