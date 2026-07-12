@@ -3838,21 +3838,42 @@ async function handleApi(req, res, requestUrl) {
   // GET /api/status-light/provisioning — admin-only (isSensitiveRead): the poll
   //   settings the flash page writes to an ESP32 status light over Web Serial.
   // GET /api/status-light/devices — public read (no secrets, same class as
-  //   /api/printers): which printers currently have a light polling.
+  //   /api/printers): which printers currently have a light polling. Carries
+  //   CORS headers — the static in-browser flasher (a different origin) reads
+  //   this to populate its printer picker.
   // GET /api/status-light/printers/:id — public read: the plain status string
   //   (idle|printing|paused|error|offline) an ESP32 light polls; also stamps the
-  //   device's presence for the devices list above.
+  //   device's presence for the devices list above. Same CORS treatment.
   if (requestUrl.pathname === '/api/status-light/provisioning' && req.method === 'GET') {
     sendJson(res, 200, buildStatusLightProvisioning(), 'no-store');
     return true;
   }
-  if (requestUrl.pathname === '/api/status-light/devices' && req.method === 'GET') {
+  if (
+    requestUrl.pathname === '/api/status-light/devices' &&
+    (req.method === 'GET' || req.method === 'OPTIONS')
+  ) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      res.end();
+      return true;
+    }
     sendJson(res, 200, { devices: getStatusLightDevices() }, 'no-store');
     return true;
   }
   {
     const statusMatch = requestUrl.pathname.match(/^\/api\/status-light\/printers\/([^/]+)$/);
-    if (statusMatch && req.method === 'GET') {
+    if (statusMatch && (req.method === 'GET' || req.method === 'OPTIONS')) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      if (req.method === 'OPTIONS') {
+        res.statusCode = 204;
+        res.end();
+        return true;
+      }
       const result = await resolveStatusLightStatus(decodeURIComponent(statusMatch[1]));
       if (!result) {
         sendJson(res, 404, { error: 'Printer not found' });
