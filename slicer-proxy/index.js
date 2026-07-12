@@ -69,6 +69,9 @@ const SLICER_UPLOAD_MAX_BYTES = Number.parseInt(
 // expiresAt }. Swept on a timer rather than deleted on first GET, since a
 // printer may re-request the file (retry, or a slow/paused fetch).
 const TMP_FILE_TTL_MS = 20 * 60 * 1000;
+// How long after the project_file command to wait before concluding the
+// printer is never going to fetch its staged file (see uploadToBambu).
+const TMP_FILE_STALL_MS = 60 * 1000;
 const tmpFiles = new Map();
 setInterval(() => {
   const now = Date.now();
@@ -415,6 +418,7 @@ async function uploadToBambu(printer, file, req) {
     : `${file.filename.replace(/\.[^.]+$/, '')}.3mf`;
 
   let fileUrl;
+  let tmpToken;
   if (printer.profile === 'bambulab_a1_mini') {
     // Generous timeout: basic-ftp waits for the server's 226 "transfer complete"
     // before resolving, which confirms the file is flushed to the SD card.
@@ -444,8 +448,8 @@ async function uploadToBambu(printer, file, req) {
     fileUrl = `ftp://${remoteName}`;
   } else {
     // H2S / H2D / H2C: stage the file here and let the printer pull it over HTTP.
-    const token = registerTmpFile(file.buffer, remoteName);
-    fileUrl = await buildTmpFileUrl(req, token, remoteName, printer.callbackUrl);
+    tmpToken = registerTmpFile(file.buffer, remoteName);
+    fileUrl = await buildTmpFileUrl(req, tmpToken, remoteName, printer.callbackUrl);
     console.log(`[h2-http] staged ${remoteName} for ${printer.id} at ${fileUrl}`);
   }
 
@@ -468,6 +472,33 @@ async function uploadToBambu(printer, file, req) {
     throw new Error(
       `File uploaded to ${printer.profile} but the print command failed: ${detail}`,
     );
+  }
+
+  // HTTP-delivery pushes report success once the file is staged and the MQTT
+  // command is published — but if the printer can't reach the callback URL
+  // (e.g. it went stale after a network change), the failed download is
+  // otherwise invisible: the slicer sees 201, nothing prints. Watch the staged
+  // entry and record an audit event if the printer never comes to fetch it.
+  if (tmpToken) {
+    setTimeout(() => {
+      const entry = tmpFiles.get(tmpToken);
+      if (!entry || entry.fetchedAt) return;
+      console.warn(
+        `[h2-http] ${remoteName} for ${printer.id} was never fetched — is the printer callback URL (${fileUrl}) reachable from the printer?`,
+      );
+      audit({
+        action: 'slicer.upload_stalled',
+        target: printer.name,
+        details: {
+          printerId: printer.id,
+          profile: printer.profile,
+          filename: remoteName,
+          fileUrl,
+          reason: 'printer never fetched the staged file — check the printer callback URL',
+        },
+        source: 'slicer',
+      });
+    }, TMP_FILE_STALL_MS).unref();
   }
 
   // Record the slicer's filament estimate so the poller can show real per-job
@@ -848,6 +879,11 @@ async function handleRequest(req, res) {
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${entry.filename}"`);
     res.setHeader('Cache-Control', 'no-store');
+
+    // Any content read counts as the printer having come for the file (HEAD
+    // alone doesn't — a probe without a follow-up GET means the download
+    // never actually happened; see the stall check in uploadToBambu).
+    if (req.method === 'GET') entry.fetchedAt = Date.now();
 
     if (range) {
       const { start, end } = range;
