@@ -169,7 +169,13 @@ server {
   # preserved to the service. The caller's Authorization/X-Api-Key header passes
   # through unchanged — that key (printfarm_manage scope) is the sole guard, same
   # threat model as /api/v1. Payloads are small, so no body-cap bump.
+  #
+  # Fail-closed on the public site: the included snippet (generated at container
+  # start by nginx/docker-entrypoint.d/15-mcp-access.sh) is `deny all;` unless
+  # MCP_HTTP_PUBLIC=true, so the full farm-control surface isn't internet-reachable
+  # by default. Internal services still reach mcp:8092 directly, bypassing nginx.
   location /mcp {
+    include /etc/nginx/mcp_access.conf;
     proxy_pass http://mcp:8092;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -181,13 +187,12 @@ server {
     proxy_send_timeout 3600s;
   }
 
-  # H-1: Prometheus has no auth of its own. If PROMETHEUS_BASIC_AUTH_PASSWORD
-  # is set, /prometheus is gated behind HTTP Basic Auth; if it's left unset,
-  # /prometheus is served with no auth at all (an operator opt-out, e.g. for a
-  # LAN-only deploy where the network boundary is already the trust boundary).
-  # The included snippet is generated at container start by
-  # nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh — either
-  # `auth_basic "Prometheus"; auth_basic_user_file ...;` or `auth_basic off;`.
+  # H-1: Prometheus has no auth of its own, and its UI / /federate / query API
+  # leak the whole farm's internal metrics. Posture is fail-closed: with
+  # PROMETHEUS_BASIC_AUTH_PASSWORD set it's gated behind HTTP Basic Auth; with
+  # PROMETHEUS_ALLOW_ANONYMOUS=true it's served with no auth (LAN opt-out); with
+  # neither it returns 403 (deny all). The included snippet is generated at
+  # container start by nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh.
   location = /prometheus {
     # Relative Location so the browser keeps the original host:port (nginx only
     # knows its internal "listen 80", and would otherwise drop a custom port).
