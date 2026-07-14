@@ -1526,6 +1526,12 @@ async function assertPublicHttpTarget(rawUrl) {
 // affected.
 
 const SESSION_COOKIE = 'pf_session';
+// Host-locked variant: the `__Host-` prefix binds the cookie to this exact host
+// (browser enforces no Domain attribute, Path=/, and Secure), so it can't be
+// read/injected via a sibling subdomain — i.e. not usable as a cross-subdomain
+// tracker. The prefix REQUIRES Secure, so it's only issued over HTTPS; plain-http
+// dev keeps the unprefixed name (a __Host- cookie would be rejected there).
+const SESSION_COOKIE_HOST = '__Host-pf_session';
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const SESSION_REMEMBER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -1560,11 +1566,24 @@ function sessionCookieIsSecure(req) {
   );
 }
 
-function buildSessionCookie(req, value, maxAgeSeconds) {
+// Over HTTPS the cookie is Secure, so use the host-locked `__Host-` name; on
+// plain http fall back to the unprefixed name (browsers reject `__Host-` without
+// Secure). Read paths accept both so sessions issued before this change survive.
+function sessionCookieName(req) {
+  return sessionCookieIsSecure(req) ? SESSION_COOKIE_HOST : SESSION_COOKIE;
+}
+
+// Prefer the host-locked cookie, fall back to the legacy/plain one.
+function readSessionToken(req) {
+  const cookies = parseCookies(req);
+  return cookies[SESSION_COOKIE_HOST] || cookies[SESSION_COOKIE];
+}
+
+function buildSessionCookie(req, value, maxAgeSeconds, name = sessionCookieName(req)) {
   // SameSite=Lax (not Strict) so the cookie survives the top-level redirect back
   // from an OAuth/SAML IdP, while still blocking cross-site POST CSRF.
   const attrs = [
-    `${SESSION_COOKIE}=${value}`,
+    `${name}=${value}`,
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
@@ -1592,7 +1611,13 @@ async function issueSession(req, res, user, { remember = false } = {}) {
 }
 
 function clearSessionCookie(req, res) {
-  res.setHeader('Set-Cookie', buildSessionCookie(req, '', 0));
+  // Clear the plain name always; over HTTPS also clear the host-locked name (and
+  // any legacy plain cookie a pre-migration HTTPS client may still hold).
+  const cookies = [buildSessionCookie(req, '', 0, SESSION_COOKIE)];
+  if (sessionCookieIsSecure(req)) {
+    cookies.push(buildSessionCookie(req, '', 0, SESSION_COOKIE_HOST));
+  }
+  res.setHeader('Set-Cookie', cookies);
 }
 
 // ── Optional Redis session read-cache ────────────────────────────────────────
@@ -1730,7 +1755,7 @@ async function resolveSession(req) {
   if (req._session !== undefined) {
     return req._session;
   }
-  const token = parseCookies(req)[SESSION_COOKIE];
+  const token = readSessionToken(req);
   let session = null;
   if (token) {
     const tokenHash = hash(token);
@@ -4871,7 +4896,7 @@ async function handleApi(req, res, requestUrl) {
 
   // Destroy the current session and clear the cookie. Idempotent.
   if (requestUrl.pathname === '/api/auth/logout' && req.method === 'POST') {
-    const token = parseCookies(req)[SESSION_COOKIE];
+    const token = readSessionToken(req);
     if (token) {
       const tokenHash = hash(token);
       // Revoke any ephemeral slicer-upload key minted for this session.
@@ -4895,7 +4920,7 @@ async function handleApi(req, res, requestUrl) {
       sendJson(res, 401, { error: 'Not signed in.' });
       return true;
     }
-    const sessionTokenHash = hash(parseCookies(req)[SESSION_COOKIE]);
+    const sessionTokenHash = hash(readSessionToken(req));
 
     if (req.method === 'POST') {
       // Re-mint is idempotent: drop any prior token for this session first.

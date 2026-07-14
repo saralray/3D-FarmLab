@@ -534,7 +534,12 @@ curl -H "X-Api-Key: $KEY" -X POST "$BASE/manager-requests/<id>/approve"
 
 The dashboard's own `/api/*` surface is authenticated with a **server-side
 session**, not the `/api/v1` API key. A login issues an opaque token stored in an
-HttpOnly, SameSite=Lax cookie (`pf_session`); only its sha256 hash is persisted
+HttpOnly, SameSite=Lax cookie — `__Host-pf_session` over HTTPS (the `__Host-`
+prefix host-locks it: browser-enforced Secure, Path=/, no Domain, so it can't be
+read or set from a sibling subdomain), falling back to the unprefixed
+`pf_session` on plain-http dev where a `__Host-` cookie would be rejected. Reads
+accept either name, so sessions issued before the rename stay valid. Only its
+sha256 hash is persisted
 (in the `sessions` table). The cookie is sent automatically on same-origin
 requests, so the SPA does not handle it directly. Authorization is enforced in
 `server/app.js` (`authorizeFrontendApi`) before any frontend route runs.
