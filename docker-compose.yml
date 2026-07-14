@@ -164,12 +164,19 @@ services:
       # Backup-restore upload body cap passed through to the nginx template.
       # Must be >= BACKUP_UPLOAD_MAX_BYTES on the web service.
       BACKUP_MAX_BODY_SIZE: ${BACKUP_MAX_BODY_SIZE:-500m}
-      # H-1: gates /prometheus with HTTP Basic Auth (see
-      # nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh). Leave
-      # PROMETHEUS_BASIC_AUTH_PASSWORD unset to keep /prometheus fully blocked
-      # (the default) — set it to expose Prometheus to an external Grafana.
+      # H-1: gates /prometheus (fail-closed — see
+      # nginx/docker-entrypoint.d/10-prometheus-htpasswd.sh). With neither var
+      # below set, /prometheus returns 403. Set PROMETHEUS_BASIC_AUTH_PASSWORD to
+      # expose it behind Basic Auth (e.g. to an external Grafana), or
+      # PROMETHEUS_ALLOW_ANONYMOUS=true to serve it with no auth on a trusted LAN.
       PROMETHEUS_BASIC_AUTH_USER: ${PROMETHEUS_BASIC_AUTH_USER:-admin}
       PROMETHEUS_BASIC_AUTH_PASSWORD: ${PROMETHEUS_BASIC_AUTH_PASSWORD:-}
+      PROMETHEUS_ALLOW_ANONYMOUS: ${PROMETHEUS_ALLOW_ANONYMOUS:-false}
+      # Gates the public /mcp route (see nginx/docker-entrypoint.d/15-mcp-access.sh).
+      # Default false -> /mcp returns 403 on the public site (internal-only, as the
+      # MCP server is a full farm-control surface). Set true to expose it publicly
+      # (still guarded by a printfarm_manage API key).
+      MCP_HTTP_PUBLIC: ${MCP_HTTP_PUBLIC:-false}
     ports:
       - "${HTTP_PORT:-8080}:80"
 
