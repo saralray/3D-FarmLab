@@ -5,7 +5,7 @@
 If you discover a security vulnerability in 3D-FarmLab, please report
 it privately. **Do not open a public GitHub issue for security problems.**
 
-- Email: **saralray13@gmail.com**
+- Email: **saral@saral.work**
 - Use a subject line beginning with `[SECURITY]`.
 - Include a description of the issue, the affected component (`web`, `poller`,
   `nginx`, `db`, or a manifest), reproduction steps, and the potential impact.
