@@ -1,0 +1,49 @@
+name: Security Smoke Test
+
+# Runs the read-only security smoke test (scripts/security-smoke.sh) against the
+# live deployment on a schedule and on demand. GET/HEAD only — no logins,
+# mutations, or brute force — so it is safe to run against production.
+#
+# Configuration (Settings → Secrets and variables → Actions):
+#   Variable  SMOKE_BASE_URL   deployment URL (defaults to the script's default
+#                              if unset).
+#   Secret    SMOKE_READ_KEY   OPTIONAL: a low-privilege `printfarm_read` /api/v1
+#                              key to also exercise scope enforcement + secret
+#                              redaction. Use the narrowest scope — the script
+#                              only issues GETs. Omit to skip section 7.
+#
+# A real finding fails the job (the script exits non-zero), so GitHub emails the
+# failure — wiring the smoke test into failed-check monitoring.
+
+on:
+  schedule:
+    - cron: '17 6 * * *' # daily at 06:17 UTC (off the top-of-hour rush)
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Override deployment URL for this run (optional)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run security smoke test
+        env:
+          # Manual-dispatch input wins; otherwise the repo variable; otherwise
+          # the script's built-in default.
+          BASE_URL: ${{ inputs.base_url || vars.SMOKE_BASE_URL }}
+          READ_KEY: ${{ secrets.SMOKE_READ_KEY }}
+        run: |
+          bash scripts/security-smoke.sh "$BASE_URL" "$READ_KEY"
