@@ -40,9 +40,12 @@ import {
 } from '../server/postgres.js';
 import { mintSlicerGrant } from '../server/slicerGrant.js';
 import {
+  buildKlipperThumbnailBlock,
   extractFilamentGramsFrom3mf,
   extractFilamentsFrom3mf,
   extractPlateGcodeFrom3mf,
+  extractPlateThumbnailPng,
+  gcodeHasThumbnail,
   patchBambuToolheadCameraDetection,
 } from './parse3mf.js';
 import { resolveAmsMapping } from './amsMapping.js';
@@ -364,6 +367,28 @@ async function uploadToMoonraker(printer, file) {
     }
     uploadBuffer = plate.data;
     uploadName = file.filename.replace(/\.gcode\.3mf$/i, '.gcode').replace(/\.3mf$/i, '.gcode');
+
+    // The printer's own screen (and Moonraker/Fluidd) reads the print preview
+    // from a thumbnail embedded in the G-code header, not from the .3mf's
+    // Metadata/plate_<n>.png. A slice normally embeds one, but a farm push must
+    // not depend on that: if the unwrapped plate G-code has no "; thumbnail
+    // begin" block, synthesize a Klipper-format one from the plate PNG (always
+    // present in the bundle) so the preview shows. Non-destructive — an
+    // already-embedded thumbnail is left untouched.
+    try {
+      const gcodeText = uploadBuffer.toString('utf8');
+      if (!gcodeHasThumbnail(gcodeText)) {
+        const png = extractPlateThumbnailPng(file.buffer, plate.name);
+        const block = png && buildKlipperThumbnailBlock(png);
+        if (block) {
+          uploadBuffer = Buffer.concat([Buffer.from(`${block}\n`, 'utf8'), uploadBuffer]);
+          console.log(`[thumbnail] embedded plate preview into ${uploadName} for ${printer.id}`);
+        }
+      }
+    } catch (error) {
+      // A preview is a nicety; never fail the print over it.
+      console.error('Failed to embed plate thumbnail into Moonraker upload', error);
+    }
   }
 
   const form = new FormData();
