@@ -646,9 +646,18 @@ where a machine client needs it.
   out-of-band (run as the superuser) rather than from `ensureSchema`, so a wrong
   grant can never wedge web's startup. Remaining: a dedicated non-superuser
   `pf_web` owner, and a live smoke test of the poller/slicer reduced roles.
-- **Row-Level Security** for multi-tenant: add `tenant_id` to tenant-scoped
-  tables; `CREATE POLICY` so `pf_web` only sees rows for the request's tenant
-  (set via `SET LOCAL app.tenant_id`). Defense in depth behind app authz.
+- **Row-Level Security** for multi-tenant: **shipped as an operator-applied
+  artifact** — `db/tenancy/01-schema.sql` adds a `tenants` registry + `tenant_id`
+  (default `'default'`, backward-compatible) to the 15 per-org tables;
+  `db/tenancy/02-enable-rls.sql` enables + `FORCE`s RLS with a `tenant_isolation`
+  policy keyed on `current_setting('app.tenant_id')` (with a `'*'` cross-tenant
+  context for super_admin). The app helper `server/tenantContext.js`
+  (`withTenantContext`, parameterized `set_config`, transaction-scoped) sets the
+  GUC per request and is unit-tested (17 cases). Enforcement requires the
+  non-superuser DB roles (a superuser bypasses RLS) — so it pairs with §11.4's
+  `pf_web` — plus wiring `withTenantContext` into the query path; both are
+  documented in `db/tenancy/README.md`. RLS SQL is reviewed but not executed (no
+  DB runtime available here); apply + verify against a real database.
 - **Network segmentation** in compose:
 
 ```yaml
