@@ -469,8 +469,13 @@ Sequenced so each phase is shippable and de-risks the next. Effort is rough.
 These are the items to fix before any internet exposure. Several overlap
 `SECURITY_AUDIT.md`; consolidated here with the architectural framing.
 
-- **HP-1 — Fail-open API authorization (S-1).** Reads default to `public`
-  (`classifyApiRequest`). *Fix:* invert to default-deny; central policy table.
+- **HP-1 — Fail-open API authorization (S-1).** ~~Reads default to `public`~~
+  **(read-gate fixed).** `classifyApiRequest` now **default-denies** reads: a GET
+  is public only if it matches the explicit `isPublicRead` allowlist (the
+  anonymous viewer surface, auth bootstrap, public intake, ESP32 polling),
+  otherwise it requires a session (`authed`). Remaining work: promote the
+  allowlist into the central per-route policy table (§11.1) that also carries
+  RBAC roles/scopes/tenant.
 - **HP-2 — Single god API scope + un-redacted secrets (S-3).**
   `printfarm_manage` returns printer LAN codes/serials and can mint keys/users.
   *Fix:* scoped keys + scope-gated redaction (§6.3).
@@ -529,8 +534,16 @@ a big-bang rewrite.
 
 ### 11.1 Invert the API authorization gate (fixes S-1) — highest ROI
 
-Today (`server/app.js:2167-2211`) an unmatched read returns `'public'`. Refactor
-to a **route policy registry**:
+**Status: the default-deny inversion is implemented.** `classifyApiRequest`
+(`server/app.js`) now returns `'public'` for a GET **only** when it matches the
+explicit `isPublicRead` allowlist; every other read falls through to `'authed'`.
+Verified against the full route inventory (31 public paths preserved, secret
+reads still admin, previously-public-by-omission reads now fail closed). The
+remaining refactor below promotes that allowlist into a single declarative
+route table that also carries the RBAC role/scope/tenant (§6):
+
+Historically (`server/app.js`) an unmatched read returned `'public'`. Target
+**route policy registry**:
 
 ```js
 // policy.js — single source of truth

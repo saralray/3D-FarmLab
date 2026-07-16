@@ -2035,9 +2035,16 @@ async function clearCredentialAttempts({ ip, username }) {
 }
 
 // ── Authorization matrix for the frontend /api/* surface ─────────────────────
-// Reads stay public (the dashboard has an anonymous viewer mode) except for the
-// handful that expose secrets. Mutations are default-deny: anything not
-// explicitly classified as public or operator-level requires an admin session.
+// Both reads and mutations are DEFAULT-DENY. Mutations: anything not explicitly
+// classified public/operator requires an admin session. Reads: a GET is public
+// only if it belongs to an explicitly allowlisted public-read family
+// (isPublicRead) — the anonymous viewer dashboard, the public print-request
+// intake, the auth bootstrap, and the ESP32 status-light polling surface.
+// Any GET outside that allowlist requires a session ('authed'). This closes the
+// "public by omission" class (S-1): a newly added read route can no longer be
+// world-readable just because nobody remembered to classify it — it fails
+// closed to authed until explicitly added to isPublicRead. The secret-bearing
+// reads (isSensitiveRead) still resolve to admin regardless.
 
 const PUBLIC_API_MUTATIONS = new Set([
   'POST /api/auth/login',
@@ -2066,6 +2073,71 @@ const QUEUE_FILE_READ_RE = /^\/api\/queue\/[^/]+\/file$/;
 
 function isViewerGatedRead(pathname) {
   return VIEWER_GATED_READS.has(pathname);
+}
+
+// Explicit allowlist of GET/HEAD read families that are world-readable (no
+// session). This is the anonymous surface the product intentionally exposes:
+//   - the auth bootstrap the login/SPA needs before a session exists
+//     (session probe, provider list, SAML metadata/start, OAuth redirect);
+//   - the public viewer dashboard (printers + cameras, queue, analytics,
+//     maintenance) — individual secret-bearing reads inside these families are
+//     still caught earlier by isSensitiveRead (→ admin) or gated by viewer mode;
+//   - the public print-request intake (queue availability, branding, settings
+//     the request form and login screen render);
+//   - the ESP32 status-light polling surface (device roster + per-printer
+//     status string), which carries no secrets and is polled cookieless.
+// Anything NOT matched here falls through to a session requirement ('authed').
+// When adding a genuinely public read, add it here deliberately — that is the
+// whole point of the default-deny inversion.
+function isPublicRead(pathname) {
+  // Root/version/health-style probes.
+  if (pathname === '/api' || pathname === '/api/' || pathname === '/api/version') {
+    return true;
+  }
+  // Auth bootstrap — needed before any session exists. (Login/logout/verify are
+  // POSTs handled via PUBLIC_API_MUTATIONS; these are the GET companions.)
+  if (pathname === '/api/auth/session' || pathname.startsWith('/api/auth/')) {
+    return true;
+  }
+  // Public viewer dashboard fleet + camera reads. Secret-bearing printer reads
+  // are not among these GETs (isSensitiveRead covers the secret surfaces); the
+  // printer list path itself redacts connection secrets in viewer mode.
+  if (pathname === '/api/printers' || pathname.startsWith('/api/printers/')) {
+    return true;
+  }
+  if (pathname === '/api/cameras/health') {
+    return true;
+  }
+  // Queue reads for the viewer dashboard and the public request form. The stored
+  // model-file bytes (QUEUE_FILE_READ_RE) are handled earlier as operator-only.
+  if (pathname === '/api/queue' || pathname.startsWith('/api/queue/')) {
+    return true;
+  }
+  // Analytics rollups shown on the (viewer) dashboard.
+  if (pathname.startsWith('/api/analytics/')) {
+    return true;
+  }
+  // Maintenance reads. /api/maintenance/summary is handled earlier (viewer-gated).
+  if (pathname === '/api/maintenance' || pathname.startsWith('/api/maintenance/')) {
+    return true;
+  }
+  // Settings reads the SPA/login/request-form render before auth (branding,
+  // favicon, public-viewer flag, layouts, integrations, availability, SSO URL).
+  // The secret-bearing settings reads (saml, home-assistant) resolved to admin
+  // in isSensitiveRead before this point.
+  if (pathname.startsWith('/api/settings/')) {
+    return true;
+  }
+  // ESP32 status-light polling surface (no secrets). /provisioning is admin
+  // (isSensitiveRead) and resolved earlier.
+  if (pathname === '/api/status-light/devices' || pathname.startsWith('/api/status-light/printers/')) {
+    return true;
+  }
+  // A manager request can poll its own approval status by id (no secret).
+  if (pathname.startsWith('/api/manager/requests/') && pathname.endsWith('/status')) {
+    return true;
+  }
+  return false;
 }
 
 function publicViewerModeEnabled() {
@@ -2182,7 +2254,13 @@ function classifyApiRequest(method, pathname) {
     if (QUEUE_FILE_READ_RE.test(pathname)) {
       return 'operator';
     }
-    return 'public';
+    // Default-deny for reads: only explicitly allowlisted read families are
+    // world-readable; every other GET requires a session. (S-1: previously this
+    // returned 'public' for any unclassified read.)
+    if (isPublicRead(pathname)) {
+      return 'public';
+    }
+    return 'authed';
   }
   // Mutations
   if (PUBLIC_API_MUTATIONS.has(`${method} ${pathname}`)) {
