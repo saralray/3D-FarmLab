@@ -359,6 +359,13 @@ services:
       # PRINTFARM_API_KEY is only used when MCP_TRANSPORT=stdio (single local
       # user). Over HTTP the key is taken per-request from the caller's header.
       PRINTFARM_API_KEY: ${PRINTFARM_API_KEY:-}
+      # AI-agent least privilege (S-5). 'restricted' (default) lets the admin
+      # escape-hatch READ any /api/v1 admin surface but REFUSES writes to the
+      # privilege-escalation surfaces (slicer-keys, users, admin-credential,
+      # manager-requests, settings) — so a prompt-injected agent can't mint
+      # itself a key, reset the admin password, or create a backdoor account.
+      # Set 'full' to restore unrestricted escape-hatch writes.
+      MCP_ADMIN_MODE: ${MCP_ADMIN_MODE:-restricted}
 
   # Read-only Prometheus exporter: exposes the PostgreSQL print-farm data as
   # metrics on :9180/metrics. Not published to the host — Prometheus scrapes it

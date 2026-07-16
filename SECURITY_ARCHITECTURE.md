@@ -489,9 +489,16 @@ These are the items to fix before any internet exposure. Several overlap
   which just forwards the caller's key. Follow-on: split `manage` further
   (separate `keys:admin`/`users:admin`) and mint the AI agent a `control`-only
   key by default.
-- **HP-3 — AI agent runs with full privilege (S-5).** MCP forwards a
-  full-power key and can reach `printer_proxy` / `printfarm_admin_request`.
-  *Fix:* reduced agent identity + human confirmation for control (§10).
+- **HP-3 — AI agent runs with full privilege (S-5).** **(substantially fixed.)**
+  Two layers now constrain the agent: (1) **scoped keys** (HP-2) — give the agent
+  a `printfarm_read`/`control` key and the web tier rejects every admin write and
+  redacts secrets; (2) **`MCP_ADMIN_MODE=restricted`** (new default) — even with a
+  manage key, the `printfarm_admin_request` escape-hatch refuses *writes* to the
+  escalation surfaces (slicer-keys, users, admin-credential, manager-requests,
+  settings), so a prompt-injected model can't mint itself a key, reset the admin
+  password, or create a backdoor account. Behaviorally tested (27 cases). Remaining:
+  human-confirmation queue for physical print execution (ties to the planned
+  hardware confirmation switch, §18).
 - **HP-4 — Flat network + root containers (S-4).** **(partially fixed.)**
   `docker-compose.yml` now segments into a `frontend` (edge/egress) tier and an
   `internal: true` `backend` (data) tier: `db`/`redis`/`exporter` live only on
@@ -551,7 +558,12 @@ These are the items to fix before any internet exposure. Several overlap
   model-adjacent text (queue names, printer names, model metadata, Discord
   payloads) as untrusted; never let it select a privileged tool or a raw
   passthrough path. Constrain tools to structured params; log every tool call
-  with the bound agent identity. (Pairs with HP-3.)
+  with the bound agent identity. (Pairs with HP-3.) **Landed:**
+  `MCP_ADMIN_MODE=restricted` (default) blocks escape-hatch writes to the
+  escalation surfaces (`mcp/adminPolicy.js`); combine with a `printfarm_read`/
+  `control` key for server-enforced least privilege. **Follow-on:** gate the
+  `create_notification` dedicated tool the same way (a Discord webhook URL is an
+  exfiltration channel), and add per-tool audit with a distinct agent identity.
 - **MQTT client IDs embed serial+timestamp (L-7):** use random UUIDs.
 - **Slicer proxy lacks security headers (L-5):** add the same header middleware.
 - **CI images tagged only `:latest` (L-2):** add SHA tags for rollback.

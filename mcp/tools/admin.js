@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { asText, tool } from './util.js';
+import { classifyAdminRequest } from '../adminPolicy.js';
 
 // Escape-hatch for the rarer /api/v1 admin surfaces that don't warrant a
 // dedicated tool: slicer-keys, users, admin-credential, manager-requests,
@@ -18,7 +19,9 @@ export function registerAdminTools(server, api) {
         'WARNING: this can return plaintext secrets (POST /api/v1/slicer-keys and ' +
         '/api/v1/manager-requests/:id/approve return a one-time API key) and can reset the admin password ' +
         '(PUT /api/v1/admin-credential) or delete accounts — confirm with a human before destructive calls. ' +
-        'The path must start with /api/v1/.',
+        'The path must start with /api/v1/. ' +
+        'By default (MCP_ADMIN_MODE=restricted) WRITES to slicer-keys, users, admin-credential, ' +
+        'manager-requests, and settings are refused as privilege-escalation surfaces; reads are allowed.',
       inputSchema: {
         method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).default('GET'),
         path: z
@@ -32,6 +35,12 @@ export function registerAdminTools(server, api) {
       const p = String(path || '');
       if (!p.startsWith('/api/v1/') && p !== '/api/v1') {
         throw new Error(`path must start with /api/v1/ (got "${p}")`);
+      }
+      // Defense-in-depth least-privilege gate (S-5): block the crown-jewel
+      // escalation writes unless the operator opted into MCP_ADMIN_MODE=full.
+      const decision = classifyAdminRequest(method || 'GET', p);
+      if (!decision.allowed) {
+        throw new Error(decision.reason);
       }
       return asText(await api.request(method || 'GET', p, { body }));
     },

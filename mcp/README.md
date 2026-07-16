@@ -85,6 +85,25 @@ annotated `destructiveHint` so clients prompt for confirmation.
 | Status lights | `list_status_light_devices`, `get_printer_status` |
 | Admin escape-hatch | `printfarm_admin_request` — raw request to any `/api/v1` path (slicer-keys, users, admin-credential, manager-requests, settings, audit-logs, queue export/import, filament-station). Can return one-time secrets and reset credentials — confirm before destructive calls. |
 
+### AI-agent least privilege (`MCP_ADMIN_MODE`)
+
+The escape-hatch is the agent's most dangerous surface, so it is gated by
+`MCP_ADMIN_MODE` (defense-in-depth on top of the caller's key scope):
+
+- **`restricted`** (default) — the escape-hatch may **read** any admin surface,
+  but **refuses writes** to the privilege-escalation / credential / secret-minting
+  surfaces: `slicer-keys`, `users`, `admin-credential`, `manager-requests`,
+  `settings`. This stops a prompt-injected model from minting itself an API key,
+  resetting the admin password, creating a backdoor staff account, approving a
+  manager key, or tampering with auth settings. Dedicated tools (printers, queue,
+  maintenance, analytics, notifications, status) are unaffected.
+- **`full`** — no escape-hatch restriction (previous behavior). Use only when the
+  agent is trusted to perform admin writes.
+
+The strongest posture combines this with a **narrowly-scoped key**: give the
+agent a `printfarm_read` or `printfarm_control` key (see `API.md`) so the web
+tier itself rejects admin writes regardless of `MCP_ADMIN_MODE`.
+
 ## Development / testing
 
 Point [MCP Inspector](https://github.com/modelcontextprotocol/inspector) at
