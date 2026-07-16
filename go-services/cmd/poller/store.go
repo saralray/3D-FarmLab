@@ -314,6 +314,9 @@ func listPrinters(ctx context.Context, conn *pgx.Conn, cipher secretDecryptor) (
 // connection secret is re-encrypted; JSONB columns are passed as marshalled bytes
 // with a ::jsonb cast.
 func upsertPrinter(ctx context.Context, conn *pgx.Conn, cipher secretEncryptor, p pmap) error {
+	// Printers are untrusted: clamp device-derived telemetry to sane bounds and
+	// bound free-text length before it reaches the DB (S-5 / MP-2).
+	sanitizePrinterTelemetry(p)
 	temp := mMap(p, "temperature")
 	_, err := conn.Exec(ctx, `
 		INSERT INTO printers (

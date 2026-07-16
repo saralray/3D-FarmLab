@@ -525,9 +525,16 @@ These are the items to fix before any internet exposure. Several overlap
 
 - **MP-1 — Public intake not rate-limited (M-2):** `/api/queue/submit`,
   `/api/manager/request` → per-IP quota, storage caps, `429`.
-- **MP-2 — Printer telemetry trusted (spoofing).** Poller ingests device data
-  that drives analytics and (future) AI scheduling with no validation. *Fix:*
-  clamp ranges, reject implausible transitions, sign/verify where possible.
+- **MP-2 — Printer telemetry trusted (spoofing).** **(hardened.)** The poller
+  now runs `sanitizePrinterTelemetry` at its single persist chokepoint
+  (`upsertPrinter`, which every profile funnels through): temperatures/targets
+  clamped to sane physical bounds with NaN/Inf dropped, progress clamped to
+  [0,100], per-nozzle arrays clamped, and free-text (error message, job/file
+  names → Discord/UI) length-bounded (rune-safe). Bounds are generous so no real
+  printer is affected; the point is to reject garbage a spoofed/faulty device
+  could use to skew analytics or abuse notifications. Go-tested (9 cases).
+  Remaining: implausible-transition detection and device identity/signing (ties
+  into H-2 cert pinning).
 - **MP-3 — SVG logo sanitizer is regex-based (M-6):** DOMPurify allowlist.
 - **MP-4 — OAuth `id_token` not signature-verified (M-1):** verify vs JWKS.
 - **MP-5 — Internal errors leaked to clients (M-7):** generic upstream errors.
