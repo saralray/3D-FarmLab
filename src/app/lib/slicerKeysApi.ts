@@ -1,9 +1,14 @@
 import { logAuditEvent } from './auditApi';
 
 // Permission scopes a key can carry. 'slicer_upload' lets the key push prints
-// through the slicer-upload proxy; 'printfarm_manage' grants the programmatic
-// /api/v1 data API.
-export type SlicerKeyPermission = 'slicer_upload' | 'printfarm_manage';
+// through the slicer-upload proxy; the three printfarm_* scopes are a
+// least-privilege tier over the /api/v1 data API (read < control < manage) —
+// grant the narrowest one an integration needs.
+export type SlicerKeyPermission =
+  | 'slicer_upload'
+  | 'printfarm_read'
+  | 'printfarm_control'
+  | 'printfarm_manage';
 
 export const SLICER_KEY_PERMISSION_OPTIONS: { value: SlicerKeyPermission; label: string; description: string }[] = [
   {
@@ -12,9 +17,19 @@ export const SLICER_KEY_PERMISSION_OPTIONS: { value: SlicerKeyPermission; label:
     description: 'Push sliced files to printers through the slicer-upload proxy.',
   },
   {
+    value: 'printfarm_read',
+    label: 'PrintFarm Read',
+    description: 'Read-only /api/v1 access (printer connection secrets redacted).',
+  },
+  {
+    value: 'printfarm_control',
+    label: 'PrintFarm Control',
+    description: 'Read plus operate printers/queue/maintenance. No admin, secrets redacted.',
+  },
+  {
     value: 'printfarm_manage',
     label: 'PrintFarm Manage',
-    description: 'Read and manage print-farm data through the /api/v1 API.',
+    description: 'Full /api/v1 access incl. users, keys, settings, and connection secrets.',
   },
 ];
 

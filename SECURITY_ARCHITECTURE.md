@@ -476,9 +476,19 @@ These are the items to fix before any internet exposure. Several overlap
   otherwise it requires a session (`authed`). Remaining work: promote the
   allowlist into the central per-route policy table (§11.1) that also carries
   RBAC roles/scopes/tenant.
-- **HP-2 — Single god API scope + un-redacted secrets (S-3).**
-  `printfarm_manage` returns printer LAN codes/serials and can mint keys/users.
-  *Fix:* scoped keys + scope-gated redaction (§6.3).
+- **HP-2 — Single god API scope + un-redacted secrets (S-3).** **(fixed.)**
+  Added a least-privilege tier over `/api/v1` — `printfarm_read` (read-only,
+  secrets redacted), `printfarm_control` (read + operate printers/queue/
+  maintenance, secrets redacted, no admin), and the legacy `printfarm_manage`
+  (full, secrets visible; every pre-scope key backfills to it, so nothing
+  breaks). Enforced per request by required-tier (`requiredDataApiRank`, default-
+  deny to `manage`), and printer connection secrets are now returned only to a
+  `manage` key. Behaviorally tested (key-rank resolution, per-op required tier,
+  and end-to-end allow/deny for all three tiers incl. the GET-proxy-is-control
+  edge case). Scoped keys also transparently constrain the MCP/AI agent (S-5),
+  which just forwards the caller's key. Follow-on: split `manage` further
+  (separate `keys:admin`/`users:admin`) and mint the AI agent a `control`-only
+  key by default.
 - **HP-3 — AI agent runs with full privilege (S-5).** MCP forwards a
   full-power key and can reach `printer_proxy` / `printfarm_admin_request`.
   *Fix:* reduced agent identity + human confirmation for control (§10).

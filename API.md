@@ -35,21 +35,32 @@ X-Api-Key: <your-key>
 Authorization: Bearer <your-key>
 ```
 
-- Each key carries a **permissions scope** array. Reaching this API requires the
-  **`printfarm_manage`** scope; a key with only `slicer_upload` is rejected with
-  **`403 Forbidden`**. (Legacy keys minted before scopes existed backfill to
-  both scopes, so they keep working.)
-- A key with `printfarm_manage` grants **full read/write** to every resource —
-  it can even reset the admin password and create admin users. Treat it as a
-  superuser credential.
+- Each key carries a **permissions scope** array. The three `printfarm_*` scopes
+  form a least-privilege **tier** over this API — a key holds one tier and
+  inherits everything below it:
+
+  | Scope | Grants | Printer connection secrets in responses |
+  |-------|--------|------------------------------------------|
+  | `printfarm_read` | Read-only: `GET` on `printers`, `queue`, `analytics`, `maintenance`, `status-light`, `filament-station`. | **Redacted** (as public-viewer). |
+  | `printfarm_control` | Everything `read` can, **plus** operate: `printers/:id/command`, `printers/:id/proxy`, queue writes (upsert/printed/import/file), maintenance complete, filament-station writes. | **Redacted.** |
+  | `printfarm_manage` | **Full read/write** on every resource, including `users`, `slicer-keys`, `settings`, `notifications`, `manager-requests`, `admin-credential`, printer create/delete, and all resets/bulk-deletes. | **Visible.** |
+
+  A key with only `slicer_upload` (and no `printfarm_*` scope) is rejected with
+  **`403 Forbidden`**. Legacy keys minted before scopes existed backfill to
+  `slicer_upload` + `printfarm_manage`, so they keep full access unchanged.
 - Each request stamps the key's `last_used_at`.
 - Every **mutation** (POST/PUT/DELETE) is recorded in the audit log with
   `source: "api"` and actor `api:<key name>`.
-- A missing or invalid key returns **`401 Unauthorized`**; a valid key lacking
-  the scope returns **`403 Forbidden`**.
+- A missing or invalid key returns **`401 Unauthorized`**; a valid key whose tier
+  is below what the operation needs returns **`403 Forbidden`** with the required
+  scope named in the error.
+- Note: `printers/:id/proxy` is a **control** action even via `GET`, because a
+  Moonraker `GET /printer/gcode/script?script=` executes code.
 
-> ⚠️ A `printfarm_manage` key is effectively full admin. Scope keys narrowly
-> (mint `slicer_upload`-only keys for slicers) and revoke unused ones.
+> ⚠️ A `printfarm_manage` key is effectively full admin (it can reset the admin
+> password, create admin users, and read every printer's LAN secrets). Prefer the
+> narrowest tier an integration needs — `printfarm_read` for dashboards/monitoring,
+> `printfarm_control` for a scheduler/queue driver — and revoke unused keys.
 
 ### Example
 
@@ -68,7 +79,7 @@ curl -H "X-Api-Key: $KEY" http://localhost:8080/api/v1/printers
 | `204`  | OK, no body |
 | `400`  | Bad request (missing/invalid fields) |
 | `401`  | Missing or invalid API key |
-| `403`  | Valid key, but it lacks the `printfarm_manage` scope |
+| `403`  | Valid key, but its scope tier is below what the operation requires |
 | `404`  | Unknown resource or record |
 | `405`  | Method not allowed for that path |
 | `500`  | Server / database error |

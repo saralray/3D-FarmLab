@@ -2948,9 +2948,27 @@ async function handleWebcamStream(req, res, requestUrl) {
 // the key is the guard here, connection details are NOT redacted (unlike the
 // public-viewer listPrinters path). Mutations are stamped into the audit log
 // with source 'api' so key-driven changes are attributable.
-// Per-key permission scopes. 'slicer_upload' authorizes the slicer-proxy upload
-// path; 'printfarm_manage' authorizes the programmatic /api/v1 data API.
-const SLICER_KEY_PERMISSIONS = ['slicer_upload', 'printfarm_manage'];
+// Per-key permission scopes.
+//   slicer_upload      — the slicer-proxy upload path.
+//   printfarm_read     — read-only /api/v1 (secrets redacted).
+//   printfarm_control  — read + operate printers/queue/maintenance (no admin,
+//                        secrets redacted).
+//   printfarm_manage   — full /api/v1 incl. users/keys/settings/secrets (legacy
+//                        "god" scope; kept for backward compatibility — every
+//                        pre-scope key backfills to it).
+// The three printfarm_* scopes form a tier (read < control < manage); a key is
+// granted a single tier and inherits everything below it (S-3: least privilege
+// replaces the one all-powerful scope, without breaking existing manage keys).
+const SLICER_KEY_PERMISSIONS = [
+  'slicer_upload',
+  'printfarm_read',
+  'printfarm_control',
+  'printfarm_manage',
+];
+
+// Numeric rank of each data-API tier; higher includes everything lower.
+const DATA_API_RANK = { read: 1, control: 2, manage: 3 };
+const DATA_API_SCOPE_FOR_RANK = { 1: 'printfarm_read', 2: 'printfarm_control', 3: 'printfarm_manage' };
 
 // Keep only recognized scopes, preserving a stable order.
 function normalizeKeyPermissions(input) {
@@ -2962,6 +2980,58 @@ function normalizeKeyPermissions(input) {
 
 function keyHasPermission(record, perm) {
   return Array.isArray(record?.permissions) && record.permissions.includes(perm);
+}
+
+// Highest data-API tier a key holds (0 = no /api/v1 access at all). A manage key
+// ranks 3 and thus satisfies every lower requirement, so legacy printfarm_manage
+// keys keep full access unchanged.
+function keyDataApiRank(record) {
+  if (keyHasPermission(record, 'printfarm_manage')) return DATA_API_RANK.manage;
+  if (keyHasPermission(record, 'printfarm_control')) return DATA_API_RANK.control;
+  if (keyHasPermission(record, 'printfarm_read')) return DATA_API_RANK.read;
+  return 0;
+}
+
+// Minimum tier required to perform (method, entity, id, sub) on /api/v1.
+// Default-deny to `manage` for anything not explicitly downgraded, matching the
+// codebase's fail-closed authorization posture. Reads are `read`; operational
+// printer/queue/maintenance writes are `control`; creating/deleting resources,
+// resets, and all admin/secret surfaces stay `manage`.
+function requiredDataApiRank(entity, method, id, sub) {
+  const isRead = method === 'GET' || method === 'HEAD';
+  switch (entity) {
+    case 'status-light':
+      return DATA_API_RANK.read;
+    case 'analytics':
+      return isRead ? DATA_API_RANK.read : DATA_API_RANK.manage; // reset = manage
+    case 'printers':
+      // proxy first: a GET to /proxy/ can execute gcode on Moonraker, so it is
+      // a control action regardless of HTTP method — must not fall through to read.
+      if (sub === 'proxy' || sub === 'command') return DATA_API_RANK.control;
+      if (isRead) return DATA_API_RANK.read; // list/get/camera (secrets redacted below manage)
+      return DATA_API_RANK.manage; // upsert / delete
+    case 'queue':
+      if (isRead) return DATA_API_RANK.read;
+      if (method === 'DELETE' || id === 'reset' || id === 'delete') return DATA_API_RANK.manage;
+      return DATA_API_RANK.control; // upsert / printed / import / file put
+    case 'maintenance':
+      return isRead ? DATA_API_RANK.read : DATA_API_RANK.control;
+    case 'filament-station':
+      if (isRead) return DATA_API_RANK.read;
+      if (method === 'DELETE' || sub === 'command' || id === 'system') return DATA_API_RANK.manage;
+      return DATA_API_RANK.control;
+    // Admin / secret-bearing surfaces — always full manage.
+    case 'notifications':
+    case 'slicer-keys':
+    case 'audit-logs':
+    case 'settings':
+    case 'users':
+    case 'admin-credential':
+    case 'manager-requests':
+      return DATA_API_RANK.manage;
+    default:
+      return DATA_API_RANK.manage;
+  }
 }
 
 const DATA_API_PREFIX = '/api/v1/';
@@ -3114,9 +3184,11 @@ async function handleDataApi(req, res, requestUrl) {
     });
     return true;
   }
-  if (!keyHasPermission(apiKey, 'printfarm_manage')) {
+  const keyRank = keyDataApiRank(apiKey);
+  if (keyRank < DATA_API_RANK.read) {
     sendJson(res, 403, {
-      error: "This API key lacks the 'printfarm_manage' permission required for the /api/v1 data API.",
+      error:
+        "This API key lacks a data-API scope. Grant one of 'printfarm_read', 'printfarm_control', or 'printfarm_manage' to use /api/v1.",
     });
     return true;
   }
@@ -3129,9 +3201,21 @@ async function handleDataApi(req, res, requestUrl) {
     .map((part) => decodeURIComponent(part));
   const [entity, id, sub] = segments;
 
-  // Discovery root: GET /api/v1 lists the available resources.
+  // Discovery root: GET /api/v1 lists the available resources. Any data-API key
+  // may read it.
   if (!entity) {
     sendJson(res, 200, { version: 'v1', resources: DATA_API_RESOURCES });
+    return true;
+  }
+
+  // Per-request scope enforcement (S-3): a key must hold at least the tier the
+  // requested operation needs. A read key can't drive mutations; a control key
+  // can't reach admin/secret surfaces; only a manage key does everything.
+  const neededRank = requiredDataApiRank(entity, method, id, sub);
+  if (keyRank < neededRank) {
+    sendJson(res, 403, {
+      error: `This operation requires the '${DATA_API_SCOPE_FOR_RANK[neededRank]}' scope.`,
+    });
     return true;
   }
 
@@ -3175,12 +3259,16 @@ function dataApiMethodNotAllowed(res) {
 
 // printers: list / read / upsert / delete (+ pass-through Bambu command, webcam).
 async function handleDataApiPrinters(req, res, { apiKey, method, id, sub, action, requestUrl }) {
+  // Connection secrets (url, ip, api key header, serial, callback url) are
+  // returned only to a full-privilege `printfarm_manage` key. A read/control key
+  // gets the same redacted records the public-viewer frontend serves — enough to
+  // monitor and operate, but not to exfiltrate every printer's LAN credentials
+  // (S-3). Control still works: commands/proxy resolve secrets server-side.
+  const canSeeSecrets = keyDataApiRank(apiKey) >= DATA_API_RANK.manage;
   if (!id) {
     if (method === 'GET') {
-      // Data API is key-gated, so connection details (url, ip, api key, serial —
-      // needed to reach each printer's hardware/webcam) are NOT redacted, even in
-      // public viewer mode. This matches the single-printer getPrinterById read.
-      sendJson(res, 200, await overlayLiveTelemetryAll(await listPrinters(true)));
+      const printers = canSeeSecrets ? await listPrinters(true) : await listPrintersRedacted();
+      sendJson(res, 200, await overlayLiveTelemetryAll(printers));
       return true;
     }
     if (method === 'POST') {
@@ -3307,7 +3395,7 @@ async function handleDataApiPrinters(req, res, { apiKey, method, id, sub, action
   }
 
   if (method === 'GET') {
-    const printer = await getPrinterById(id);
+    const printer = canSeeSecrets ? await getPrinterById(id) : await getRedactedPrinterById(id);
     if (!printer) {
       sendJson(res, 404, { error: 'Printer not found' });
       return true;
