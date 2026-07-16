@@ -238,7 +238,12 @@ services:
       redis:
         condition: service_started
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      # Least-privilege (HP-9, §11.4): set POLLER_DATABASE_URL to the pf_poller
+      # role (SELECT-all + telemetry writes only) once provisioned via
+      # db/roles/least-privilege-roles.sql. Smoke-test the poller boots against
+      # the reduced role before enabling in production. Defaults to the superuser
+      # URL so an un-migrated deployment is unchanged.
+      DATABASE_URL: ${POLLER_DATABASE_URL:-postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}}
       # Postgres connection safety timeouts (ms; 0 disables). Mirror the Node pool.
       DATABASE_CONNECT_TIMEOUT_MS: ${DATABASE_CONNECT_TIMEOUT_MS:-5000}
       DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-30000}
@@ -293,7 +298,11 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      # Least-privilege (HP-9, §11.4): set SLICER_DATABASE_URL to the pf_slicer
+      # role (SELECT-all + audit/estimate inserts + key-touch update) once
+      # provisioned via db/roles/least-privilege-roles.sql. Defaults to the
+      # superuser URL so an un-migrated deployment is unchanged.
+      DATABASE_URL: ${SLICER_DATABASE_URL:-postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}}
       # Shares server/postgres.js with web, so the same pool sizing/timeout knobs apply.
       DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
       DATABASE_POOL_IDLE_MS: ${DATABASE_POOL_IDLE_MS:-30000}
@@ -373,7 +382,12 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      # Least-privilege (HP-9, §11.4): the exporter is pure read-only, so point
+      # it at the read-only pf_exporter role once provisioned (see
+      # db/roles/least-privilege-roles.sql). Defaults to the superuser URL so an
+      # un-migrated deployment is unchanged; set EXPORTER_DATABASE_URL in .env to
+      # postgresql://pf_exporter:<pw>@db:5432/<db> to enable the lock-down.
+      DATABASE_URL: ${EXPORTER_DATABASE_URL:-postgresql://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:?set POSTGRES_DB}}
       # Bound each scrape query so a slow/locked query fails the scrape fast (0 disables).
       DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-30000}
       # If you change this, also update the target in

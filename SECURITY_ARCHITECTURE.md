@@ -500,8 +500,16 @@ These are the items to fix before any internet exposure. Several overlap
   proxying externally.
 - **HP-8 — IdP-asserted admin role (H-6).** *Fix:* never elevate from assertion;
   server-side role mapping.
-- **HP-9 — Single Postgres superuser for all services.** *Fix:* per-service
-  least-privilege roles (§11.4).
+- **HP-9 — Single Postgres superuser for all services.** **(mechanism shipped,
+  opt-in.)** `db/roles/least-privilege-roles.sql` provisions dedicated roles —
+  `pf_exporter`/`pf_readonly` (SELECT-only), `pf_poller` (SELECT-all + telemetry
+  writes), `pf_slicer` (SELECT-all + audit/estimate inserts) — with grants
+  derived from each service's real query set, plus `ALTER DEFAULT PRIVILEGES` so
+  future tables stay covered. Compose exposes `EXPORTER_/POLLER_/SLICER_DATABASE_URL`
+  overrides (default = superuser URL, so existing deployments are unchanged).
+  Enable the read-only exporter role first; smoke-test poller/slicer against
+  their reduced role before enabling (couldn't be run here — no DB runtime). `web`
+  remains the schema owner. See §11.4.
 
 ## 9. Medium-Priority Vulnerabilities
 
@@ -587,10 +595,17 @@ where a machine client needs it.
 
 ### 11.4 Data-tier: least privilege, segmentation, RLS
 
-- **Per-service DB roles:** `pf_web` (full app schema), `pf_poller` (R/W
-  telemetry tables only), `pf_exporter` (`SELECT` only), `pf_slicer` (queue +
-  printer read). Create in `ensureSchema`/migrations; each service gets its own
-  `DATABASE_URL`.
+- **Per-service DB roles:** **shipped as an opt-in artifact** —
+  `db/roles/least-privilege-roles.sql` provisions `pf_exporter`/`pf_readonly`
+  (`SELECT` only), `pf_poller` (SELECT-all + telemetry INSERT/UPDATE + one
+  DELETE), and `pf_slicer` (SELECT-all + audit/estimate INSERT + key-touch
+  UPDATE). Grants are derived from each service's real query set and extended to
+  future tables via `ALTER DEFAULT PRIVILEGES`. Each service selects its role
+  through the `*_DATABASE_URL` compose override (default = superuser, backward
+  compatible). `web` stays the schema owner/creator. The script is provisioned
+  out-of-band (run as the superuser) rather than from `ensureSchema`, so a wrong
+  grant can never wedge web's startup. Remaining: a dedicated non-superuser
+  `pf_web` owner, and a live smoke test of the poller/slicer reduced roles.
 - **Row-Level Security** for multi-tenant: add `tenant_id` to tenant-scoped
   tables; `CREATE POLICY` so `pf_web` only sees rows for the request's tenant
   (set via `SET LOCAL app.tenant_id`). Defense in depth behind app authz.
