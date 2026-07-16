@@ -2,6 +2,16 @@ services:
   db:
     image: postgres:16
     restart: unless-stopped
+    # S-4 hardening: block in-container privilege escalation via setuid binaries.
+    # (cap_drop is intentionally omitted here — the postgres entrypoint runs as
+    # root and needs CHOWN/SETUID/SETGID/DAC_OVERRIDE to initialize the data dir
+    # and drop to the unprivileged `postgres` user.)
+    security_opt:
+      - "no-new-privileges:true"
+    # Data tier only: db is reachable solely from services on the internal
+    # `backend` network (web, poller, slicer-proxy, exporter, prometheus) — never
+    # from the edge-only nginx or mcp containers, and never from the host/internet.
+    networks: [backend]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
@@ -22,6 +32,12 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # S-4 hardening: no-new-privileges (cap_drop omitted — the entrypoint drops
+    # to the `redis` user via su-exec, which needs SETUID/SETGID).
+    security_opt:
+      - "no-new-privileges:true"
+    # Data tier only: same isolation as db (internal `backend` network).
+    networks: [backend]
     # L-1 FIX: require a password when REDIS_PASSWORD is set so a co-located
     # compromised container can't read/flush rate-limit keys or sessions. Empty
     # (the default) leaves Redis open — backward compatible with the "Redis is
@@ -47,6 +63,17 @@ services:
         # comparison" so it never shows a false "update available").
         APP_VERSION: ${APP_VERSION:-dev}
     restart: unless-stopped
+    # S-4 hardening: no privilege escalation, drop all capabilities (the Node
+    # server binds only :5173 and shells out to ffmpeg — neither needs any cap).
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    # Both tiers: `frontend` for the nginx reverse proxy and outbound egress
+    # (GitHub update check, OAuth/SAML IdPs, Discord webhooks, printer LAN);
+    # `backend` for db/redis. Being on `backend` is what lets web reach the DB
+    # while db itself stays off the edge.
+    networks: [frontend, backend]
     depends_on:
       db:
         condition: service_healthy
@@ -136,6 +163,13 @@ services:
       context: .
       dockerfile: Dockerfile.nginx
     restart: unless-stopped
+    # S-4 hardening: no-new-privileges (cap_drop omitted — the nginx master runs
+    # as root to bind :80 and spawns workers as the `nginx` user).
+    security_opt:
+      - "no-new-privileges:true"
+    # Edge tier only: nginx proxies to web/slicer-proxy/mcp/prometheus but has NO
+    # route to db/redis — a compromised edge can't reach the data tier directly.
+    networks: [frontend]
     depends_on:
       web:
         condition: service_healthy
@@ -187,6 +221,16 @@ services:
       args:
         SERVICE: poller
     restart: unless-stopped
+    # S-4 hardening: no privilege escalation, drop all capabilities (the Go
+    # poller opens only outbound connections and needs no cap).
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    # `backend` for db + the web snapshot endpoint; `frontend` supplies the
+    # default route for outbound printer-LAN egress (MQTT/FTPS/HTTP polling),
+    # which an internal-only network would block.
+    networks: [frontend, backend]
     depends_on:
       db:
         condition: service_healthy
@@ -237,6 +281,14 @@ services:
       context: .
       dockerfile: Dockerfile.slicer-proxy
     restart: unless-stopped
+    # S-4 hardening: no privilege escalation, drop all capabilities.
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    # `frontend` for the nginx /printers/ proxy + printer-LAN egress (FTPS/MQTT);
+    # `backend` for the DB read of printer connection secrets.
+    networks: [frontend, backend]
     depends_on:
       db:
         condition: service_healthy
@@ -276,6 +328,16 @@ services:
       context: .
       dockerfile: Dockerfile.mcp
     restart: unless-stopped
+    # S-4 hardening: no privilege escalation, drop all capabilities.
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    # Edge tier ONLY: the MCP/AI control surface is a thin client of web's
+    # /api/v1 and must never touch the DB directly. Keeping it off `backend`
+    # means a prompt-injected / compromised MCP process has no route to db/redis
+    # — it can only reach the API web already authorizes and audits (S-5).
+    networks: [frontend]
     depends_on:
       web:
         condition: service_healthy
@@ -299,6 +361,14 @@ services:
       args:
         SERVICE: exporter
     restart: unless-stopped
+    # S-4 hardening: no privilege escalation, drop all capabilities.
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    # Data tier only: reads the DB and is scraped by prometheus, both on the
+    # internal `backend` network. Needs no external egress.
+    networks: [backend]
     depends_on:
       db:
         condition: service_healthy
@@ -322,6 +392,14 @@ services:
   prometheus:
     image: prom/prometheus:v2.55.1
     restart: unless-stopped
+    # S-4 hardening: no privilege escalation (the prom image already runs as the
+    # unprivileged `nobody` user; cap_drop omitted to avoid surprising the
+    # upstream entrypoint on the mounted config/TSDB volume).
+    security_opt:
+      - "no-new-privileges:true"
+    # `backend` to scrape exporter + web:5173; `frontend` so nginx can proxy the
+    # /prometheus UI to it.
+    networks: [frontend, backend]
     depends_on:
       - exporter
     command:
@@ -340,3 +418,23 @@ volumes:
   postgres_data:
   prometheus_data:
   redis_data:
+
+# S-4 network segmentation. Two tiers instead of one flat bridge:
+#   frontend — the edge/egress tier: nginx and everything it proxies (web,
+#              slicer-proxy, mcp, prometheus). Provides the default route for
+#              outbound egress (printer LAN, IdPs, GitHub, Discord).
+#   backend  — the data tier, marked `internal: true` so it has NO external
+#              connectivity at all. db, redis, and exporter live ONLY here, so
+#              they are unreachable from the host/internet AND from the edge-only
+#              nginx and mcp containers. web/poller/slicer-proxy/prometheus join
+#              both tiers, which is what lets them reach the DB while the DB
+#              itself never touches the edge.
+# A compromised edge service (or the AI/MCP surface) therefore cannot open a
+# direct socket to Postgres or Redis — it must go through web's authorized,
+# audited API. This is the single biggest blast-radius reduction in the stack.
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true

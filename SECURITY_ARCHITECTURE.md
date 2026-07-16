@@ -482,8 +482,16 @@ These are the items to fix before any internet exposure. Several overlap
 - **HP-3 — AI agent runs with full privilege (S-5).** MCP forwards a
   full-power key and can reach `printer_proxy` / `printfarm_admin_request`.
   *Fix:* reduced agent identity + human confirmation for control (§10).
-- **HP-4 — Flat network + root containers (S-4).** No segmentation/hardening in
-  `docker-compose.yml`. *Fix:* §11.4 + §13.
+- **HP-4 — Flat network + root containers (S-4).** **(partially fixed.)**
+  `docker-compose.yml` now segments into a `frontend` (edge/egress) tier and an
+  `internal: true` `backend` (data) tier: `db`/`redis`/`exporter` live only on
+  `backend`, so they're unreachable from the host, the internet, and the
+  edge-only `nginx`/`mcp` containers. Every service gets
+  `no-new-privileges:true`; the app services (`web`, `poller`, `slicer-proxy`,
+  `mcp`, `exporter`) also `cap_drop: [ALL]`. Validated with `docker compose
+  config`. Remaining: non-root `user:` + `read_only` rootfs (need per-service
+  tmpfs tuning, §11.5) and per-service least-privilege **DB roles** (§11.4, still
+  a single Postgres superuser today — see HP-9).
 - **HP-5 — TLS verification disabled to printers (H-2).** MITM on printer LAN.
   *Fix:* first-connect fingerprint pinning.
 - **HP-6 — SSRF via admin printer URL & SAML test (H-3/L-3).** *Fix:* block
@@ -598,18 +606,24 @@ networks:
 `db`/`redis` join **only** `appdata`; nothing external can route to them. This
 is the single biggest blast-radius reduction (S-4).
 
+> **Status: implemented** (as `frontend` + `internal: true` `backend`).
+> `db`/`redis`/`exporter` are backend-only; `nginx`/`mcp` are edge-only and have
+> no route to the data tier. Printer-LAN and internet egress are preserved via
+> the `frontend` tier's default route. See `docker-compose.yml`.
+
 ### 11.5 Container hardening (compose)
 
-Apply to every service (example for `web`):
+**Status: partially implemented.** `security_opt: [no-new-privileges:true]` is on
+every service and `cap_drop: [ALL]` on the app services (`web`, `poller`,
+`slicer-proxy`, `mcp`, `exporter`). `db`/`redis`/`nginx` keep their caps because
+their entrypoints need them to drop to an unprivileged user / bind `:80`. Still
+to do (needs runtime tuning, so deferred from this pass):
 
 ```yaml
-    user: "10001:10001"
-    read_only: true
-    tmpfs: [/tmp]
-    cap_drop: ["ALL"]
-    security_opt: ["no-new-privileges:true"]
+    user: "10001:10001"     # run as non-root
+    read_only: true         # read-only rootfs …
+    tmpfs: [/tmp]           # … plus a writable tmpfs for scratch (ffmpeg, busboy)
     pids_limit: 512
-    # add back only caps a service truly needs
 ```
 
 ### 11.6 AI-agent boundary (fixes S-5 tail)
@@ -668,9 +682,10 @@ Operator-facing, pre-production.
       proxy hop for client IP (C-2 depends on this).
 - [ ] Only `nginx` publishes a host port *(already true)*; `db`, `redis`, `web`,
       `poller`, `exporter`, `prometheus`, `mcp`, `slicer-proxy` unpublished.
-- [ ] Custom **segmented** networks; `db`/`redis` on `internal: true` (§11.4).
-- [ ] Every container: non-root `user:`, `cap_drop:[ALL]`,
-      `no-new-privileges`, `read_only` + tmpfs (§11.5).
+- [x] Custom **segmented** networks; `db`/`redis` on `internal: true` (§11.4). **Done.**
+- [~] Every container: `no-new-privileges` **(done, all)** + `cap_drop:[ALL]`
+      **(done, app services)**; non-root `user:` and `read_only` + tmpfs still
+      pending (§11.5).
 - [ ] All secrets from a secrets manager / Docker secrets, **not** `.env` in the
       repo; unique strong values; rotation schedule set.
 - [ ] `REDIS_PASSWORD` set and required; Redis not reachable off `appdata`.
