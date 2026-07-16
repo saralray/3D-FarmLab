@@ -133,6 +133,93 @@ export function extractPlateGcodeFrom3mf(buf) {
   }
 }
 
+// Read a PNG's pixel dimensions from its IHDR chunk (width/height are the first
+// two big-endian uint32s of the IHDR data, which always starts at byte 16 of a
+// valid PNG). Returns { width, height }, or null when the buffer isn't a PNG.
+function readPngDimensions(png) {
+  // 8-byte signature + 4-byte length + "IHDR" + 8 bytes of dimensions = 24.
+  if (!Buffer.isBuffer(png) || png.length < 24) return null;
+  if (png.readUInt32BE(0) !== 0x89504e47 || png.readUInt32BE(4) !== 0x0d0a1a0a) return null;
+  if (png.toString('ascii', 12, 16) !== 'IHDR') return null;
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  if (!width || !height) return null;
+  return { width, height };
+}
+
+// True when the G-code already carries an embedded PrusaSlicer/Orca-style
+// thumbnail (what Klipper/Moonraker screens read). Matches the "; thumbnail
+// begin" marker Orca writes for the PNG format (see export_thumbnails_to_file
+// in OrcaSlicer's GCode/Thumbnails.hpp) — the QOI/JPG/BTT/ColPic variants use
+// different tags, but Snapmaker/Moonraker screens key on the PNG one.
+export function gcodeHasThumbnail(text) {
+  return /^;\s*thumbnail begin\b/im.test(text);
+}
+
+// Render a PNG as an embedded G-code thumbnail block, byte-compatible with what
+// OrcaSlicer itself writes for the PNG format: a "; thumbnail begin WxH LEN"
+// header, the base64 payload wrapped at 78 chars per "; " line, and a
+// "; thumbnail end" trailer, all inside THUMBNAIL_BLOCK_START/END markers. The
+// .3mf's Metadata/plate_<n>.png is already a PNG, so its bytes are base64'd
+// directly (no re-encode). Returns the block text, or null when the buffer
+// isn't a usable PNG.
+export function buildKlipperThumbnailBlock(png) {
+  const dims = readPngDimensions(png);
+  if (!dims) return null;
+  const encoded = png.toString('base64');
+  const maxRow = 78; // matches Orca's max_row_length
+  const lines = ['; THUMBNAIL_BLOCK_START', ';', `; thumbnail begin ${dims.width}x${dims.height} ${encoded.length}`];
+  for (let i = 0; i < encoded.length; i += maxRow) {
+    lines.push(`; ${encoded.slice(i, i + maxRow)}`);
+  }
+  lines.push('; thumbnail end', '; THUMBNAIL_BLOCK_END', '');
+  return lines.join('\n');
+}
+
+// Pull the plate preview PNG (Metadata/plate_<n>.png) out of a .gcode.3mf,
+// matching the plate whose G-code was extracted (plateGcodeName, e.g.
+// "Metadata/plate_6.gcode"). Falls back to plate_1.png, then to the first
+// plate PNG in the archive. Returns the PNG bytes, or null.
+export function extractPlateThumbnailPng(buf, plateGcodeName) {
+  const candidates = [];
+  const matched = /plate_(\d+)\.gcode$/i.exec(plateGcodeName || '');
+  if (matched) candidates.push(`Metadata/plate_${matched[1]}.png`);
+  candidates.push('Metadata/plate_1.png');
+  for (const name of candidates) {
+    const data = readZipEntry(buf, name);
+    if (data && readPngDimensions(data)) return data;
+  }
+  // Last resort: scan the central directory for any Metadata/plate_<n>.png.
+  try {
+    const minEocd = 22;
+    if (buf.length < minEocd) return null;
+    let eocd = -1;
+    const scanStart = Math.max(0, buf.length - (minEocd + 0xffff));
+    for (let i = buf.length - minEocd; i >= scanStart; i -= 1) {
+      if (buf.readUInt32LE(i) === EOCD_SIG) { eocd = i; break; }
+    }
+    if (eocd < 0) return null;
+    const cdCount = buf.readUInt16LE(eocd + 10);
+    let p = buf.readUInt32LE(eocd + 16);
+    const pngRe = /^Metadata\/plate_\d+\.png$/;
+    for (let n = 0; n < cdCount; n += 1) {
+      if (p + 46 > buf.length || buf.readUInt32LE(p) !== CDIR_SIG) return null;
+      const nameLen = buf.readUInt16LE(p + 28);
+      const extraLen = buf.readUInt16LE(p + 30);
+      const commentLen = buf.readUInt16LE(p + 32);
+      const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
+      if (pngRe.test(name)) {
+        const data = readZipEntry(buf, name);
+        if (data && readPngDimensions(data)) return data;
+      }
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 // Sum the plate-level filament weight (grams) from a Bambu / Orca 3MF's
 // Metadata/slice_info.config. Each <plate> carries
 // <metadata key="weight" value="<grams>"/>; summing across plates yields the
