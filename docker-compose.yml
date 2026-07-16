@@ -271,6 +271,13 @@ services:
       PRINTER_SECRET_KEY: ${PRINTER_SECRET_KEY:-}
       # H-2: must match the web service (see web service comment above).
       BAMBU_TLS_SKIP_VERIFY: ${BAMBU_TLS_SKIP_VERIFY:-true}
+      # H-2 cert pinning: since Bambu certs are self-signed (skip-verify), pin
+      # each printer's cert fingerprint to close the LAN MITM window without a CA.
+      # Format: "<serial>=<sha256-fp>,<serial2>=<fp2>". The poller logs each
+      # observed fingerprint (grep "H-2: bambu serial") so you can capture it,
+      # then set it here to ENFORCE (a mismatching cert is rejected). Empty
+      # (default) = observe-only, no printer is pinned, no behavior change.
+      BAMBU_CERT_PINS: ${BAMBU_CERT_PINS:-}
       # Bambu cameras aren't plain HTTP, so the poller grabs their Discord-snapshot
       # frames from the web service's /__printer_webcam/<id>/snapshot.jpg endpoint
       # over the internal network (it speaks the port-6000 / RTSP camera protocols).

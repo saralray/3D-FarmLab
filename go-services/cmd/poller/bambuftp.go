@@ -66,7 +66,7 @@ func openBambuFTP(printer pmap) (*ftp.ServerConn, error) {
 	conn, err := ftp.Dial(
 		addrPort(addr, bambuFtpPort),
 		ftp.DialWithTimeout(bambuFtpTimeout),
-		ftp.DialWithTLS(bambuTLSConfig()), // H-2: see util.go bambuTLSConfig
+		ftp.DialWithTLS(bambuTLSConfig(strings.TrimSpace(mStr(printer, "serial")))), // H-2: per-printer cert pinning
 	)
 	if err != nil {
 		return nil, err

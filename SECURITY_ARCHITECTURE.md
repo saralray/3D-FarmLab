@@ -509,8 +509,19 @@ These are the items to fix before any internet exposure. Several overlap
   config`. Remaining: non-root `user:` + `read_only` rootfs (need per-service
   tmpfs tuning, §11.5) and per-service least-privilege **DB roles** (§11.4, still
   a single Postgres superuser today — see HP-9).
-- **HP-5 — TLS verification disabled to printers (H-2).** MITM on printer LAN.
-  *Fix:* first-connect fingerprint pinning.
+- **HP-5 — TLS verification disabled to printers (H-2).** **(poller pinning
+  landed; other TLS surfaces pending.)** The Go poller now supports **per-printer
+  certificate pinning** for Bambu MQTT + FTPS: since the certs are self-signed
+  (CA verification can't work), `BAMBU_CERT_PINS="<serial>=sha256:<fp>,…"` lets an
+  operator pin each printer's cert; a mismatching leaf is rejected (MITM closed)
+  without a CA. Unpinned printers are observe-only (the poller logs the observed
+  fingerprint so the operator can capture it), so the default is zero behavior
+  change. The pin verifier (`certpin.go`) is Go-unit-tested against generated
+  certs (fingerprint stability, form-normalization, constant-time match,
+  pinned/unpinned/mismatch/empty-chain decisions). Remaining: apply the same
+  `VerifyPeerCertificate` pinning to the **Node web tier's** Bambu MQTT/FTPS/RTSP/
+  raw-6000 connections and the slicer-proxy FTPS (they still use
+  `rejectUnauthorized:false`), reusing the serial-keyed pin store.
 - **HP-6 — SSRF via admin printer URL & SAML test (H-3/L-3).** *Fix:* block
   private/loopback/link-local/metadata ranges; allowlist printer address space.
 - **HP-7 — Prometheus exposed without auth (H-1).** *Fix:* require auth or stop
