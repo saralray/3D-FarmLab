@@ -120,6 +120,7 @@ import {
   redisTtl,
 } from './redis.js';
 import { logger } from './logger.js';
+import { requiredCapability, roleHasCapability, PUBLIC as RBAC_PUBLIC } from './rbac.js';
 import {
   classifyRoute,
   getProcessStartSeconds,
@@ -2034,258 +2035,19 @@ async function clearCredentialAttempts({ ip, username }) {
   await Promise.all([clearBucket(ipBucketKey(ip || 'unknown')), clearUsernameLock(username)]);
 }
 
-// ── Authorization matrix for the frontend /api/* surface ─────────────────────
-// Both reads and mutations are DEFAULT-DENY. Mutations: anything not explicitly
-// classified public/operator requires an admin session. Reads: a GET is public
-// only if it belongs to an explicitly allowlisted public-read family
-// (isPublicRead) — the anonymous viewer dashboard, the public print-request
-// intake, the auth bootstrap, and the ESP32 status-light polling surface.
-// Any GET outside that allowlist requires a session ('authed'). This closes the
-// "public by omission" class (S-1): a newly added read route can no longer be
-// world-readable just because nobody remembered to classify it — it fails
-// closed to authed until explicitly added to isPublicRead. The secret-bearing
-// reads (isSensitiveRead) still resolve to admin regardless.
-
-const PUBLIC_API_MUTATIONS = new Set([
-  'POST /api/auth/login',
-  'POST /api/auth/logout',
-  'POST /api/auth/verify', // OAuth grant exchange
-  'POST /api/auth/saml/acs', // SAML assertion consumer
-  'POST /api/slicer-grant/verify',
-  'POST /api/admin/credential/verify',
-  'POST /api/users/verify',
-  'POST /api/manager/request', // external manager requests an access key
-  'POST /api/queue/submit', // public student print-request intake
-]);
-
-// Non-sensitive reads that expose fleet/queue operational data (queue contents,
-// fleet health aggregates). World-readable only when the anonymous public-viewer
-// dashboard is enabled; otherwise they require a session so a non-public
-// deployment doesn't leak this to unauthenticated callers.
-// Note: /api/queue has been made public so that public users can always see the queue.
-const VIEWER_GATED_READS = new Set([
-  '/api/maintenance/summary',
-]);
-
-// The stored model file for a queue job (GET /api/queue/:id/file). Its bytes are
-// the student's uploaded model.
-const QUEUE_FILE_READ_RE = /^\/api\/queue\/[^/]+\/file$/;
-
-function isViewerGatedRead(pathname) {
-  return VIEWER_GATED_READS.has(pathname);
-}
-
-// Explicit allowlist of GET/HEAD read families that are world-readable (no
-// session). This is the anonymous surface the product intentionally exposes:
-//   - the auth bootstrap the login/SPA needs before a session exists
-//     (session probe, provider list, SAML metadata/start, OAuth redirect);
-//   - the public viewer dashboard (printers + cameras, queue, analytics,
-//     maintenance) — individual secret-bearing reads inside these families are
-//     still caught earlier by isSensitiveRead (→ admin) or gated by viewer mode;
-//   - the public print-request intake (queue availability, branding, settings
-//     the request form and login screen render);
-//   - the ESP32 status-light polling surface (device roster + per-printer
-//     status string), which carries no secrets and is polled cookieless.
-// Anything NOT matched here falls through to a session requirement ('authed').
-// When adding a genuinely public read, add it here deliberately — that is the
-// whole point of the default-deny inversion.
-function isPublicRead(pathname) {
-  // Root/version/health-style probes.
-  if (pathname === '/api' || pathname === '/api/' || pathname === '/api/version') {
-    return true;
-  }
-  // Auth bootstrap — needed before any session exists. (Login/logout/verify are
-  // POSTs handled via PUBLIC_API_MUTATIONS; these are the GET companions.)
-  if (pathname === '/api/auth/session' || pathname.startsWith('/api/auth/')) {
-    return true;
-  }
-  // Public viewer dashboard fleet + camera reads. Secret-bearing printer reads
-  // are not among these GETs (isSensitiveRead covers the secret surfaces); the
-  // printer list path itself redacts connection secrets in viewer mode.
-  if (pathname === '/api/printers' || pathname.startsWith('/api/printers/')) {
-    return true;
-  }
-  if (pathname === '/api/cameras/health') {
-    return true;
-  }
-  // Queue reads for the viewer dashboard and the public request form. The stored
-  // model-file bytes (QUEUE_FILE_READ_RE) are handled earlier as operator-only.
-  if (pathname === '/api/queue' || pathname.startsWith('/api/queue/')) {
-    return true;
-  }
-  // Analytics rollups shown on the (viewer) dashboard.
-  if (pathname.startsWith('/api/analytics/')) {
-    return true;
-  }
-  // Maintenance reads. /api/maintenance/summary is handled earlier (viewer-gated).
-  if (pathname === '/api/maintenance' || pathname.startsWith('/api/maintenance/')) {
-    return true;
-  }
-  // Settings reads the SPA/login/request-form render before auth (branding,
-  // favicon, public-viewer flag, layouts, integrations, availability, SSO URL).
-  // The secret-bearing settings reads (saml, home-assistant) resolved to admin
-  // in isSensitiveRead before this point.
-  if (pathname.startsWith('/api/settings/')) {
-    return true;
-  }
-  // ESP32 status-light polling surface (no secrets). /provisioning is admin
-  // (isSensitiveRead) and resolved earlier.
-  if (pathname === '/api/status-light/devices' || pathname.startsWith('/api/status-light/printers/')) {
-    return true;
-  }
-  // A manager request can poll its own approval status by id (no secret).
-  if (pathname.startsWith('/api/manager/requests/') && pathname.endsWith('/status')) {
-    return true;
-  }
-  return false;
-}
+// ── Authorization for the frontend /api/* surface ────────────────────────────
+// The route → required-capability policy and the role → capability matrix now
+// live in one declarative place: server/rbac.js (S-2). authorizeFrontendApi
+// resolves the required capability via requiredCapability() and checks it with
+// roleHasCapability(); the previous scattered classifier functions
+// (classifyApiRequest / isSensitiveRead / isPublicRead / isViewerGatedRead /
+// isOperatorMutation / isAdminMutation) were consolidated there, verified to
+// reproduce every prior allow/deny decision. Both reads and mutations remain
+// DEFAULT-DENY (an unclassified read needs a session; an unclassified mutation
+// needs admin).
 
 function publicViewerModeEnabled() {
   return process.env.VITE_PUBLIC_VIEWER_MODE === 'true';
-}
-
-// GET/HEAD endpoints that must NOT be world-readable because they expose
-// credentials, account lists, audit trails, or IdP config.
-function isSensitiveRead(pathname) {
-  if (pathname === '/api/users' || (pathname.startsWith('/api/users/') && pathname !== '/api/users/verify')) {
-    return true;
-  }
-  if (pathname === '/api/slicer-keys' || pathname.startsWith('/api/slicer-keys/')) {
-    return true;
-  }
-  if (pathname === '/api/audit-logs') {
-    return true;
-  }
-  if (pathname === '/api/admin/update-status') {
-    return true; // software-update status is admin-only (not viewer-readable)
-  }
-  if (pathname === '/api/admin/backup/download') {
-    return true; // full data backup — every connection secret and API key
-  }
-  if (pathname === '/api/network-usage' || pathname === '/api/network-usage/live') {
-    return true; // internal traffic breakdown is admin-only, like audit logs
-  }
-  if (pathname.startsWith('/api/notifications/')) {
-    return true; // Discord webhook URLs are secrets
-  }
-  if (pathname === '/api/manager/requests') {
-    return true;
-  }
-  if (pathname.startsWith('/api/manager/requests/') && !pathname.endsWith('/status')) {
-    return true;
-  }
-  if (pathname === '/api/settings/saml') {
-    return true; // may carry IdP signing config
-  }
-  if (pathname.startsWith('/api/settings/home-assistant')) {
-    return true; // internal HA URL + device/entity lists are not viewer-readable
-  }
-  if (pathname === '/api/status-light/provisioning') {
-    return true; // admin-only flash-page config (poll interval, status path)
-  }
-  return false;
-}
-
-function isAdminMutation(method, pathname) {
-  if (pathname === '/api/users' && method === 'POST') return true;
-  if (pathname.startsWith('/api/users/') && pathname !== '/api/users/verify') return true;
-  if (pathname === '/api/slicer-keys' && method === 'POST') return true;
-  if (pathname.startsWith('/api/slicer-keys/') && method === 'DELETE') return true;
-  if (pathname === '/api/admin/credential' && method === 'PUT') return true;
-  if (pathname === '/api/admin/update/apply' && method === 'POST') return true;
-  if (pathname === '/api/admin/backup/restore' && method === 'POST') return true;
-  if (pathname.startsWith('/api/notifications/')) return true;
-  if (pathname === '/api/settings/saml' || pathname === '/api/settings/saml/test') return true;
-  if (pathname.startsWith('/api/settings/') && method !== 'GET') return true;
-  if (pathname === '/api/analytics/daily/reset') return true;
-  if (pathname === '/api/queue/reset') return true;
-  if (pathname.startsWith('/api/queue/') && method === 'DELETE') return true;
-  if (pathname.startsWith('/api/printers/') && method === 'DELETE') return true;
-  if (pathname.startsWith('/api/manager/requests/') && !pathname.endsWith('/status')) return true;
-  // Filament Station: deleting a spool/device/assignment or issuing a system
-  // command (reboot/shutdown/restart) to the physical kiosk — same
-  // destructive-ish class as deleting a printer.
-  if (pathname.startsWith('/api/filament-station/')) {
-    if (method === 'DELETE') return true;
-    if (pathname.endsWith('/system/command') && method === 'POST') return true;
-  }
-  return false;
-}
-
-// Operator-or-admin writes: live print control and queue progress. Printer
-// create/edit/reorder shares one upsert endpoint that operators also use to
-// reorder the dashboard, so it stays here rather than admin-only.
-function isOperatorMutation(method, pathname) {
-  if (pathname === '/api/printers' && method === 'POST') return true;
-  if (pathname.startsWith('/api/printers/') && pathname.endsWith('/command') && method === 'POST') return true;
-  if (pathname.startsWith('/api/queue/') && pathname.endsWith('/printed') && method === 'POST') return true;
-  if (pathname === '/api/queue' && method === 'POST') return true;
-  if (pathname === '/api/queue/availability/bypass' && method === 'POST') return true;
-  if (pathname.startsWith('/api/maintenance/') && pathname.endsWith('/complete') && method === 'POST') return true;
-  if (pathname === '/api/maintenance/notifications/read' && method === 'POST') return true;
-  // Filament Station: spool/assignment CRUD, tag writes, and calibration/
-  // display tuning — operator-level, same class as printer command/queue.
-  if (pathname.startsWith('/api/filament-station/') && (method === 'POST' || method === 'PUT')) {
-    if (!pathname.endsWith('/system/command')) return true;
-  }
-  return false;
-}
-
-// Returns the access class for a frontend API request:
-//   'public'   — no session required
-//   'authed'   — any valid session
-//   'operator' — operator or admin session
-//   'admin'    — admin session only
-function classifyApiRequest(method, pathname) {
-  if (method === 'OPTIONS') {
-    return 'public';
-  }
-  if (method === 'GET' || method === 'HEAD') {
-    if (isSensitiveRead(pathname)) {
-      return 'admin';
-    }
-    if (isViewerGatedRead(pathname) && !publicViewerModeEnabled()) {
-      return 'authed';
-    }
-    // The stored model file (GET /api/queue/:id/file) is a student's uploaded
-    // design. The rest of the queue read is public (and already redacts submitter
-    // PII), but the file bytes are staff-only — otherwise anyone could download
-    // every uploaded model straight from the DB.
-    if (QUEUE_FILE_READ_RE.test(pathname)) {
-      return 'operator';
-    }
-    // Default-deny for reads: only explicitly allowlisted read families are
-    // world-readable; every other GET requires a session. (S-1: previously this
-    // returned 'public' for any unclassified read.)
-    if (isPublicRead(pathname)) {
-      return 'public';
-    }
-    return 'authed';
-  }
-  // Mutations
-  if (PUBLIC_API_MUTATIONS.has(`${method} ${pathname}`)) {
-    return 'public';
-  }
-  // First-run admin password setup is open, but the handler refuses (409) once a
-  // credential exists, so it can't be reused to hijack the account.
-  if (method === 'POST' && pathname === '/api/admin/credential') {
-    return 'public';
-  }
-  if (pathname === '/api/audit-logs' && method === 'POST') {
-    return 'authed';
-  }
-  // Any signed-in user may mint/revoke their own ephemeral slicer-upload token.
-  if (pathname === '/api/auth/slicer-token' && (method === 'POST' || method === 'DELETE')) {
-    return 'authed';
-  }
-  if (isOperatorMutation(method, pathname)) {
-    return 'operator';
-  }
-  if (isAdminMutation(method, pathname)) {
-    return 'admin';
-  }
-  // Default-deny: any unclassified mutation requires admin.
-  return 'admin';
 }
 
 // True when a state-changing request demonstrably comes from our own site (or
@@ -2319,9 +2081,10 @@ function isSameOriginWrite(req) {
   return allowed.has(sourceHost);
 }
 
-// Authorization gate run at the top of handleApi. Resolves the session and
-// enforces the class from classifyApiRequest. On denial it writes the response
-// and returns false; on success it returns true and the route ladder proceeds.
+// Authorization gate run at the top of handleApi. Resolves the required
+// capability (server/rbac.js), the session, and the session role's capabilities.
+// On denial it writes the response and returns false; on success it returns true
+// and the route ladder proceeds.
 async function authorizeFrontendApi(req, res, requestUrl) {
   const { pathname } = requestUrl;
   // Only the cookie-authenticated frontend surface is gated here. The key-gated
@@ -2330,8 +2093,12 @@ async function authorizeFrontendApi(req, res, requestUrl) {
     return true;
   }
 
-  const klass = classifyApiRequest(req.method || 'GET', pathname);
-  if (klass === 'public') {
+  // Single source of truth for the route → required-capability policy (server/
+  // rbac.js). PUBLIC needs no session; every other route resolves to exactly one
+  // capability the caller's role must hold.
+  const publicViewer = publicViewerModeEnabled();
+  const capability = requiredCapability(req.method || 'GET', pathname, { publicViewer });
+  if (capability === RBAC_PUBLIC) {
     return true;
   }
 
@@ -2339,7 +2106,7 @@ async function authorizeFrontendApi(req, res, requestUrl) {
   // already keeps the session cookie off cross-site writes; this is a second,
   // independent control — a state-changing request must originate from our own
   // site. Only non-public mutations reach here (the public intake endpoints —
-  // login, SAML ACS, manager request, queue submit — returned 'public' above,
+  // login, SAML ACS, manager request, queue submit — resolve to PUBLIC above,
   // so the IdP's cross-origin ACS POST and the CORS manager API are unaffected).
   // GET/HEAD are exempt (not state-changing). The key-gated /api/v1 surface is
   // separate and never reaches this gate.
@@ -2354,13 +2121,11 @@ async function authorizeFrontendApi(req, res, requestUrl) {
     sendJson(res, 401, { error: 'Authentication required.' });
     return false;
   }
+  // role × capability. Tenant/object scoping (rbac.canAccessResource) is layered
+  // on at the data-access sites as records gain tenant ids (S-2 phase 2).
   const role = sessionRole(session);
-  if (klass === 'admin' && role !== 'admin') {
-    sendJson(res, 403, { error: 'Administrator access required.' });
-    return false;
-  }
-  if (klass === 'operator' && !isPrivilegedRole(role)) {
-    sendJson(res, 403, { error: 'Operator access required.' });
+  if (!roleHasCapability(role, capability)) {
+    sendJson(res, 403, { error: `Access denied: this action requires the '${capability}' capability.` });
     return false;
   }
   return true;
