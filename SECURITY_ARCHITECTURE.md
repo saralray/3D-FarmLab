@@ -570,11 +570,13 @@ These are the items to fix before any internet exposure. Several overlap
   payloads) as untrusted; never let it select a privileged tool or a raw
   passthrough path. Constrain tools to structured params; log every tool call
   with the bound agent identity. (Pairs with HP-3.) **Landed:**
-  `MCP_ADMIN_MODE=restricted` (default) blocks escape-hatch writes to the
-  escalation surfaces (`mcp/adminPolicy.js`); combine with a `printfarm_read`/
-  `control` key for server-enforced least privilege. **Follow-on:** gate the
-  `create_notification` dedicated tool the same way (a Discord webhook URL is an
-  exfiltration channel), and add per-tool audit with a distinct agent identity.
+  `MCP_ADMIN_MODE=restricted` (default) blocks writes to the escalation +
+  exfiltration surfaces (`mcp/adminPolicy.js`) — via **both** the escape-hatch
+  **and** the dedicated `create_notification`/`delete_notification` tools
+  (`notifications` added to the restricted set, since a Discord webhook URL is an
+  exfiltration channel). Combine with a `printfarm_read`/`control` key for
+  server-enforced least privilege. **Follow-on:** add per-tool audit with a
+  distinct agent identity.
 - **MQTT client IDs embed serial+timestamp (L-7):** use random UUIDs.
 - **Slicer proxy lacks security headers (L-5):** add the same header middleware.
 - **CI images tagged only `:latest` (L-2):** add SHA tags for rollback.

@@ -23,6 +23,7 @@ const RESTRICTED_WRITE_RESOURCES = new Set([
   'admin-credential', // reset the admin password — account takeover
   'manager-requests', // approve → mints a printfarm_manage key
   'settings', // change SAML/SSO/security config — auth tamper
+  'notifications', // create/delete Discord webhooks — data-exfiltration channel
 ]);
 
 export function adminMode() {

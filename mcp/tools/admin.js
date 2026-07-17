@@ -21,7 +21,8 @@ export function registerAdminTools(server, api) {
         '(PUT /api/v1/admin-credential) or delete accounts — confirm with a human before destructive calls. ' +
         'The path must start with /api/v1/. ' +
         'By default (MCP_ADMIN_MODE=restricted) WRITES to slicer-keys, users, admin-credential, ' +
-        'manager-requests, and settings are refused as privilege-escalation surfaces; reads are allowed.',
+        'manager-requests, settings, and notifications are refused as privilege-escalation / ' +
+        'exfiltration surfaces; reads are allowed.',
       inputSchema: {
         method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).default('GET'),
         path: z

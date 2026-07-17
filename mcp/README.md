@@ -90,13 +90,16 @@ annotated `destructiveHint` so clients prompt for confirmation.
 The escape-hatch is the agent's most dangerous surface, so it is gated by
 `MCP_ADMIN_MODE` (defense-in-depth on top of the caller's key scope):
 
-- **`restricted`** (default) — the escape-hatch may **read** any admin surface,
-  but **refuses writes** to the privilege-escalation / credential / secret-minting
-  surfaces: `slicer-keys`, `users`, `admin-credential`, `manager-requests`,
-  `settings`. This stops a prompt-injected model from minting itself an API key,
-  resetting the admin password, creating a backdoor staff account, approving a
-  manager key, or tampering with auth settings. Dedicated tools (printers, queue,
-  maintenance, analytics, notifications, status) are unaffected.
+- **`restricted`** (default) — **refuses writes** to the privilege-escalation /
+  credential / secret-minting / exfiltration surfaces: `slicer-keys`, `users`,
+  `admin-credential`, `manager-requests`, `settings`, and `notifications`. This
+  applies both to the escape-hatch **and** to the dedicated
+  `create_notification` / `delete_notification` tools (a Discord webhook URL is a
+  data-exfiltration channel). It stops a prompt-injected model from minting itself
+  an API key, resetting the admin password, creating a backdoor staff account,
+  approving a manager key, tampering with auth settings, or redirecting farm
+  notifications to an attacker. Reads and the other dedicated tools (printers,
+  queue, maintenance, analytics, status) are unaffected.
 - **`full`** — no escape-hatch restriction (previous behavior). Use only when the
   agent is trusted to perform admin writes.
 
