@@ -1250,6 +1250,23 @@ function hash(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+// Password hashing is a SERVER responsibility. The browser now sends the
+// plaintext `password` (protected by TLS) and we derive the sha256 here — the
+// exact value the SPA used to compute client-side and submit as `passwordHash`.
+// Deriving it server-side removes the pass-the-hash weakness (a client-computed
+// hash is a replayable password-equivalent) while keeping every downstream check
+// (verifyPassword / derivePasswordHash) and the stored credential format
+// unchanged. `passwordHash` is still accepted for backward compatibility (an
+// older cached SPA, and the key-gated /api/v1 host→host migration path that may
+// pass an already-derived scrypt string). Prefer `password` when both are sent.
+// Pass fieldName to read a differently-named plaintext (e.g. 'currentPassword').
+function submittedPasswordHash(body, passwordField = 'password', hashField = 'passwordHash') {
+  if (body && typeof body[passwordField] === 'string' && body[passwordField].length > 0) {
+    return hash(body[passwordField]);
+  }
+  return body ? body[hashField] : undefined;
+}
+
 // The admin bootstrap credential lives in app_settings (DB), not baked into the
 // frontend bundle — it is set once through the website on first run. The stored
 // value is { passwordHash: <sha256 hex> }; the plaintext is never sent or stored.
@@ -4756,7 +4773,7 @@ async function handleApi(req, res, requestUrl) {
     // Parse the body first so the username is available for the per-account lock.
     const body = await readJsonBody(req);
     const username = typeof body?.username === 'string' ? body.username.trim().toLowerCase() : '';
-    const passwordHash = body?.passwordHash;
+    const passwordHash = submittedPasswordHash(body); // plaintext `password` (preferred) or legacy `passwordHash`
     const remember = Boolean(body?.remember);
     const rateKey = { ip, username };
 
@@ -5140,9 +5157,9 @@ async function handleApi(req, res, requestUrl) {
         sendJson(res, 409, { error: 'Admin password is already configured' });
         return true;
       }
-      const { passwordHash } = await readJsonBody(req);
+      const passwordHash = submittedPasswordHash(await readJsonBody(req));
       if (!isSha256Hex(passwordHash)) {
-        sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
+        sendJson(res, 400, { error: 'a password is required' });
         return true;
       }
       await setAppSetting(ADMIN_CREDENTIAL_KEY, { passwordHash: await derivePasswordHash(passwordHash) });
@@ -5162,9 +5179,11 @@ async function handleApi(req, res, requestUrl) {
         sendJson(res, 409, { error: 'Admin password is not configured yet' });
         return true;
       }
-      const { currentPasswordHash, newPasswordHash } = await readJsonBody(req);
+      const changeBody = await readJsonBody(req);
+      const currentPasswordHash = submittedPasswordHash(changeBody, 'currentPassword', 'currentPasswordHash');
+      const newPasswordHash = submittedPasswordHash(changeBody, 'newPassword', 'newPasswordHash');
       if (!isSha256Hex(newPasswordHash)) {
-        sendJson(res, 400, { error: 'newPasswordHash must be a sha256 hex string' });
+        sendJson(res, 400, { error: 'a new password is required' });
         return true;
       }
       // Knowledge of the current password authorizes the change (there is no
@@ -5208,7 +5227,7 @@ async function handleApi(req, res, requestUrl) {
     const stored = await getAppSetting(ADMIN_CREDENTIAL_KEY);
     const storedHash =
       stored && typeof stored.passwordHash === 'string' ? stored.passwordHash : '';
-    const { passwordHash } = await readJsonBody(req);
+    const passwordHash = submittedPasswordHash(await readJsonBody(req));
     const valid = storedHash.length > 0 && (await verifyPassword(storedHash, passwordHash));
     if (valid) {
       await clearCredentialAttempts(rateKey);
@@ -5238,7 +5257,7 @@ async function handleApi(req, res, requestUrl) {
       const username =
         typeof body?.username === 'string' ? body.username.trim().toLowerCase() : '';
       const role = typeof body?.role === 'string' ? body.role : '';
-      const passwordHash = body?.passwordHash;
+      const passwordHash = submittedPasswordHash(body);
 
       if (!name || !username) {
         sendJson(res, 400, { error: 'Name and username are required.' });
@@ -5249,7 +5268,7 @@ async function handleApi(req, res, requestUrl) {
         return true;
       }
       if (!isSha256Hex(passwordHash)) {
-        sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
+        sendJson(res, 400, { error: 'a password is required' });
         return true;
       }
       if (username === RESERVED_USERNAME) {
@@ -5285,7 +5304,7 @@ async function handleApi(req, res, requestUrl) {
     const body = await readJsonBody(req);
     const username =
       typeof body?.username === 'string' ? body.username.trim().toLowerCase() : '';
-    const passwordHash = body?.passwordHash;
+    const passwordHash = submittedPasswordHash(body);
     const rateKey = { ip: getClientIp(req) || 'unknown', username };
     const rate = await guardCredentialAttempt(rateKey);
     if (!rate.allowed) {
@@ -5344,9 +5363,11 @@ async function handleApi(req, res, requestUrl) {
     }
 
     if (action === 'password' && req.method === 'PUT') {
-      const { passwordHash, currentPasswordHash } = await readJsonBody(req);
+      const pwBody = await readJsonBody(req);
+      const passwordHash = submittedPasswordHash(pwBody);
+      const currentPasswordHash = submittedPasswordHash(pwBody, 'currentPassword', 'currentPasswordHash');
       if (!isSha256Hex(passwordHash)) {
-        sendJson(res, 400, { error: 'passwordHash must be a sha256 hex string' });
+        sendJson(res, 400, { error: 'a password is required' });
         return true;
       }
       const usersList = await readStaffUsers();

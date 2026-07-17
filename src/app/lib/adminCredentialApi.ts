@@ -32,22 +32,22 @@ export async function fetchAdminConfigured(): Promise<boolean> {
 
 // First-run setup. Succeeds only while no admin password exists; the server
 // returns 409 once one is configured.
-export async function setupAdminCredential(passwordHash: string): Promise<MutationResult> {
+export async function setupAdminCredential(password: string): Promise<MutationResult> {
   const response = await fetch('/api/admin/credential', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ passwordHash }),
+    body: JSON.stringify({ password }),
   });
   return response.ok ? { ok: true } : { ok: false, error: await readError(response) };
 }
 
-// Login check. Returns true only when the hash matches the stored credential.
-export async function verifyAdminCredential(passwordHash: string): Promise<boolean> {
+// Login check. Returns true only when the password matches the stored credential.
+export async function verifyAdminCredential(password: string): Promise<boolean> {
   try {
     const response = await fetch('/api/admin/credential/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passwordHash }),
+      body: JSON.stringify({ password }),
     });
     return response.ok;
   } catch {
@@ -55,16 +55,16 @@ export async function verifyAdminCredential(passwordHash: string): Promise<boole
   }
 }
 
-// Change the admin password. The server requires the current password hash to
-// authorize the change.
+// Change the admin password. The server requires the current password to
+// authorize the change (plaintext over TLS — the server hashes).
 export async function changeAdminCredential(
-  currentPasswordHash: string,
-  newPasswordHash: string,
+  currentPassword: string,
+  newPassword: string,
 ): Promise<MutationResult> {
   const response = await fetch('/api/admin/credential', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ currentPasswordHash, newPasswordHash }),
+    body: JSON.stringify({ currentPassword, newPassword }),
   });
   return response.ok ? { ok: true } : { ok: false, error: await readError(response) };
 }

@@ -30,18 +30,19 @@ async function readError(response: Response): Promise<string | undefined> {
   }
 }
 
-// Exchange a username + sha256 password hash for a server session cookie. The
-// admin account and staff accounts both authenticate through this one endpoint.
+// Exchange a username + plaintext password (protected by TLS) for a server
+// session cookie; the server does the hashing. The admin account and staff
+// accounts both authenticate through this one endpoint.
 export async function loginSession(
   username: string,
-  passwordHash: string,
+  password: string,
   remember: boolean,
 ): Promise<LoginSessionResult> {
   try {
     const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, passwordHash, remember }),
+      body: JSON.stringify({ username, password, remember }),
     });
     if (response.status === 429) {
       const payload = (await response.json().catch(() => ({}))) as { retryAfterMs?: number };

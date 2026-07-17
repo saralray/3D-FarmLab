@@ -251,130 +251,10 @@ function takeOAuthGrantToken(): string | null {
   return token;
 }
 
-function sha256Fallback(message: string) {
-  const encoder = new TextEncoder();
-  const bytes = Array.from(encoder.encode(message));
-  const bitLength = bytes.length * 8;
-
-  bytes.push(0x80);
-  while ((bytes.length % 64) !== 56) {
-    bytes.push(0);
-  }
-
-  // 64-bit big-endian length. Split into high/low 32-bit halves: JS `>>>`
-  // only operates on 32 bits (the shift count is taken mod 32), so a single
-  // `bitLength >>> 56` would wrap around and corrupt the length block.
-  const highBits = Math.floor(bitLength / 0x100000000);
-  const lowBits = bitLength >>> 0;
-  for (let shift = 24; shift >= 0; shift -= 8) {
-    bytes.push((highBits >>> shift) & 0xff);
-  }
-  for (let shift = 24; shift >= 0; shift -= 8) {
-    bytes.push((lowBits >>> shift) & 0xff);
-  }
-
-  const words = new Uint32Array(64);
-  const hash = new Uint32Array([
-    0x6a09e667,
-    0xbb67ae85,
-    0x3c6ef372,
-    0xa54ff53a,
-    0x510e527f,
-    0x9b05688c,
-    0x1f83d9ab,
-    0x5be0cd19,
-  ]);
-
-  const k = new Uint32Array([
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
-    0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
-    0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
-    0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
-    0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-    0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
-    0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
-    0xc67178f2,
-  ]);
-
-  for (let offset = 0; offset < bytes.length; offset += 64) {
-    for (let index = 0; index < 16; index += 1) {
-      const base = offset + index * 4;
-      words[index] =
-        (bytes[base] << 24) |
-        (bytes[base + 1] << 16) |
-        (bytes[base + 2] << 8) |
-        bytes[base + 3];
-    }
-
-    for (let index = 16; index < 64; index += 1) {
-      const s0 =
-        ((words[index - 15] >>> 7) | (words[index - 15] << 25)) ^
-        ((words[index - 15] >>> 18) | (words[index - 15] << 14)) ^
-        (words[index - 15] >>> 3);
-      const s1 =
-        ((words[index - 2] >>> 17) | (words[index - 2] << 15)) ^
-        ((words[index - 2] >>> 19) | (words[index - 2] << 13)) ^
-        (words[index - 2] >>> 10);
-      words[index] = (((words[index - 16] + s0) >>> 0) + ((words[index - 7] + s1) >>> 0)) >>> 0;
-    }
-
-    let [a, b, c, d, e, f, g, h] = hash;
-
-    for (let index = 0; index < 64; index += 1) {
-      const s1 =
-        ((e >>> 6) | (e << 26)) ^
-        ((e >>> 11) | (e << 21)) ^
-        ((e >>> 25) | (e << 7));
-      const choice = (e & f) ^ (~e & g);
-      const temp1 = (((((h + s1) >>> 0) + choice) >>> 0) + ((k[index] + words[index]) >>> 0)) >>> 0;
-      const s0 =
-        ((a >>> 2) | (a << 30)) ^
-        ((a >>> 13) | (a << 19)) ^
-        ((a >>> 22) | (a << 10));
-      const majority = (a & b) ^ (a & c) ^ (b & c);
-      const temp2 = (s0 + majority) >>> 0;
-
-      h = g;
-      g = f;
-      f = e;
-      e = (d + temp1) >>> 0;
-      d = c;
-      c = b;
-      b = a;
-      a = (temp1 + temp2) >>> 0;
-    }
-
-    hash[0] = (hash[0] + a) >>> 0;
-    hash[1] = (hash[1] + b) >>> 0;
-    hash[2] = (hash[2] + c) >>> 0;
-    hash[3] = (hash[3] + d) >>> 0;
-    hash[4] = (hash[4] + e) >>> 0;
-    hash[5] = (hash[5] + f) >>> 0;
-    hash[6] = (hash[6] + g) >>> 0;
-    hash[7] = (hash[7] + h) >>> 0;
-  }
-
-  return Array.from(hash)
-    .map((value) => value.toString(16).padStart(8, '0'))
-    .join('');
-}
-
-async function hashPassword(password: string) {
-  if (typeof crypto !== 'undefined' && crypto.subtle) {
-    const buffer = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(password)
-    );
-
-    return Array.from(new Uint8Array(buffer))
-      .map((value) => value.toString(16).padStart(2, '0'))
-      .join('');
-  }
-
-  return sha256Fallback(password);
-}
+// Password hashing was removed from the client (S-2/security): the SPA now sends
+// the plaintext password over TLS and the SERVER hashes it (scrypt). A
+// client-computed hash provided no benefit over TLS and became a replayable
+// password-equivalent (pass-the-hash). See server/app.js submittedPasswordHash().
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -522,13 +402,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const passwordHash = await hashPassword(trimmedPassword);
-
-    // Both the admin account and staff accounts authenticate through one
-    // server endpoint, which verifies the credential and sets the HttpOnly
-    // session cookie that actually authorizes subsequent requests. The server
-    // records the auth.login audit entry, so the client does not duplicate it.
-    const result = await loginSession(normalizedUsername, passwordHash, remember);
+    // Both the admin account and staff accounts authenticate through one server
+    // endpoint, which verifies the credential and sets the HttpOnly session
+    // cookie that actually authorizes subsequent requests. The password is sent
+    // as plaintext over TLS and hashed SERVER-side (no client-side hashing — a
+    // client-computed hash would just be a replayable password-equivalent). The
+    // server records the auth.login audit entry, so the client does not duplicate it.
+    const result = await loginSession(normalizedUsername, trimmedPassword, remember);
     if (!result.ok || !result.user) {
       return {
         success: false,
@@ -581,8 +461,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: false, error: 'Password must be at least 8 characters.' };
     }
 
-    const passwordHash = await hashPassword(trimmedPassword);
-    const result = await setupAdminCredential(passwordHash);
+    const result = await setupAdminCredential(trimmedPassword);
     if (!result.ok) {
       return { success: false, error: result.error ?? 'Unable to set the admin password.' };
     }
@@ -618,11 +497,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: false, error: 'Password must be at least 8 characters.' };
     }
 
-    const [currentHash, newHash] = await Promise.all([
-      hashPassword(trimmedCurrent),
-      hashPassword(trimmedNew),
-    ]);
-    const result = await changeAdminCredential(currentHash, newHash);
+    const result = await changeAdminCredential(trimmedCurrent, trimmedNew);
     if (!result.ok) {
       return { success: false, error: result.error ?? 'Unable to change password.' };
     }
@@ -669,12 +544,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     }
 
-    const passwordHash = await hashPassword(trimmedPassword);
     const result = await createUserApi({
       name: normalizedName,
       username: normalizedUsername,
       role,
-      passwordHash,
+      password: trimmedPassword,
     });
 
     if (!result.ok) {
@@ -772,11 +646,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: false, error: 'Enter your current password.' };
     }
 
-    const [passwordHash, currentPasswordHash] = await Promise.all([
-      hashPassword(trimmedPassword),
-      hashPassword(trimmedCurrent),
-    ]);
-    const result = await changeUserPasswordApi(userId, passwordHash, currentPasswordHash);
+    const result = await changeUserPasswordApi(userId, trimmedPassword, trimmedCurrent);
     if (!result.ok) {
       return { success: false, error: result.error ?? 'Unable to change password.' };
     }

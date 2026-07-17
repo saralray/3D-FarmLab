@@ -56,13 +56,13 @@ export async function fetchUsers(): Promise<StaffUser[]> {
 // Login check for a non-admin account. Returns the matched user on success.
 export async function verifyUser(
   username: string,
-  passwordHash: string,
+  password: string,
 ): Promise<StaffUser | null> {
   try {
     const response = await fetch('/api/users/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, passwordHash }),
+      body: JSON.stringify({ username, password }),
     });
     if (!response.ok) {
       return null;
@@ -82,7 +82,7 @@ export async function createUserApi(input: {
   name: string;
   username: string;
   role: UserRole;
-  passwordHash: string;
+  password: string;
 }): Promise<CreateUserApiResult> {
   try {
     const response = await fetch('/api/users', {
@@ -113,8 +113,8 @@ export async function deleteUserApi(userId: string): Promise<MutationResult> {
 
 export async function changeUserPasswordApi(
   userId: string,
-  passwordHash: string,
-  currentPasswordHash?: string,
+  password: string,
+  currentPassword?: string,
 ): Promise<MutationResult> {
   try {
     const response = await fetch(`/api/users/${encodeURIComponent(userId)}/password`, {
@@ -122,9 +122,9 @@ export async function changeUserPasswordApi(
       headers: { 'Content-Type': 'application/json' },
       // The server requires the current password when changing your OWN account
       // (it can't be used to silently re-key another admin); include it when the
-      // caller supplied it.
+      // caller supplied it. Plaintext over TLS — the server hashes.
       body: JSON.stringify(
-        currentPasswordHash ? { passwordHash, currentPasswordHash } : { passwordHash },
+        currentPassword ? { password, currentPassword } : { password },
       ),
     });
     return response.ok ? { ok: true } : { ok: false, error: await readError(response) };

@@ -563,15 +563,15 @@ requests, so the SPA does not handle it directly. Authorization is enforced in
 
 | Method | Path | Auth | Body / result |
 | --- | --- | --- | --- |
-| `POST` | `/api/auth/login` | public | `{ username, passwordHash, remember }` → sets cookie, returns `{ user }`. `passwordHash` is sha256 hex of the password (hashed client-side). Brute-force throttled on **two** server-enforced buckets: per IP (8 failures / 15 min) **and** per username (5 failures → an escalating lockout, 15 min doubling up to 6 h, auto-unlock). Either bucket tripping returns `429` with `Retry-After` + `{ retryAfterMs }` (server-computed — a successful login resets both). |
+| `POST` | `/api/auth/login` | public | `{ username, password, remember }` → sets cookie, returns `{ user }`. `password` is the **plaintext** password (sent over TLS; the **server** hashes it — client-side hashing was removed). A legacy `passwordHash` (sha256 hex) is still accepted for backward compatibility. Brute-force throttled on **two** server-enforced buckets: per IP (8 failures / 15 min) **and** per username (5 failures → an escalating lockout, 15 min doubling up to 6 h, auto-unlock). Either bucket tripping returns `429` with `Retry-After` + `{ retryAfterMs }` (server-computed — a successful login resets both). |
 | `POST` | `/api/auth/logout` | public | Destroys the session and clears the cookie. Idempotent. |
 | `GET` | `/api/auth/session` | public | `{ user, expiresAt }` for the current cookie session, or `{ user: null, expiresAt: null }`. `expiresAt` is the session's real server-side expiry (ISO 8601) so the client can mirror the actual cookie lifetime. Used to restore auth state on load. |
 | `POST` | `/api/auth/verify` | public | OAuth/SSO grant exchange. On success **also issues a session cookie**. |
 | `POST` | `/api/slicer-grant/verify` | public | Verifies a slicer "Device" grant and issues an **operator** session cookie. |
 | `POST` | `/api/admin/credential` | public (first-run only) | Sets the initial admin password and issues an admin session. Refuses (`409`) once configured. |
 | `PUT` | `/api/admin/credential` | public + current-password proof | Changes the admin password; **revokes all existing admin sessions** and re-issues the caller's. |
-| `POST` | `/api/admin/credential/verify` | public | Validates the admin password. Body `{ passwordHash }` (sha256 hex) → `200 { valid: true }` or `401 { valid: false }`. Brute-force throttled on the **same** IP + username (`admin`) buckets as `/api/auth/login` → `429` when locked, so it can't be used as an unthrottled oracle. |
-| `POST` | `/api/users/verify` | public | Validates a staff login. Body `{ username, passwordHash }` (sha256 hex) → `200 { valid: true, user }` (sanitized) or `401 { valid: false }`. Brute-force throttled on the same IP + username buckets as `/api/auth/login` (shared lock) → `429` when locked. |
+| `POST` | `/api/admin/credential/verify` | public | Validates the admin password. Body `{ password }` (plaintext over TLS; server hashes — legacy `{ passwordHash }` still accepted) → `200 { valid: true }` or `401 { valid: false }`. Brute-force throttled on the **same** IP + username (`admin`) buckets as `/api/auth/login` → `429` when locked, so it can't be used as an unthrottled oracle. |
+| `POST` | `/api/users/verify` | public | Validates a staff login. Body `{ username, password }` (plaintext over TLS; server hashes — legacy `{ passwordHash }` still accepted) → `200 { valid: true, user }` (sanitized) or `401 { valid: false }`. Brute-force throttled on the same IP + username buckets as `/api/auth/login` (shared lock) → `429` when locked. |
 
 Sessions are also revoked server-side when a staff account is deleted, its
 password is reset, or its role changes, so a stale cookie can't outlive the
