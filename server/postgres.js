@@ -786,8 +786,18 @@ export async function upsertPrinter(printer) {
   await ensureSchema();
 
   // Encrypt the connection secret at rest (no-op when PRINTER_SECRET_KEY is
-  // unset). Copy rather than mutate the caller's object.
-  const stored = { ...printer, apiKeyHeader: encryptSecret(printer.apiKeyHeader) };
+  // unset). The browser never receives the stored access code (it is stripped
+  // from every read), so an edit that doesn't change it submits a BLANK
+  // apiKeyHeader — preserve the existing encrypted value in that case rather than
+  // wiping it. A non-blank value is a genuine (re)set. Copy rather than mutate.
+  let apiKeyHeaderEncrypted;
+  if (typeof printer.apiKeyHeader === 'string' && printer.apiKeyHeader.trim() !== '') {
+    apiKeyHeaderEncrypted = encryptSecret(printer.apiKeyHeader);
+  } else {
+    const existing = await query('SELECT api_key_header FROM printers WHERE id = $1', [printer.id]);
+    apiKeyHeaderEncrypted = existing.rows[0]?.api_key_header ?? encryptSecret('');
+  }
+  const stored = { ...printer, apiKeyHeader: apiKeyHeaderEncrypted };
 
   await query(
     `

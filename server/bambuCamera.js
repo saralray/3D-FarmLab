@@ -28,6 +28,22 @@ function buildRtspUrl(host, accessCode) {
   return `rtsps://bblp:${encodeURIComponent(accessCode)}@${host}:${RTSP_PORT}/streaming/live/1`;
 }
 
+// A camera error string is surfaced to the browser via the (public) camera
+// health endpoint, and ffmpeg's stderr embeds the RTSP input URL —
+// rtsps://bblp:<access-code>@<printer-ip>:322/... — which would leak both the
+// printer's LAN IP and its access code. Strip any URL, bare IPv4[:port], or
+// user@host token before it can reach a response. Full detail stays in the logs.
+function sanitizeCameraError(message) {
+  if (typeof message !== 'string') {
+    return '';
+  }
+  return message
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '<stream-url>')
+    .replace(/@[^\s/]+/g, '@<host>')
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, '<addr>')
+    .trim();
+}
+
 // Low-latency ffmpeg: the codec params arrive in the RTSP SDP, so skip input
 // buffering/analysis (otherwise the feed sits seconds behind and the lag grows),
 // transcode H264 → MJPEG, and emit each frame as soon as it's decoded.
@@ -119,7 +135,7 @@ class CameraStream {
       this.stderrTail = (this.stderrTail + chunk.toString()).slice(-500);
     });
     proc.on('error', (error) => {
-      this.lastError = `ffmpeg failed to start: ${error.message}`;
+      this.lastError = sanitizeCameraError(`ffmpeg failed to start: ${error.message}`);
       this.status = 'error';
     });
     proc.on('close', (code) => this.onClose(code));
@@ -129,7 +145,7 @@ class CameraStream {
     this.proc = null;
     if (code && code !== 255) {
       const detail = this.stderrTail.trim().split('\n').pop() || '';
-      this.lastError = `ffmpeg exited ${code}${detail ? `: ${detail}` : ''}`;
+      this.lastError = sanitizeCameraError(`ffmpeg exited ${code}${detail ? `: ${detail}` : ''}`);
     }
     if (this.stopped) {
       this.status = 'idle';

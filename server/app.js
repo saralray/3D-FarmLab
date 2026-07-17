@@ -270,10 +270,15 @@ async function haFetch(config, apiPath, { method = 'GET', body } = {}) {
     }
     return { ok: true, status: response.status, data };
   } catch (err) {
+    // Log the real cause server-side, but never echo err.message to the client —
+    // a fetch failure carries the internal Home Assistant host/IP (e.g.
+    // "getaddrinfo ENOTFOUND homeassistant.local" / "connect ECONNREFUSED
+    // 192.168.x.x:8123"), which would leak the internal address to the browser.
+    logger.warn('home assistant request failed', { err: err && err.message ? err.message : String(err) });
     const message =
       err && err.name === 'AbortError'
         ? 'Home Assistant did not respond in time.'
-        : `Could not reach Home Assistant: ${err && err.message ? err.message : err}`;
+        : 'Could not reach Home Assistant. Check the URL and token.';
     return { ok: false, status: 0, error: message };
   } finally {
     clearTimeout(timer);
@@ -1799,6 +1804,21 @@ function isPrivilegedRole(role) {
   return role === 'admin' || role === 'operator';
 }
 
+// The printer's LAN access code / API key (`apiKeyHeader`) is a SECRET the browser
+// never needs — the server uses it to reach the printer hardware/webcam. Strip it
+// from every browser-facing printer read (viewer reads already send ''); expose
+// only a `hasApiKey` flag so the edit UI can show whether a code is set. The
+// key-gated /api/v1 surface keeps the real value for automation. Editing a
+// printer submits a blank apiKeyHeader (the browser never had it) and
+// upsertPrinter preserves the stored code on blank, so this never wipes it.
+function stripPrinterConnectionSecret(printer) {
+  if (!printer || typeof printer !== 'object') {
+    return printer;
+  }
+  const hasApiKey = typeof printer.apiKeyHeader === 'string' && printer.apiKeyHeader.length > 0;
+  return { ...printer, apiKeyHeader: '', hasApiKey };
+}
+
 // The queue read (`GET /api/queue`) is part of the public, cookieless frontend
 // surface — anyone can poll it to see farm/queue depth. But the stored jobs
 // carry student PII from the print-request form (name, email, free-text notes),
@@ -2680,7 +2700,10 @@ async function handleBambuWebcam(req, res, printer, pathParts) {
       ip: printer.ipAddress,
       err: message,
     });
-    sendJson(res, 502, { error: message });
+    // Return a generic reason to the browser — the raw socket error would carry
+    // the printer's LAN IP:port (e.g. "connect ECONNREFUSED 192.168.x.x:6000").
+    // The detail is in the server log above.
+    sendJson(res, 502, { error: 'Camera unavailable.' });
   }
 }
 
@@ -4028,11 +4051,17 @@ async function handleApi(req, res, requestUrl) {
 
   if (requestUrl.pathname === '/api/printers') {
     if (req.method === 'GET') {
-      // Connection secrets (IP, API key, serial, url) only go to an operator/
-      // admin session; anonymous/viewer/student callers always get the redacted
-      // list, regardless of PUBLIC_VIEWER_MODE.
+      // A privileged session gets the connection fields the printer-edit form
+      // needs (ip/url/serial/callbackUrl), but NEVER the decrypted access code
+      // (apiKeyHeader): that secret is server-only — the browser reaches printers
+      // through the server-side proxy, so it never needs the code. We surface only
+      // a `hasApiKey` flag; editing preserves the stored code on a blank submit
+      // (see upsertPrinter). The key-gated /api/v1 surface keeps the real value.
+      // Anonymous/viewer/student callers get the fully redacted list.
       const privileged = isPrivilegedRole(sessionRole(await resolveSession(req)));
-      const printers = privileged ? await listPrinters(true) : await listPrintersRedacted();
+      const printers = privileged
+        ? (await listPrinters(true)).map(stripPrinterConnectionSecret)
+        : await listPrintersRedacted();
       sendJsonWithEtag(req, res, 200, await overlayLiveTelemetryAll(printers));
       return true;
     }
@@ -4221,7 +4250,9 @@ async function handleApi(req, res, requestUrl) {
     // Full record (with connection secrets) only for an operator/admin session;
     // everyone else gets the redacted view.
     const privileged = isPrivilegedRole(sessionRole(await resolveSession(req)));
-    const printer = privileged ? await getPrinterById(id) : await getRedactedPrinterById(id);
+    const printer = privileged
+      ? stripPrinterConnectionSecret(await getPrinterById(id))
+      : await getRedactedPrinterById(id);
     if (!printer) {
       sendJson(res, 404, { error: 'Printer not found' });
       return true;

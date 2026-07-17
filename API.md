@@ -594,9 +594,14 @@ classified below requires an admin session.
 | **admin** | admin only | `DELETE /api/printers/:id`, `DELETE /api/queue/:id`, `/api/queue/reset`, `/api/analytics/daily/reset`, all `/api/users/*` writes, all `/api/slicer-keys` writes, `/api/notifications/*` writes, `/api/settings/*` writes, `POST /api/admin/update/apply`, `POST /api/admin/backup/restore`, manager request approve/deny/delete |
 
 > **Connection-secret redaction:** `GET /api/printers` and `GET /api/printers/:id`
-> return connection fields (`ipAddress`, `apiKeyHeader`, `serial`, `url`) only to
-> an operator/admin session. Anonymous, viewer, and student sessions always get
-> the redacted record, regardless of `VITE_PUBLIC_VIEWER_MODE`.
+> return connection fields (`ipAddress`, `serial`, `url`, `callbackUrl`) only to an
+> operator/admin session; anonymous, viewer, and student sessions always get the
+> redacted record, regardless of `VITE_PUBLIC_VIEWER_MODE`. The decrypted access
+> code `apiKeyHeader` is **never** returned to the browser (not even to
+> operator/admin) — the frontend gets `apiKeyHeader: ""` plus a boolean `hasApiKey`
+> and submits a blank code on edit to keep the stored one (see `upsertPrinter`).
+> Only the key-gated `/api/v1/printers` surface returns the real `apiKeyHeader`,
+> for automation that must reach the printer directly.
 
 > **Password-change policy (`PUT /api/users/:id/password`):** beyond the admin-only
 > route gate, the handler enforces that an admin may reset a **lower-privileged**

@@ -166,6 +166,12 @@ function sensitiveReadCapability(p) {
   if (p.startsWith('/api/manager/requests/') && !p.endsWith('/status')) return CAP.USERS_ADMIN;
   if (p === '/api/settings/saml') return CAP.SETTINGS_ADMIN;
   if (p.startsWith('/api/settings/home-assistant')) return CAP.SETTINGS_ADMIN;
+  // The printer callback URL is the SERVER's own LAN address (e.g.
+  // http://192.168.x.x:8080) that H2 printers call back to — an infrastructure
+  // detail. Only the admin Settings form reads it over HTTP (the poller/slicer
+  // read it from the DB directly), so gate it to admin instead of leaving it in
+  // the world-readable /api/settings/* family. (Was an unauthenticated LAN-IP leak.)
+  if (p === '/api/settings/printer-callback-url') return CAP.SETTINGS_ADMIN;
   if (p === '/api/status-light/provisioning') return CAP.SETTINGS_ADMIN;
   return null;
 }
