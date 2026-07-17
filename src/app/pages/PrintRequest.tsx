@@ -19,6 +19,7 @@ import { fetchQueueAvailability, submitPrintRequest, type QueueAvailabilityStatu
 import { useBrandingSettings } from '../lib/settingsApi';
 import { useAuth } from '../contexts/AuthContext';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { isIosDevice } from '../lib/platform';
 
 const ACCEPTED_FILE_TYPES = '.stl,.3mf,.obj';
 const ACCEPTED_EXTENSIONS = ['.stl', '.3mf', '.obj'];
@@ -55,6 +56,8 @@ export function PrintRequest() {
   const staffFirstName = user?.name.split(' ')[0] ?? '';
   const staffLastName = user?.name.split(' ').slice(1).join(' ') ?? '';
   const [bypassNow, setBypassNow] = useState(() => Date.now());
+  // Computed once — iOS needs the `accept` hint omitted (see isIosDevice).
+  const [isIos] = useState(isIosDevice);
 
   // Polls the window status rather than checking once, so a visitor already
   // sitting on the "closed" screen sees it flip open the moment staff clicks
@@ -365,7 +368,7 @@ export function PrintRequest() {
                             <Input
                               key={entry.inputKey}
                               type="file"
-                              accept={ACCEPTED_FILE_TYPES}
+                              accept={isIos ? undefined : ACCEPTED_FILE_TYPES}
                               onChange={(e) =>
                                 updateEntry(entry.id, { file: e.target.files?.[0] ?? null })
                               }

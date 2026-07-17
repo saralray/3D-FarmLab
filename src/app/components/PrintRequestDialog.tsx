@@ -14,6 +14,7 @@ import {
 } from './ui/dialog';
 import { ClipboardList, CheckCircle2, UploadCloud, Plus, Trash2 } from 'lucide-react';
 import { submitPrintRequest } from '../lib/queueApi';
+import { isIosDevice } from '../lib/platform';
 
 const ACCEPTED_FILE_TYPES = '.stl,.3mf,.obj';
 const ACCEPTED_EXTENSIONS = ['.stl', '.3mf', '.obj'];
@@ -50,6 +51,9 @@ export function PrintRequestDialog({ children, open: controlledOpen, onOpenChang
   const [entries, setEntries] = useState<FileEntry[]>(() => [makeEntry()]);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // iOS needs the `accept` hint omitted or its file picker greys out every
+  // file (see isIosDevice); computed once.
+  const [isIos] = useState(isIosDevice);
 
   const hasFile = entries.some((e) => e.file !== null);
   const canSubmit =
@@ -262,7 +266,7 @@ export function PrintRequestDialog({ children, open: controlledOpen, onOpenChang
                         <Input
                           key={entry.inputKey}
                           type="file"
-                          accept={ACCEPTED_FILE_TYPES}
+                          accept={isIos ? undefined : ACCEPTED_FILE_TYPES}
                           onChange={(e) =>
                             updateEntry(entry.id, { file: e.target.files?.[0] ?? null })
                           }
