@@ -2978,7 +2978,12 @@ function auditDataApi(req, apiKey, action, target, details) {
 }
 
 async function handleDataApi(req, res, requestUrl) {
-  if (!requestUrl.pathname.startsWith(DATA_API_PREFIX)) {
+  // The bare `/api/v1` (no trailing slash) is the documented, key-gated
+  // discovery root — claim it here too, otherwise it falls through to the SPA
+  // catch-all and returns index.html (200) instead of authenticating. The
+  // slice below yields an empty segment list for it, so it lands on the
+  // discovery-root branch (401 without a key, resources list with one).
+  if (requestUrl.pathname !== '/api/v1' && !requestUrl.pathname.startsWith(DATA_API_PREFIX)) {
     return false;
   }
 
