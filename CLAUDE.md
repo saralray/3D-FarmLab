@@ -94,6 +94,26 @@ Browser → nginx:8080 → Node web:5173
 
 **Numeric formatting:** All printer and analytics values shown in the frontend must use no more than two decimal places.
 
+## Security (read before touching auth, routes, secrets, or errors)
+
+This platform went through a security-architecture refactor; the model and its rationale live in **`SECURITY_ARCHITECTURE.md`** (threat model, RBAC, trust boundaries, vuln lists, IR/DR plans). The rules below are **invariants** — preserve them. When a change would weaken one, stop and flag it rather than quietly regressing. Security beats convenience and beats backward-compat.
+
+**Authorization is default-deny and declarative.** The frontend `/api/*` surface is gated by `authorizeFrontendApi` in `server/app.js`, which resolves each request to a required capability via `requiredCapability(method, pathname)` in **`server/rbac.js`** and checks it with `roleHasCapability`. There is no fail-open path — an unmapped authenticated route denies. Public reads are an **explicit allowlist** (`isPublicRead` in `rbac.js`); to make a route public you add it there, you never remove a gate. The role hierarchy (guest→viewer→student→teacher→operator→technician→admin→super_admin) and capability map are the single source of truth; don't reintroduce ad-hoc role string checks in route handlers. **After any change to routes or `rbac.js`, run `node server/rbac.test.mjs` (21 assertions) — it must stay green.**
+
+**Passwords hash on the server, never the client.** `submittedPasswordHash(body)` (in `app.js`) accepts plaintext `password` over TLS and hashes it server-side (scrypt at rest, salted; legacy bare-sha256 upgraded on next verify). Frontend helpers (`authSessionApi.ts`, `usersApi.ts`, `adminCredentialApi.ts`) send plaintext, not a hash. Do **not** move hashing back into the browser or add a client-side digest.
+
+**Printer connection secrets never reach public/browser surfaces.** The frontend `/api/printers` list and single GET run every record through `stripPrinterConnectionSecret` (blanks `apiKeyHeader`, exposes only a `hasApiKey` boolean; IP/serial/url handled by viewer-mode redaction). `upsertPrinter` in `server/postgres.js` **preserves the stored secret when the field is blank** so a redacted round-trip from the UI can't wipe it. Only the key-gated `/api/v1` surface returns full connection records (the key is the guard). Never widen the frontend surface to include real secrets.
+
+**Errors and telemetry must not leak infrastructure.** Origin/home IP, LAN/printer IPs, hostnames, internal URLs, MQTT/DB/Docker hosts, and stream URLs must not surface through API errors, browser-visible messages, or metrics. Camera errors go through `sanitizeCameraError` (`server/bambuCamera.js`); the poller sanitizes via `go-services/cmd/poller/sanitize.go` (`sanitize_test.go`). When adding an error path that touches a network address or connection string, sanitize it — return a generic operator-facing message and log the detail server-side only.
+
+**`/api/v1` is key-gated with scoped keys.** Missing/invalid key → **401**; valid key lacking the needed tier → **403**. Scopes are `printfarm_read` (read, secrets redacted) < `printfarm_control` < `printfarm_manage` (full, incl. secrets/users/keys). Per-operation enforcement is `requiredDataApiRank` in `app.js`. The bare `/api/v1` (no trailing slash) is the key-gated discovery root — `handleDataApi` claims both it and the `/api/v1/` prefix, so it must **not** fall through to the SPA. The MCP server is a thin `/api/v1` client and inherits this; its extra admin gating is `mcp/adminPolicy.js`.
+
+**Sessions are not permanent.** The session cookie is `SameSite=Lax` and scoped; the client session mirror honors the server's `expiresAt` (returned by `GET /api/auth/session`) rather than pinning a 30-day local copy. Don't reintroduce an indefinite client-side session.
+
+**Secrets at rest:** staff/admin passwords = scrypt; printer connection secrets = AES-256-GCM (`PRINTER_SECRET_KEY`); session tokens and API/slicer keys = sha256 of high-entropy random. Bambu MQTT/FTPS/RTSP over TLS use cert pinning (`go-services/cmd/poller/certpin.go`, TOFU/serial-keyed, `BAMBU_CERT_PINS`). Tenant isolation (Postgres RLS + `withTenantContext` in `server/tenantContext.js`, least-privilege DB roles in `db/roles/`, `db/tenancy/`) ships **opt-in / operator-applied** — don't assume it's active, and keep it optional.
+
+**Verification without a runtime:** this environment has no Docker daemon, no Postgres, and no frontend build toolchain — so verify statically: `node --check` on changed JS, `node server/rbac.test.mjs` / `node server/tenantContext.test.mjs`, `go test ./...` in `go-services/`, `docker compose config` (parser only), and `scripts/security-smoke.sh <url> [key]` (read-only) against a deployment. Frontend (`npm run build`) and full-stack smoke tests must run on a real machine before deploy — say so when your change needs them.
+
 ## Code Style
 
 - React function components + TypeScript in `src/app`; keep page views in `pages/`, shared UI in `components/`, helpers in `lib/`, types in `types.ts`
@@ -111,6 +131,7 @@ Browser → nginx:8080 → Node web:5173
 - When changing poller or database behavior, verify interaction with `docker-compose.yml` env vars
 - Do not commit `.env`; document defaults in `.env.example`
 - Keep sensitive printer connection details out of public viewer flows
+- **Security invariants:** before changing auth, routes, secrets, or error paths, read the `## Security` section above and `SECURITY_ARCHITECTURE.md`; authorization is default-deny (`server/rbac.js`) and must stay that way. Run `node server/rbac.test.mjs` after any route/RBAC change.
 - Prefer existing project patterns before introducing new abstractions; scope changes to the requested task
 - **Keep `API.md` in sync:** whenever you add, remove, or change any `/api/v1` endpoint or `/api/*` endpoint in `server/app.js` (route path, method, request/response shape, auth requirement, or query-param behavior), update `API.md` in the same task before reporting the work as done. If you only touch frontend files and no server routes change, skip this step.
 
