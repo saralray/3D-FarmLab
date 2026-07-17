@@ -4894,6 +4894,10 @@ async function handleApi(req, res, requestUrl) {
               role: session.role,
             }
           : null,
+        // The session's real server-side expiry (ISO 8601), so the client mirror
+        // can match the actual cookie lifetime instead of assuming a fixed one.
+        // Null when there is no session.
+        expiresAt: session && session.expires_at ? new Date(session.expires_at).toISOString() : null,
       },
       'no-store',
     );

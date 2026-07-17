@@ -565,7 +565,7 @@ requests, so the SPA does not handle it directly. Authorization is enforced in
 | --- | --- | --- | --- |
 | `POST` | `/api/auth/login` | public | `{ username, passwordHash, remember }` → sets cookie, returns `{ user }`. `passwordHash` is sha256 hex of the password (hashed client-side). Brute-force throttled on **two** server-enforced buckets: per IP (8 failures / 15 min) **and** per username (5 failures → an escalating lockout, 15 min doubling up to 6 h, auto-unlock). Either bucket tripping returns `429` with `Retry-After` + `{ retryAfterMs }` (server-computed — a successful login resets both). |
 | `POST` | `/api/auth/logout` | public | Destroys the session and clears the cookie. Idempotent. |
-| `GET` | `/api/auth/session` | public | `{ user }` for the current cookie session, or `{ user: null }`. Used to restore auth state on load. |
+| `GET` | `/api/auth/session` | public | `{ user, expiresAt }` for the current cookie session, or `{ user: null, expiresAt: null }`. `expiresAt` is the session's real server-side expiry (ISO 8601) so the client can mirror the actual cookie lifetime. Used to restore auth state on load. |
 | `POST` | `/api/auth/verify` | public | OAuth/SSO grant exchange. On success **also issues a session cookie**. |
 | `POST` | `/api/slicer-grant/verify` | public | Verifies a slicer "Device" grant and issues an **operator** session cookie. |
 | `POST` | `/api/admin/credential` | public (first-run only) | Sets the initial admin password and issues an admin session. Refuses (`409`) once configured. |

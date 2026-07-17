@@ -166,17 +166,23 @@ function clearStoredSession() {
   localStorage.removeItem(SESSION_STORAGE_KEY);
 }
 
-function writeStoredSession(user: User | null, remember = false) {
+// `expiresAtOverrideMs` pins the mirror's expiry to the SERVER session's real
+// expiry (from /api/auth/session) so it can't outlive the actual cookie. Without
+// it, the expiry falls back to the client-assumed default (remember → 30 days,
+// otherwise 8 h). This is what keeps a non-"remember me" login from persisting in
+// localStorage for 30 days — the mirror now expires when the 8 h cookie does.
+function writeStoredSession(user: User | null, remember = false, expiresAtOverrideMs?: number) {
   // Always clear both stores first so a session never lingers in the other one.
   clearStoredSession();
   if (!user) {
     return;
   }
 
-  const session: StoredSession = {
-    user,
-    expiresAt: Date.now() + (remember ? REMEMBER_DURATION_MS : SESSION_DURATION_MS),
-  };
+  const expiresAt =
+    typeof expiresAtOverrideMs === 'number' && Number.isFinite(expiresAtOverrideMs) && expiresAtOverrideMs > Date.now()
+      ? expiresAtOverrideMs
+      : Date.now() + (remember ? REMEMBER_DURATION_MS : SESSION_DURATION_MS);
+  const session: StoredSession = { user, expiresAt };
   const store = remember ? localStorage : sessionStorage;
   store.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 }
@@ -392,13 +398,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // authority now; writeStoredSession is only a local mirror that the
     // cross-tab logout watcher (below) reads. The staff account list is
     // admin-only on the server, so only load it for an admin.
-    const establish = async (nextUser: User, opts: { audit?: boolean } = {}) => {
+    const establish = async (
+      nextUser: User,
+      opts: { audit?: boolean; expiresAt?: string | null } = {},
+    ) => {
       if (cancelled) {
         return;
       }
       setUser(nextUser);
       setAuditActor(nextUser);
-      writeStoredSession(nextUser, true);
+      // Mirror to localStorage (so the cross-tab logout watcher works) but pin the
+      // expiry to the server session's real lifetime, so the mirror can't outlive
+      // the cookie (fixes the non-remember login persisting for 30 days).
+      const serverExpiresAtMs = opts.expiresAt ? new Date(opts.expiresAt).getTime() : undefined;
+      writeStoredSession(nextUser, true, serverExpiresAtMs);
       if (opts.audit) {
         logAuditEvent('auth.login', nextUser.username, { role: nextUser.role });
       }
@@ -416,7 +429,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // front regardless of outcome.
       const grantToken = takeSlicerGrantToken();
       if (grantToken && (await verifySlicerGrant(grantToken))) {
-        await establish((await fetchSession()) ?? SLICER_OPERATOR_USER);
+        const granted = await fetchSession();
+        await establish(granted ?? SLICER_OPERATOR_USER, { expiresAt: granted?.expiresAt ?? null });
         return;
       }
 
@@ -427,7 +441,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (oauthGrant) {
         const oauthUser = await verifyOAuthGrant(oauthGrant);
         if (oauthUser) {
-          await establish((await fetchSession()) ?? oauthUser, { audit: true });
+          const resolved = await fetchSession();
+          await establish(resolved ?? oauthUser, { audit: true, expiresAt: resolved?.expiresAt ?? null });
           return;
         }
       }
@@ -437,7 +452,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // leave the user unauthenticated so ProtectedRoute sends them to login.
       const sessionUser = await fetchSession();
       if (sessionUser) {
-        await establish(sessionUser);
+        await establish(sessionUser, { expiresAt: sessionUser.expiresAt });
         return;
       }
       const allowViewer = await isPublicViewerAllowed();

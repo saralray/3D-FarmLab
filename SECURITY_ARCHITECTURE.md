@@ -368,7 +368,14 @@ sequenceDiagram
 
 ### 5.3 Secret storage for tokens
 
-- Browser: `HttpOnly; Secure; SameSite=Lax` cookie. Never `localStorage`.
+- Browser: `HttpOnly; Secure; SameSite=Lax` cookie (`__Host-` prefix over HTTPS),
+  fixed expiry (8 h / 30 d "remember me"), server-revocable. Never a token in
+  `localStorage`. **Verified & fixed:** the real credential was already the
+  HttpOnly cookie (good), but the client kept a **non-credential** profile mirror
+  in `localStorage` written with a hardcoded 30-day lifetime for *every* login —
+  so a non-"remember me" login persisted 30 days, decoupled from the 8 h cookie.
+  Now `/api/auth/session` returns the session's real `expiresAt` and the client
+  mirror is pinned to it, so it can't outlive the cookie.
 - Machine: API key in `Authorization: Bearer` / `X-Api-Key`, stored server-side
   as sha256 *(present)*. Move plaintext-at-creation delivery to one-time reveal
   *(present)*.

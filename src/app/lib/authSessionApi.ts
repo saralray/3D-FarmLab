@@ -72,14 +72,18 @@ export async function logoutSession(): Promise<void> {
 
 // Restore auth state from the session cookie on load. Returns the signed-in user
 // or null when there is no valid session.
-export async function fetchSession(): Promise<SessionUser | null> {
+// The server session's real expiry (ISO 8601), returned alongside the user so
+// the client mirror can match the actual cookie lifetime instead of assuming a
+// fixed one. Attached onto the user for convenience; null when the server did
+// not report one.
+export async function fetchSession(): Promise<(SessionUser & { expiresAt: string | null }) | null> {
   try {
     const response = await fetch('/api/auth/session', { cache: 'no-store' });
     if (!response.ok) {
       return null;
     }
-    const data = (await response.json()) as { user?: SessionUser | null };
-    return data.user ?? null;
+    const data = (await response.json()) as { user?: SessionUser | null; expiresAt?: string | null };
+    return data.user ? { ...data.user, expiresAt: data.expiresAt ?? null } : null;
   } catch {
     return null;
   }
