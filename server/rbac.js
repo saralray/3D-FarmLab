@@ -180,6 +180,7 @@ function sensitiveReadCapability(p) {
 function isPublicRead(p) {
   if (p === '/api' || p === '/api/' || p === '/api/version') return true;
   if (p === '/api/auth/session' || p.startsWith('/api/auth/')) return true;
+  if (p === '/api/admin/credential') return true;
   if (p === '/api/printers' || p.startsWith('/api/printers/')) return true;
   if (p === '/api/cameras/health') return true;
   if (p === '/api/queue' || p.startsWith('/api/queue/')) return true;
