@@ -146,10 +146,24 @@ services:
       # returns 503.
       WATCHTOWER_URL: ${WATCHTOWER_URL:-http://watchtower:8080/v1/update}
       WATCHTOWER_TOKEN: ${WATCHTOWER_TOKEN:-}
-      # ESP32 status lights poll GET /api/status-light/printers/:id over normal
-      # HTTP(S) — no broker, no extra port. Set STATUS_LIGHT_ENABLED=false to
-      # disable the feature (the provisioning endpoint then reports disabled).
+      # ESP32 status-light MQTT broker (server/statusLightBroker.js). MQTT_PORT
+      # is the HOST port the raw-TCP listener is published on below (the
+      # container always listens on 1883); the provisioning endpoint hands it to
+      # the flash page. The ws/wss transport needs no port — it rides /mqtt on
+      # the normal web port through nginx. Set STATUS_LIGHT_ENABLED=false (or the
+      # legacy STATUS_LIGHT_MQTT_ENABLED=false) to disable the broker (and drop
+      # the ports entry below if you do). STATUS_LIGHT_PUBLISH_INTERVAL_MS is how
+      # often the web tier re-reads printer status from the DB and publishes any
+      # change; STATUS_LIGHT_STALE_MS is how long since a device last reported
+      # before the dashboard shows it disconnected.
+      MQTT_PORT: ${MQTT_PORT:-1883}
       STATUS_LIGHT_ENABLED: ${STATUS_LIGHT_ENABLED:-true}
+      STATUS_LIGHT_MQTT_ENABLED: ${STATUS_LIGHT_MQTT_ENABLED:-true}
+    # Raw MQTT is its own TCP protocol — nginx (HTTP-only) can't proxy it, so
+    # this is published straight from the web container. LAN-plaintext by
+    # design; the shared credential gates it (see statusLightBroker.js header).
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
 
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5173/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]

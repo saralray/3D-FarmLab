@@ -50,7 +50,7 @@ function startHttp() {
   const host = process.env.HOST || '0.0.0.0';
 
   // Session id -> { transport, server, lastSeen }. In-memory and single-process
-  // — run one mcp replica (same caveat as eventStream.js / statusLightPresence.js).
+  // — run one mcp replica (same caveat as eventStream.js / statusLightBroker.js).
   const sessions = new Map();
 
   // Evict sessions idle past the TTL. transport.close() fires onclose, which

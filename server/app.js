@@ -104,11 +104,11 @@ import { verifySlicerGrant } from './slicerGrant.js';
 import { handleFilamentStation } from './filamentStation.js';
 import { sendBambuCommand } from './bambuCommands.js';
 import {
+  ensureBrokerCredential,
   getStatusLightDevices,
-  recordDevicePoll,
-  statusLightEnabled,
-  statusLightPollIntervalMs,
-} from './statusLightPresence.js';
+  startStatusLightBroker,
+  statusLightMqttEnabled,
+} from './statusLightBroker.js';
 import {
   isRedisEnabled,
   redisDel,
@@ -2806,7 +2806,10 @@ function requiredDataApiRank(entity, method, id, sub) {
   const isRead = method === 'GET' || method === 'HEAD';
   switch (entity) {
     case 'status-light':
-      return DATA_API_RANK.read;
+      // provisioning returns the shared MQTT broker credential — require manage,
+      // matching the frontend's admin-only (isSensitiveRead) gate. The device
+      // roster and per-printer status reads carry no secrets → read.
+      return id === 'provisioning' ? DATA_API_RANK.manage : DATA_API_RANK.read;
     case 'analytics':
       return isRead ? DATA_API_RANK.read : DATA_API_RANK.manage; // reset = manage
     case 'printers':
@@ -2857,18 +2860,24 @@ const DATA_API_RESOURCES = [
   'status-light',
 ];
 
-// Poll settings a status-light device needs. The server URL is chosen by the
-// flash page (prefilled with the site origin) — the server can't know which
-// address the device's WiFi can reach; it just supplies the default poll cadence
-// and the status endpoint path the device curls.
-function buildStatusLightProvisioning() {
-  if (!statusLightEnabled()) {
+// Connection parameters + shared credential a status-light device needs. The
+// MQTT host is chosen by the flash page (prefilled with the site hostname) —
+// the server can't know which address the device's WiFi can reach. The device
+// subscribes to its retained status topic and gets pushed each change.
+async function buildStatusLightProvisioning() {
+  if (!statusLightMqttEnabled()) {
     return { enabled: false };
   }
+  const credential = await ensureBrokerCredential();
   return {
     enabled: true,
-    pollIntervalMs: statusLightPollIntervalMs(),
-    statusPath: '/api/status-light/printers/{printerId}',
+    // The host port compose publishes the raw-TCP listener on (container
+    // always listens on 1883; the ws/wss transport rides the normal web port).
+    mqttPort: Number.parseInt(process.env.MQTT_PORT || '1883', 10) || 1883,
+    wsPath: '/mqtt',
+    username: credential.username,
+    password: credential.password,
+    statusTopic: 'printfarm/printers/{printerId}/status',
   };
 }
 
@@ -2894,14 +2903,15 @@ async function buildStatusLightDeviceRoster() {
 // Resolve a printer's current light status (idle|printing|paused|error|offline),
 // applying the same live-telemetry overlay /api/printers/:id uses so the light
 // tracks the freshest state. Returns { id, status } or null when the printer is
-// unknown; recording the caller as a live device (presence for the UI card).
+// unknown. This is the same status the broker pushes over MQTT, exposed as a
+// plain read for /api/v1 parity and debugging; device presence is tracked by the
+// broker (MQTT connect / LWT), not by reads here.
 async function resolveStatusLightStatus(printerId) {
   const printer = await getPrinterById(printerId);
   if (!printer) return null;
   const overlaid = await overlayLiveTelemetry(printer);
   const status =
     typeof overlaid.status === 'string' && overlaid.status ? overlaid.status : 'offline';
-  recordDevicePoll(printerId);
   return { id: printerId, status };
 }
 
@@ -2909,7 +2919,7 @@ async function resolveStatusLightStatus(printerId) {
 // endpoint the lights curl. Key-gated like the rest of /api/v1.
 async function handleDataApiStatusLight(req, res, { method, id, sub }) {
   if (id === 'provisioning' && method === 'GET') {
-    sendJson(res, 200, buildStatusLightProvisioning(), 'no-store');
+    sendJson(res, 200, await buildStatusLightProvisioning(), 'no-store');
     return true;
   }
   if (id === 'devices' && method === 'GET') {
@@ -3855,19 +3865,21 @@ async function handleApi(req, res, requestUrl) {
   }
 
   // Status lights ─────────────────────────────────────────────────────────────
-  // GET /api/status-light/provisioning — admin-only (isSensitiveRead): the poll
-  //   settings the flash page writes to an ESP32 status light over Web Serial.
+  // GET /api/status-light/provisioning — admin-only (isSensitiveRead): the
+  //   shared MQTT broker credential + connection parameters the flash page
+  //   writes to an ESP32 status light over Web Serial.
   // GET /api/status-light/devices — public read (no secrets, same class as
   //   /api/printers): the full printer roster (id, name) merged with presence,
-  //   so a brand-new device that has never polled still shows up for picking —
+  //   so a brand-new device that has never connected still shows up for picking —
   //   only `connected`/`lastSeen` distinguish printers with a live light. Carries
-  //   CORS headers — the static in-browser flasher (a different origin) reads
+  //   CORS headers — a static in-browser flasher (a different origin) can read
   //   this to populate its printer picker.
   // GET /api/status-light/printers/:id — public read: the plain status string
-  //   (idle|printing|paused|error|offline) an ESP32 light polls; also stamps the
-  //   device's presence for the devices list above. Same CORS treatment.
+  //   (idle|printing|paused|error|offline). This is the same status the broker
+  //   pushes over MQTT, exposed as a read for /api/v1 parity and debugging;
+  //   presence is tracked by the broker, not by reads here. Same CORS treatment.
   if (requestUrl.pathname === '/api/status-light/provisioning' && req.method === 'GET') {
-    sendJson(res, 200, buildStatusLightProvisioning(), 'no-store');
+    sendJson(res, 200, await buildStatusLightProvisioning(), 'no-store');
     return true;
   }
   if (
@@ -7074,6 +7086,11 @@ httpServer.listen(port, host, () => {
   logger.info('Print Farm server listening', { host, port });
   // Evaluate Home Assistant ⇄ printer automation rules on a background interval.
   startHaAutomationEngine();
-  // ESP32 status lights poll GET /api/status-light/printers/:id over HTTP —
-  // there is no broker to start; presence is tracked in statusLightPresence.js.
+  // ESP32 status-light MQTT broker (raw TCP :1883 + WebSocket upgrade at
+  // /mqtt on this same HTTP server) and its DB→retained-status publisher.
+  startStatusLightBroker({ httpServer }).catch((err) => {
+    logger.error('status light broker failed to start', {
+      error: err && err.message ? err.message : String(err),
+    });
+  });
 });

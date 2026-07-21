@@ -1,13 +1,14 @@
 // ESP32-C3 Super Mini per-printer status light for STEM Lab Print Farm.
 //
-// Polls GET <serverUrl>/api/status-light/printers/<printerId> on the dashboard
-// (server/app.js) every pollIntervalMs and drives a 4-pin analog RGB LED:
+// Subscribes to printfarm/printers/<printerId>/status on the dashboard's
+// embedded MQTT broker (server/statusLightBroker.js) and drives a 4-pin
+// analog RGB LED:
 //   idle     -> solid green         printing -> solid blue
 //   paused   -> solid orange        error    -> solid red
 //   offline  -> blinking red (500 ms)
-// Local states: unprovisioned -> white breathe; WiFi/first-poll connecting ->
-// purple breathe; polls failing -> keep last color with a purple flash every
-// 5 s so a dead link is distinguishable from a healthy idle printer.
+// Local states: unprovisioned -> white breathe; WiFi/MQTT connecting ->
+// purple breathe; broker lost -> keep last color with a purple flash every
+// 5 s so a dead broker is distinguishable from a healthy idle printer.
 
 #include <Arduino.h>
 
@@ -63,12 +64,12 @@ void loop() {
   if (!s_config.valid) {
     ledSet(255, 255, 255, LedPattern::Breathe); // waiting for provisioning
   } else if (state == NetState::WifiConnecting ||
-             (state == NetState::Polling && !s_haveStatus)) {
+             (state == NetState::MqttConnecting && !s_haveStatus)) {
     ledSet(160, 0, 255, LedPattern::Breathe); // purple: connecting
   } else if (state == NetState::Connected && !s_haveStatus) {
     ledSet(255, 255, 255, LedPattern::Breathe); // connected, no status yet
   } else if (s_haveStatus) {
-    // Polls failing but we have a last-known status: keep showing it, with a
+    // Broker lost but we have a last-known status: keep showing it, with a
     // short purple flash every 5 s as a "stale" hint.
     if (state != NetState::Connected && (millis() % 5000) < 150) {
       ledSet(160, 0, 255, LedPattern::Solid);

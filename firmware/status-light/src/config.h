@@ -8,11 +8,12 @@ struct DeviceConfig {
   bool valid = false;
   String wifiSsid;
   String wifiPassword;
-  // Dashboard origin the device polls, e.g. "http://10.0.0.5:8080" or
-  // "https://farm.example.com". https validates against the built-in public-CA
-  // bundle (Let's Encrypt etc.; self-signed needs http).
-  String serverUrl;
-  uint32_t pollIntervalMs = 5000;
+  String mqttTransport;  // "tcp" | "ws" | "wss"
+  String mqttHost;
+  uint16_t mqttPort = 1883;
+  String mqttPath;       // ws/wss only, e.g. "/mqtt"
+  String mqttUsername;
+  String mqttPassword;
   String printerId;
   bool commonAnode = false;
 };

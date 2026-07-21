@@ -357,7 +357,7 @@ Then import `monitoring/grafana-dashboard.json` (Dashboards → New → Import) 
 | Project | Purpose |
 |---|---|
 | [**3d-farmlab-orca-slicer**](https://github.com/saralray/3d-farmlab-orca-slicer) | OrcaSlicer setup/config paired with the slicer-proxy — push sliced files straight to a farm printer and auto-start |
-| [**3d-farmlab-status-light**](https://github.com/saralray/3d-farmlab-status-light) | ESP32-C3 RGB status-light firmware — polls the dashboard and colors a per-printer LED by live status |
+| [**3d-farmlab-status-light**](https://github.com/saralray/3d-farmlab-status-light) | ESP32-C3 RGB status-light firmware — subscribes to the dashboard's MQTT broker and colors a per-printer LED by live status |
 
 ## 🏭 Image builds (CI)
 
@@ -393,7 +393,7 @@ Then confirm the app loads at `http://localhost:8080`, `/healthz` returns `{"ok"
 - Put TLS in front of nginx for public deployments (a cloud/load-balancer certificate or a local TLS reverse proxy).
 - Keep sensitive printer connection details out of public viewer flows.
 - The `/request` print form is intentionally public so students can submit jobs without accounts.
-- Physical per-printer RGB status lights are driven by [**3d-farmlab-status-light**](https://github.com/saralray/3d-farmlab-status-light) — ESP32-C3 firmware that polls `GET /api/status-light/printers/<id>` and colors an LED by live status.
+- Physical per-printer RGB status lights are driven by [**3d-farmlab-status-light**](https://github.com/saralray/3d-farmlab-status-light) — ESP32-C3 firmware that subscribes to the dashboard's embedded MQTT broker (`printfarm/printers/<id>/status`) and colors an LED by live status. Devices are flashed and provisioned in-browser from the printer-detail **Status Light** card (Web Serial).
 
 ---
 
