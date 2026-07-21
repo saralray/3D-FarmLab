@@ -65,8 +65,18 @@ export async function flashFirmware(
       },
     });
     await loader.main();
+    // esptool-js's writeFlash wants each file's `data` as a binary (Latin-1)
+    // *string* — one char per byte — not a Uint8Array. Passing a typed array
+    // silently flashes garbage / fails, so build the binary string in chunks
+    // (a single String.fromCharCode(...bigArray) overflows the call stack).
+    const bytes = new Uint8Array(firmware);
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+    }
     await loader.writeFlash({
-      fileArray: [{ data: new Uint8Array(firmware), address: 0 }],
+      fileArray: [{ data: binary, address: 0 }],
       flashMode: 'keep',
       flashFreq: 'keep',
       flashSize: 'keep',
