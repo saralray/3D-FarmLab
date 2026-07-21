@@ -1,9 +1,8 @@
 # Print-Farm Status Light (ESP32-C3 Super Mini)
 
-Firmware for a per-printer RGB status light. The device joins WiFi, then polls
-the dashboard's status endpoint over plain HTTP(S)
-(`GET /api/status-light/printers/<printerId>`, `server/app.js`) and mirrors the
-printer's status on a 4-pin analog RGB LED module:
+Firmware for a per-printer RGB status light. The device joins WiFi, connects
+to the dashboard's embedded MQTT broker (`server/statusLightBroker.js`), and
+mirrors the printer's status on a 4-pin analog RGB LED module:
 
 | Printer status | Light |
 |---|---|
@@ -13,8 +12,8 @@ printer's status on a 4-pin analog RGB LED module:
 | error | solid red |
 | offline | blinking red (500 ms) |
 | — unprovisioned | white breathe |
-| — WiFi/first-poll connecting | purple breathe |
-| — polls failing | last color + short purple flash every 5 s |
+| — WiFi/MQTT connecting | purple breathe |
+| — broker lost | last color + short purple flash every 5 s |
 
 ## Wiring
 
@@ -55,37 +54,34 @@ esptool.py --chip esp32c3 write_flash 0x0 ../../public/firmware/status-light-esp
 
 ## Provisioning (serial protocol)
 
-Flash and provision the device with an external tool (the dashboard has no
-in-browser flasher). After flashing, send the provisioning line over the USB
-serial port: 115200 baud, one JSON object per line. Accepted at **any time** —
-re-provisioning never needs a reflash. Any serial terminal works (e.g.
-`pio device monitor`, `screen`, or a script).
+The dashboard's Printer Detail → Status Light card does this for you; the
+protocol is documented for debugging. 115200 baud over the USB port, one JSON
+object per line. Accepted at **any time** — re-provisioning never needs a
+reflash.
 
 ```json
 {"cmd":"provision","wifiSsid":"Lab-WiFi","wifiPassword":"…",
- "serverUrl":"http://10.0.0.5:8080","pollIntervalMs":5000,
- "printerId":"printer-1","ledPolarity":"common_cathode"}
+ "mqttTransport":"tcp","mqttHost":"10.0.0.5","mqttPort":1883,"mqttPath":"/mqtt",
+ "mqttUsername":"statuslight","mqttPassword":"…","printerId":"printer-1",
+ "ledPolarity":"common_cathode"}
 ```
 
 Reply: `{"ok":true,"printerId":"printer-1"}` or `{"ok":false,"error":"…"}`.
 
-- `serverUrl`: the dashboard origin the device curls, e.g.
-  `http://10.0.0.5:8080` or `https://farm.example.com`. An `https://` URL
-  validates the certificate against the built-in public-CA bundle — it works
-  with Let's Encrypt-style certs, not self-signed ones (use `http://` on the LAN
-  for those).
-- `pollIntervalMs`: how often to poll (default 5000, floored at 1000). The
-  server's suggested default comes from admin-only
-  `GET /api/status-light/provisioning`.
+- `mqttTransport`: `tcp` (raw MQTT, LAN, host port `MQTT_PORT`, default 1883),
+  `ws` (MQTT over WebSocket at `/mqtt` on the plain-HTTP site port), or `wss`
+  (same over HTTPS, port 443). `wss` validates the certificate against the
+  built-in public-CA bundle — it works with Let's Encrypt-style certs, not
+  self-signed ones (use `ws`/`tcp` on the LAN for those).
+- The MQTT credential comes from the server (admin-only
+  `GET /api/status-light/provisioning`).
 
 Other commands: `{"cmd":"status"}` → current config/connection state,
 `{"cmd":"clear"}` → wipe the stored config and reboot.
 
-## HTTP contract
+## MQTT contract
 
-- Polls: `GET <serverUrl>/api/status-light/printers/<printerId>` every
-  `pollIntervalMs`; expects `200` with a JSON body
-  `{"id":"…","status":"idle|printing|paused|error|offline"}` and colors the LED
-  from `status`. Non-200 / timeout keeps the last color with a stale hint.
-- The dashboard tracks device presence from these polls and exposes it at
-  `GET /api/status-light/devices` (drives the card's Connected/Last-seen badge).
+- Subscribes: `printfarm/printers/<printerId>/status` (retained, plain string).
+- Publishes: `printfarm/lights/<printerId>/availability` = `online` retained on
+  connect; LWT publishes `offline` when the device drops. Client id is
+  `statuslight-<printerId>`, keepalive 15 s.

@@ -109,7 +109,8 @@ intake (`/api/queue/submit`, `/api/manager/request`).
 Internal (compose network): Postgres, Redis, exporter, prometheus, poller,
 inter-service HTTP.
 Physical/adjacent: printer LAN protocols (MQTT 8883, FTPS 990, RTSP 322, raw TLS
-6000, Moonraker HTTP), ESP32 status-light polling.
+6000, Moonraker HTTP), ESP32 status-light MQTT (embedded broker: raw TCP 1883 /
+WebSocket `/mqtt`, shared LAN credential, status-only topics).
 
 ### 2.2 Component threat tables
 

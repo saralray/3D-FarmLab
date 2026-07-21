@@ -5,13 +5,13 @@
 enum class NetState : uint8_t {
   Idle,            // no config
   WifiConnecting,
-  Polling,         // WiFi up, HTTP poll not yet succeeded (or currently failing)
-  Connected,       // last poll succeeded
+  MqttConnecting,
+  Connected,
 };
 
-// Called after each successful status poll with the printer-status payload
-// (plain string: printing|idle|paused|error|offline, or "" when the printer was
-// deleted on the server).
+// Called from the MQTT event handler with each printer-status payload
+// (plain string: printing|idle|paused|error|offline, or "" when the retained
+// status was cleared because the printer was deleted).
 typedef void (*StatusCallback)(const String &status);
 
 void netBegin(const DeviceConfig &config, StatusCallback onStatus);
