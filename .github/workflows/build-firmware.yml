@@ -1,0 +1,65 @@
+name: Build status-light firmware
+
+# Builds the ESP32-C3 status-light firmware with PlatformIO and commits the
+# merged, offset-0x0 image (public/firmware/status-light-esp32c3.bin) back to the
+# branch, so the dashboard's Web Serial flasher always serves a binary that
+# matches firmware/status-light/src. GitHub-hosted runners have the open egress
+# to PlatformIO's registry + Espressif's servers that a restricted sandbox lacks.
+#
+# Triggers only on firmware-source (or this workflow's own) changes; the commit
+# it makes touches only public/firmware/**, which is not in the path filter, so
+# it does not re-trigger itself (and carries [skip ci] as a belt-and-braces).
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'firmware/status-light/**'
+      - '.github/workflows/build-firmware.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/status-light/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build firmware
+        # The post-build hook (scripts/merge_firmware.py) writes the merged image
+        # and its manifest into public/firmware/.
+        run: pio run -d firmware/status-light
+
+      - name: Commit updated binary
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/firmware/status-light-esp32c3.bin public/firmware/status-light-manifest.json
+          if git diff --cached --quiet; then
+            echo 'Firmware binary unchanged — nothing to commit.'
+          else
+            git commit -m 'build(firmware): rebuild status-light MQTT binary [skip ci]'
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
