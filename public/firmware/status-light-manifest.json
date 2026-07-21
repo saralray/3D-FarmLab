@@ -3,5 +3,5 @@
   "chip": "esp32c3",
   "offset": 0,
   "file": "status-light-esp32c3.bin",
-  "sizeBytes": 1067008
+  "sizeBytes": 977872
 }
