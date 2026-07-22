@@ -16,8 +16,12 @@ export interface StatusLightProvisioningInfo {
 
 export interface StatusLightDevice {
   printerId: string;
+  // Present on the frontend `/api/status-light/devices` roster
+  // (buildStatusLightDeviceRoster), which lists every printer so a
+  // brand-new device still shows up in the picker.
+  name?: string;
   connected: boolean;
-  lastSeen: string;
+  lastSeen: string | null;
 }
 
 // The merged ESP32-C3 image the flash dialog writes at offset 0x0. Built from

@@ -29,6 +29,7 @@ import {
   type StatusLightProvisioningInfo,
 } from '../lib/statusLightApi';
 import { STATUS_LIGHT_FIRMWARE_SOURCE } from '../lib/statusLightFirmwareSource';
+import { SerialTerminal } from './SerialTerminal';
 import {
   flashFirmware,
   provisionDevice,
@@ -85,6 +86,9 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
   const [flashProgress, setFlashProgress] = useState(0);
   const [netStatus, setNetStatus] = useState<NetConnectionState>('idle');
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  // Live serial output shown during provisioning (device boot banner, WiFi/
+  // broker connection, JSON replies), bounded so it can't grow without limit.
+  const [serialLog, setSerialLog] = useState('');
 
   const [wifiSsid, setWifiSsid] = useState('');
   const [wifiPassword, setWifiPassword] = useState('');
@@ -217,9 +221,13 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
         },
         {
           onStatus: setNetStatus,
-          // Surface exactly what the device emits during provisioning so a
-          // failed flash/provision is diagnosable from the browser console.
-          onRaw: (text) => console.debug('[status-light serial]', JSON.stringify(text)),
+          // Surface exactly what the device emits during provisioning in the
+          // on-screen serial log so a failed flash/provision is diagnosable.
+          onRaw: (text) =>
+            setSerialLog((prev) => {
+              const next = prev + text;
+              return next.length > 64_000 ? next.slice(next.length - 64_000) : next;
+            }),
         },
       );
       setResult(
@@ -499,6 +507,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
                 Checking the device's connection to the broker — this can take a few seconds.
               </p>
             )}
+            <SerialTerminal content={serialLog} emptyHint="Waiting for the device to respond…" />
           </div>
         )}
 
@@ -518,6 +527,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
               )}
               <span className="break-words">{result.message}</span>
             </div>
+            {serialLog && <SerialTerminal content={serialLog} />}
             <DialogFooter>
               {!result.ok && (
                 <Button variant="outline" onClick={() => setStep('form')}>

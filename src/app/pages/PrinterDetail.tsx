@@ -75,7 +75,6 @@ import {
   type MotionAxis,
 } from '../lib/printerProfiles';
 import { fetchCameraHealth, type CameraHealth } from '../lib/cameraApi';
-import { StatusLightCard } from '../components/StatusLightCard';
 import { Slider } from '../components/ui/slider';
 import { Switch } from '../components/ui/switch';
 import { Input } from '../components/ui/input';
@@ -2192,7 +2191,6 @@ export function PrinterDetail() {
             </div>
           </Card>
           ),
-          statusLight: <StatusLightCard printerId={printer.id} printerName={printer.name} />,
         }}
       />
 

@@ -295,3 +295,67 @@ export async function provisionDevice(
     await port.close().catch(() => {});
   }
 }
+
+export interface SerialMonitorHandle {
+  // Cancels the read loop and releases + closes the port.
+  stop(): Promise<void>;
+}
+
+// Read-only serial monitor: opens the port at 115200, asserts DTR (the C3's
+// native USB-CDC stays mute until the host marks the terminal "connected" — the
+// same reason provisionDevice does it), and streams the device's newline-
+// delimited output to `onLine`. No writes — this never sends anything to the
+// device. Kept separate from provisionDevice so the (fragile) flash/provision
+// path is untouched.
+export async function startSerialMonitor(
+  port: SerialPortLike,
+  onLine: (line: string) => void,
+): Promise<SerialMonitorHandle> {
+  await port.open({ baudRate: 115200 });
+  await port.setSignals?.({ dataTerminalReady: true, requestToSend: false }).catch(() => {});
+  const reader = port.readable?.getReader();
+  if (!reader) {
+    await port.close().catch(() => {});
+    throw new Error('Serial port is not readable.');
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let stopped = false;
+
+  const pump = (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (!value || value.length === 0) continue;
+        buffer += decoder.decode(value, { stream: true });
+        let newline = buffer.indexOf('\n');
+        while (newline >= 0) {
+          const line = buffer.slice(0, newline).replace(/\r$/, '');
+          buffer = buffer.slice(newline + 1);
+          newline = buffer.indexOf('\n');
+          onLine(line);
+        }
+      }
+    } catch {
+      // reader.cancel() during stop(), or the device was unplugged — either way
+      // the loop is done and stop() (if pending) resolves.
+    }
+  })();
+
+  return {
+    async stop() {
+      if (stopped) return;
+      stopped = true;
+      await reader.cancel().catch(() => {});
+      await pump;
+      try {
+        reader.releaseLock();
+      } catch {
+        // already released
+      }
+      await port.close().catch(() => {});
+    },
+  };
+}
