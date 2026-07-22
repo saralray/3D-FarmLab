@@ -38,7 +38,7 @@ import {
   type SerialPortLike,
 } from '../lib/statusLightSerial';
 
-type Step = 'intro' | 'form' | 'flashing' | 'writing' | 'done';
+type Step = 'intro' | 'ready' | 'form' | 'flashing' | 'writing' | 'done';
 
 const NET_STATUS_LABEL: Record<NetConnectionState, string> = {
   idle: 'Writing settings…',
@@ -155,7 +155,11 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
   // Flashes the merged firmware image over USB, then hands off to the settings
   // form — mirrors the standalone flasher's connect → flash → configure order,
   // so BOOT-holding and flashing happen before the user is asked for WiFi/
-  // broker details, not after.
+  // broker details, not after. Only ever called from the 'ready' step's
+  // explicit Flash button — never automatically right after picking the
+  // device — because the freshly-granted port needs a human-paced gap before
+  // it reliably sustains the baud change + compressed write; the standalone
+  // flasher gets this for free from its own separate Connect/Flash buttons.
   const runFlash = async (port: SerialPortLike) => {
     setStep('flashing');
     setFlashProgress(0);
@@ -175,9 +179,10 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
           ? `${err.message} — if the device wasn't detected, hold BOOT while plugging it in and retry.`
           : String(err),
       );
-      // No form data exists yet at this point, so send the user back to
-      // device selection rather than a settings form they haven't filled in.
-      setStep('intro');
+      // The port is still valid (flashFirmware always closes/reopens it
+      // cleanly) — let the user retry with one click instead of re-picking
+      // the device from the OS/browser dialog.
+      setStep('ready');
       return;
     }
     setStep('form');
@@ -193,7 +198,10 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
     }
     portRef.current = port;
     if (mode === 'flash' && flashMethod === 'web') {
-      await runFlash(port);
+      // Don't auto-flash: require an explicit "Flash Firmware" click so
+      // there's always a real gap between the port being granted and
+      // flashing starting (see runFlash's comment above).
+      setStep('ready');
     } else {
       // Re-provisioning, or firmware already flashed manually: no in-browser
       // flash step, go straight to the settings form.
@@ -398,18 +406,29 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
                 doesn't list it, hold the BOOT button while plugging it in.
               </p>
             )}
-            {!introNotice && mode === 'flash' && flashMethod === 'web' && (
-              <p className="text-xs text-muted-foreground">
-                Hold the ESP32's BOOT button while you pick the device below — flashing starts right
-                after, and you can release BOOT once the progress bar starts moving.
-              </p>
-            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => (mode === 'flash' ? setFlashMethod(null) : onClose())}>
                 {mode === 'flash' ? 'Back' : 'Cancel'}
               </Button>
               <Button onClick={handleStart} disabled={introBlocked || (mode === 'flash' && firmwareAvailable === null)}>
                 Select device
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {step === 'ready' && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Device selected. Hold the ESP32's BOOT button now, then click Flash — release it once
+              the progress bar starts moving.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setStep('intro')}>
+                Back
+              </Button>
+              <Button onClick={() => portRef.current && runFlash(portRef.current)}>
+                Flash Firmware
               </Button>
             </DialogFooter>
           </div>
