@@ -31,21 +31,15 @@ import {
 import { STATUS_LIGHT_FIRMWARE_SOURCE } from '../lib/statusLightFirmwareSource';
 import { SerialTerminal } from './SerialTerminal';
 import {
-  flashFirmware,
+  connectToDevice,
+  flashOnDevice,
   provisionDevice,
   requestSerialPort,
-  type NetConnectionState,
+  type DeviceConnection,
   type SerialPortLike,
 } from '../lib/statusLightSerial';
 
 type Step = 'intro' | 'ready' | 'form' | 'flashing' | 'writing' | 'done';
-
-const NET_STATUS_LABEL: Record<NetConnectionState, string> = {
-  idle: 'Writing settings…',
-  'wifi-connecting': 'Connecting to WiFi…',
-  'mqtt-connecting': 'Connecting to the broker…',
-  connected: 'Connected!',
-};
 
 interface StatusLightFlashDialogProps {
   mode: 'flash' | 'provision';
@@ -84,7 +78,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
   const [provisioningError, setProvisioningError] = useState<string | null>(null);
   const [firmwareAvailable, setFirmwareAvailable] = useState<boolean | null>(mode === 'flash' ? null : true);
   const [flashProgress, setFlashProgress] = useState(0);
-  const [netStatus, setNetStatus] = useState<NetConnectionState>('idle');
+  const [chipName, setChipName] = useState<string | null>(null);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   // Live serial output shown during provisioning (device boot banner, WiFi/
   // broker connection, JSON replies), bounded so it can't grow without limit.
@@ -100,6 +94,9 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
   const [sourceCopied, setSourceCopied] = useState(false);
 
   const portRef = useRef<SerialPortLike | null>(null);
+  // The connected esptool transport/loader, held across the 'ready' step so a
+  // failed flash can be retried without re-picking the device (see runFlash).
+  const connectionRef = useRef<DeviceConnection | null>(null);
 
   useEffect(() => {
     fetchStatusLightProvisioning()
@@ -152,36 +149,39 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
     }
   };
 
-  // Flashes the merged firmware image over USB, then hands off to the settings
-  // form — mirrors the standalone flasher's connect → flash → configure order,
-  // so BOOT-holding and flashing happen before the user is asked for WiFi/
-  // broker details, not after. Only ever called from the 'ready' step's
-  // explicit Flash button — never automatically right after picking the
-  // device — because the freshly-granted port needs a human-paced gap before
-  // it reliably sustains the baud change + compressed write; the standalone
-  // flasher gets this for free from its own separate Connect/Flash buttons.
-  const runFlash = async (port: SerialPortLike) => {
+  // Flashes the merged firmware image on the already-connected device (see
+  // handleStart), then hands off to the settings form — mirrors the
+  // standalone flasher's connect → flash → configure order, so BOOT-holding
+  // and flashing happen before the user is asked for WiFi/broker details, not
+  // after. Only ever called from the 'ready' step's explicit Flash button —
+  // never automatically right after connecting — so there's always a
+  // human-paced gap between the baud-rate change (which happened during
+  // connect) and the sustained high-throughput compressed write starting; the
+  // standalone flasher gets this for free from its own separate Connect/Flash
+  // buttons.
+  const runFlash = async () => {
+    const connection = connectionRef.current;
+    if (!connection) {
+      setError('Device is not connected — go back and select it again.');
+      setStep('intro');
+      return;
+    }
     setStep('flashing');
     setFlashProgress(0);
     try {
       const firmware = await fetchFirmwareBinary();
-      await flashFirmware(port, firmware, ({ written, total }) => {
+      await flashOnDevice(connection, firmware, ({ written, total }) => {
         setFlashProgress(total > 0 ? Math.round((written / total) * 100) : 0);
       });
-      // Give the freshly flashed firmware a moment to boot its USB CDC before
-      // the settings form (and later, provisioning) reopens the port — the
-      // C3's native USB fully drops and re-enumerates after the post-flash
-      // reset, which can take a few seconds.
-      await new Promise((resolve) => setTimeout(resolve, 4000));
     } catch (err) {
       setError(
         err instanceof Error
           ? `${err.message} — if the device wasn't detected, hold BOOT while plugging it in and retry.`
           : String(err),
       );
-      // The port is still valid (flashFirmware always closes/reopens it
-      // cleanly) — let the user retry with one click instead of re-picking
-      // the device from the OS/browser dialog.
+      // flashOnDevice leaves the transport open on failure (matching the
+      // standalone flasher) so Flash Firmware can just be clicked again
+      // without re-picking the device or reconnecting.
       setStep('ready');
       return;
     }
@@ -198,10 +198,20 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
     }
     portRef.current = port;
     if (mode === 'flash' && flashMethod === 'web') {
-      // Don't auto-flash: require an explicit "Flash Firmware" click so
-      // there's always a real gap between the port being granted and
-      // flashing starting (see runFlash's comment above).
-      setStep('ready');
+      // Mirrors the standalone flasher's Connect button: request the port and
+      // sync the ROM bootloader (with retry-on-busy) together, show the
+      // detected chip, and require a separate Flash click before the actual
+      // (fragile) compressed write begins.
+      try {
+        const connection = await connectToDevice(port);
+        connectionRef.current = connection;
+        setChipName(connection.chipName);
+        setStep('ready');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        portRef.current = null;
+        setStep('intro');
+      }
     } else {
       // Re-provisioning, or firmware already flashed manually: no in-browser
       // flash step, go straight to the settings form.
@@ -221,8 +231,6 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
       return;
     }
     setError(null);
-
-    setNetStatus('idle');
     setStep('writing');
     try {
       const outcome = await provisionDevice(
@@ -240,7 +248,6 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
           ledPolarity,
         },
         {
-          onStatus: setNetStatus,
           // Surface exactly what the device emits during provisioning in the
           // on-screen serial log so a failed flash/provision is diagnosable.
           onRaw: (text) =>
@@ -252,13 +259,7 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
       );
       setResult(
         outcome.ok
-          ? {
-              ok: true,
-              message:
-                outcome.net === 'connected'
-                  ? 'Device provisioned and connected — it will light up with the printer status.'
-                  : "Settings written, but the device hasn't reached the broker yet — double-check the WiFi password and broker address. It will keep retrying on its own.",
-            }
+          ? { ok: true, message: 'Settings written — the device will connect and light up shortly.' }
           : { ok: false, message: outcome.error || 'The device rejected the configuration.' },
       );
       setStep('done');
@@ -419,17 +420,28 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
 
         {step === 'ready' && (
           <div className="space-y-4">
+            {chipName && (
+              <p className="text-sm text-muted-foreground">
+                Detected: <span className="font-medium text-foreground">{chipName}</span>
+              </p>
+            )}
             <p className="text-sm text-muted-foreground">
-              Device selected. Hold the ESP32's BOOT button now, then click Flash — release it once
-              the progress bar starts moving.
+              Hold the ESP32's BOOT button now, then click Flash — release it once the progress bar
+              starts moving.
             </p>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setStep('intro')}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  connectionRef.current?.transport.disconnect().catch(() => {});
+                  connectionRef.current = null;
+                  setChipName(null);
+                  setStep('intro');
+                }}
+              >
                 Back
               </Button>
-              <Button onClick={() => portRef.current && runFlash(portRef.current)}>
-                Flash Firmware
-              </Button>
+              <Button onClick={runFlash}>Flash Firmware</Button>
             </DialogFooter>
           </div>
         )}
@@ -505,6 +517,10 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
               The device must be able to reach this address from its WiFi network. Use MQTT (LAN) when
               the server is on the same network; use WebSocket when only the website is reachable.
             </p>
+            <p className="text-xs text-muted-foreground">
+              The broker username and password are filled in automatically from this server's shared
+              status-light credential — nothing to type here.
+            </p>
             <DialogFooter>
               <Button variant="outline" onClick={onClose}>
                 Cancel
@@ -529,13 +545,8 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground flex items-center gap-2">
               <Loader2 className="size-4 animate-spin" />
-              {NET_STATUS_LABEL[netStatus]}
+              Writing settings…
             </p>
-            {netStatus !== 'idle' && netStatus !== 'connected' && (
-              <p className="text-xs text-muted-foreground">
-                Checking the device's connection to the broker — this can take a few seconds.
-              </p>
-            )}
             <SerialTerminal content={serialLog} emptyHint="Waiting for the device to respond…" />
           </div>
         )}
