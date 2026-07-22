@@ -152,17 +152,53 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
     }
   };
 
+  // Flashes the merged firmware image over USB, then hands off to the settings
+  // form — mirrors the standalone flasher's connect → flash → configure order,
+  // so BOOT-holding and flashing happen before the user is asked for WiFi/
+  // broker details, not after.
+  const runFlash = async (port: SerialPortLike) => {
+    setStep('flashing');
+    setFlashProgress(0);
+    try {
+      const firmware = await fetchFirmwareBinary();
+      await flashFirmware(port, firmware, ({ written, total }) => {
+        setFlashProgress(total > 0 ? Math.round((written / total) * 100) : 0);
+      });
+      // Give the freshly flashed firmware a moment to boot its USB CDC before
+      // the settings form (and later, provisioning) reopens the port — the
+      // C3's native USB fully drops and re-enumerates after the post-flash
+      // reset, which can take a few seconds.
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `${err.message} — if the device wasn't detected, hold BOOT while plugging it in and retry.`
+          : String(err),
+      );
+      // No form data exists yet at this point, so send the user back to
+      // device selection rather than a settings form they haven't filled in.
+      setStep('intro');
+      return;
+    }
+    setStep('form');
+  };
+
   const handleStart = async () => {
     setError(null);
+    let port: SerialPortLike;
     try {
-      portRef.current = await requestSerialPort();
+      port = await requestSerialPort();
     } catch {
       return; // user cancelled the port picker
     }
-    // WiFi/broker settings are collected before flashing, not after — that
-    // way a flash immediately rolls into provisioning with no extra dialog
-    // in between (and holding BOOT for the flash is the very next click).
-    setStep('form');
+    portRef.current = port;
+    if (mode === 'flash' && flashMethod === 'web') {
+      await runFlash(port);
+    } else {
+      // Re-provisioning, or firmware already flashed manually: no in-browser
+      // flash step, go straight to the settings form.
+      setStep('form');
+    }
   };
 
   const handleSubmit = async () => {
@@ -177,30 +213,6 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
       return;
     }
     setError(null);
-
-    if (mode === 'flash' && flashMethod === 'web') {
-      setStep('flashing');
-      setFlashProgress(0);
-      try {
-        const firmware = await fetchFirmwareBinary();
-        await flashFirmware(port, firmware, ({ written, total }) => {
-          setFlashProgress(total > 0 ? Math.round((written / total) * 100) : 0);
-        });
-        // Give the freshly flashed firmware a moment to boot its USB CDC
-        // before we reopen the port for provisioning — the C3's native USB
-        // fully drops and re-enumerates after the post-flash reset, which
-        // can take a few seconds.
-        await new Promise((resolve) => setTimeout(resolve, 4000));
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? `${err.message} — if the device wasn't detected, hold BOOT while plugging it in and retry.`
-            : String(err),
-        );
-        setStep('form');
-        return;
-      }
-    }
 
     setNetStatus('idle');
     setStep('writing');
@@ -386,6 +398,12 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
                 doesn't list it, hold the BOOT button while plugging it in.
               </p>
             )}
+            {!introNotice && mode === 'flash' && flashMethod === 'web' && (
+              <p className="text-xs text-muted-foreground">
+                Hold the ESP32's BOOT button while you pick the device below — flashing starts right
+                after, and you can release BOOT once the progress bar starts moving.
+              </p>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => (mode === 'flash' ? setFlashMethod(null) : onClose())}>
                 {mode === 'flash' ? 'Back' : 'Cancel'}
@@ -468,19 +486,11 @@ export function StatusLightFlashDialog({ mode, printerId, printerName, onClose }
               The device must be able to reach this address from its WiFi network. Use MQTT (LAN) when
               the server is on the same network; use WebSocket when only the website is reachable.
             </p>
-            {mode === 'flash' && flashMethod === 'web' && (
-              <p className="text-xs text-muted-foreground">
-                Hold the ESP32's BOOT button now, then click Flash — release it once the progress bar
-                starts moving.
-              </p>
-            )}
             <DialogFooter>
               <Button variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button onClick={handleSubmit}>
-                {mode === 'flash' && flashMethod === 'web' ? 'Flash & connect' : 'Send settings & connect'}
-              </Button>
+              <Button onClick={handleSubmit}>Send settings &amp; connect</Button>
             </DialogFooter>
           </div>
         )}
